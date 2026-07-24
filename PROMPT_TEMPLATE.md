@@ -180,7 +180,8 @@ A session may legitimately END before every box is checked (the "In the queue" e
 
 - If you discover a **bug** during implementation, create a new bug bead: `bd create --title="..." --type=bug --priority=2`
 - If you discover **orthogonal work** (not required for the current bead), create a new task bead: `bd create --title="..." --type=task --priority=2`
-- If you discover work that is a **subtask** of the current bead, create a child bead rather than burying it in prose notes, so it survives the session and shows up in the dependency graph: `bd create --title="..." --type=task --parent=<current-bead-id>` (check `bd create --help` if the parent flag differs in your bd version)
+- If you discover work that is a **subtask** of the current bead, create a child bead rather than burying it in prose notes, so it survives the session and shows up in the dependency graph: `bd create --title="..." --type=task --parent=<current-bead-id>` (children get hierarchical IDs like `bd-a3f8.1`)
+  - Child beads are created **unassigned**. If you will complete the subtask as part of the current bead, assign it to yourself (`bd update <child-id> --claim`) and close it when done. If it can wait, leave it unassigned for human triage — but the parent bead cannot close while a child you created for required work is still open.
 
 ## When Things Go Wrong
 

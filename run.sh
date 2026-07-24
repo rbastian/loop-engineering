@@ -19,6 +19,11 @@ AGENT_NAME="${1:-Ralph}"
 PROMPT_FILE="${2:-PROMPT.md}"
 SESSION_TIMEOUT="${RALPH_SESSION_TIMEOUT:-2h}"
 
+# bd resolves its actor from $BEADS_ACTOR (then git user.name, then $USER).
+# The actor must match the bead's assignee or `bd update --claim` refuses
+# ("already claimed by Ralph"), and it attributes the audit trail correctly.
+export BEADS_ACTOR="$AGENT_NAME"
+
 if [ ! -f "$PROMPT_FILE" ]; then
     echo "ERROR: $PROMPT_FILE not found in $(pwd)"
     echo "Hint: cd into the target repo (or worktree) before running, or pass an absolute path as arg 2."
