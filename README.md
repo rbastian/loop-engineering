@@ -77,13 +77,13 @@ The `ralph-alice/` folder holds a second version of the loop. Ralph implements a
 
 The `dev-env-setup` skill sets up a project for Ralph and Alice. It runs git, uv, ruff, pytest and beads setup and copies `ralph-alice/` into the project as `ralph/`. It also writes `ralph/project.md`, creates both worktrees and starts the loops and watchers in a herdr tab.
 
-To install it, link the skill folder into your Claude Code skills directory:
+To install it, link the skill folder into your Claude Code skills directory. Run this command from the root of your clone:
 
 ```bash
-ln -s ~/github.com/rbastian/loop-engineering/skills/dev-env-setup ~/.claude/skills/dev-env-setup
+ln -s "$(pwd)/skills/dev-env-setup" ~/.claude/skills/dev-env-setup
 ```
 
-The skill reads the harness from `~/github.com/rbastian/loop-engineering/ralph-alice`. If you cloned this repository to another place, set `LOOP_HOME` to the clone. Then, in a Claude Code session in the new project, type `/dev-env-setup`.
+The skill finds `ralph-alice/` relative to its own folder, so the link works from any clone of this repository. To use the skill, type `/dev-env-setup` in a Claude Code session in the new project.
 
 The skill needs `git`, `uv`, `bd`, `jq` and `claude`. The last step needs herdr and runs only inside a herdr pane.
 

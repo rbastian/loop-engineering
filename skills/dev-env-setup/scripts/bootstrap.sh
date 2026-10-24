@@ -10,7 +10,11 @@
 # Commits nothing and creates no worktrees; worktrees.sh does that afterwards.
 set -euo pipefail
 
-LOOP_HOME="${LOOP_HOME:-$HOME/github.com/rbastian/loop-engineering}"
+# The skill lives in loop-engineering/skills/dev-env-setup, so the repository
+# root is three levels above this script. pwd -P resolves the symlink that
+# installs the skill under ~/.claude/skills. LOOP_HOME overrides it.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+LOOP_HOME="${LOOP_HOME:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
 HARNESS="$LOOP_HOME/ralph-alice"
 
 if [ $# -lt 2 ]; then

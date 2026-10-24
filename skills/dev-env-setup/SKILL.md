@@ -15,7 +15,7 @@ The three scripts in `scripts/` do the mechanical work. Each script is safe to r
 | `worktrees.sh PROJECT_DIR` | first commit on `main`, `../<name>-ralph` on branch `loop`, `../<name>-alice` on a detached HEAD |
 | `layout.sh PROJECT_DIR` | a `<name> loop` tab with Ralph and Alice side by side, and the two watchers in the top third of the calling tab (Ralph left, Alice right) |
 
-The harness source is `$LOOP_HOME/ralph-alice`. If `LOOP_HOME` is not set, the scripts use `~/github.com/rbastian/loop-engineering`.
+The harness source is `ralph-alice/` in the loop-engineering repository that holds this skill. `bootstrap.sh` finds it from its own location, also through the `~/.claude/skills` symlink. To use another copy, set `LOOP_HOME` to that repository's root.
 
 ## Procedure
 
