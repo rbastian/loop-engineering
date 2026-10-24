@@ -25,6 +25,8 @@ This repo is the minimal synthesis: Beads holds the *what*, the loop provides th
 | `PROMPT_TEMPLATE.md` | The prompt each headless session receives. Defines a four-phase workflow: resume check → implement (TDD) → clean → ship (PR, auto-merge, close bead). |
 | `docs/DEMO_RUNBOOK.md` | Minute-by-minute script for demoing the process live. |
 | `docs/TALKING_POINTS.md` | Narrative arc and slide outline for presenting it. |
+| `ralph-alice/` | A two-agent, local version of the loop: Ralph writes, Alice reviews and merges. Includes the watcher `watch.py`. See below. |
+| `skills/dev-env-setup/` | A Claude Code skill that installs `ralph-alice/` into a project and starts both loops. See below. |
 
 ## Prerequisites
 
@@ -66,6 +68,24 @@ This repo is the minimal synthesis: Beads holds the *what*, the loop provides th
 | `RALPH_STREAM_LOG=1` | Tee each session's tool calls/turns as JSONL to `$RALPH_LOG_DIR` (default `/tmp/ralph-sessions`), with a `current.jsonl` symlink for `tail -f`. |
 | `RALPH_SHOW_BEAD=1` | Print `bd show` for each in-progress bead between sessions. |
 | `RALPH_SESSION_TIMEOUT` | Wall-clock cap per session (default `2h`). |
+
+## Ralph and Alice: the two-agent loop
+
+The `ralph-alice/` folder holds a second version of the loop. Ralph implements a bead in his worktree. Alice reviews the branch in her own worktree and merges it into `main` locally. No remote, pull request or CI is necessary. A `project.md` overlay holds the facts about each project, so the two prompts stay the same in every project. `watch.py` shows each live session as one line per tool call. See [ralph-alice/README.md](ralph-alice/README.md).
+
+## Install the setup skill
+
+The `dev-env-setup` skill sets up a project for Ralph and Alice. It runs git, uv, ruff, pytest and beads setup and copies `ralph-alice/` into the project as `ralph/`. It also writes `ralph/project.md`, creates both worktrees and starts the loops and watchers in a herdr tab.
+
+To install it, link the skill folder into your Claude Code skills directory. Run this command from the root of your clone:
+
+```bash
+ln -s "$(pwd)/skills/dev-env-setup" ~/.claude/skills/dev-env-setup
+```
+
+The skill finds `ralph-alice/` relative to its own folder, so the link works from any clone of this repository. To use the skill, type `/dev-env-setup` in a Claude Code session in the new project.
+
+The skill needs `git`, `uv`, `bd`, `jq` and `claude`. The last step needs herdr and runs only inside a herdr pane.
 
 ## Design notes
 
