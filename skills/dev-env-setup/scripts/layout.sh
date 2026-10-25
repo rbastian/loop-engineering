@@ -63,8 +63,11 @@ herdr pane rename "$RALPH_WATCH" "Ralph watcher" >/dev/null
 herdr pane rename "$ALICE_WATCH" "Alice watcher" >/dev/null
 
 # Watchers first: they wait for current.jsonl, so nothing is missed.
-herdr pane run "$RALPH_WATCH" "RALPH_LOG_DIR=$RALPH_LOG uv run python ralph/watch.py --agent Ralph --tui" >/dev/null
-herdr pane run "$ALICE_WATCH" "RALPH_LOG_DIR=$ALICE_LOG uv run python ralph/watch.py --agent Alice --tui" >/dev/null
+# --script makes uv read the inline metadata in watch.py, which pulls in rich
+# for --tui. `uv run python ralph/watch.py` ignores it and runs in the project's
+# venv, which has no rich.
+herdr pane run "$RALPH_WATCH" "RALPH_LOG_DIR=$RALPH_LOG uv run --script ralph/watch.py --agent Ralph --tui" >/dev/null
+herdr pane run "$ALICE_WATCH" "RALPH_LOG_DIR=$ALICE_LOG uv run --script ralph/watch.py --agent Alice --tui" >/dev/null
 
 # The loops read the primary's harness files, so prompt changes merged to
 # main take effect without touching the worktrees.
