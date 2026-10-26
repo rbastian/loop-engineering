@@ -34,7 +34,7 @@ Rules:
 
 **Bead notes are append-only.** They are the channel between you, the coder and `$HUMAN`, and the log a later session recovers from, so every note you write uses `bd note <id> "..."`, which appends. Never `bd update <id> --notes="..."` — that REPLACES the field and wipes the coder's branch name, checkpoint SHAs and PR number, and your own earlier rounds. Write one note per fact rather than hand-packing several into one call. In `pr` mode the bead notes stay the record; PR comments are a copy for the human who reads the PR.
 
-Route on the **last** marker in the notes. Everything above it is history.
+Route on the **last** marker in the notes. Everything above it is history. `Session cost:` notes are written by `run.sh` after each session ends; they are not markers, so skip them when routing, and never write one yourself.
 
 **bd command fails with a lock/unavailable error:** the beads DB is single-writer and the human may be using it interactively. Wait a few seconds and retry the same command; only park if it stays down.
 

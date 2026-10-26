@@ -98,7 +98,7 @@ RALPH_LOG_DIR=/tmp/<name>-alice-sessions uv run ralph/watch.py --agent Alice --t
 
 | Variable | Effect |
 |---|---|
-| `RALPH_STREAM_LOG=1` | Write each session as JSONL to `$RALPH_LOG_DIR`, with a `current.jsonl` link to the newest log. |
+| `RALPH_STREAM_LOG=1` | Write each session as JSONL to `$RALPH_LOG_DIR`, with a `current.jsonl` link to the newest log. After each session, also append a cost note to the bead. |
 | `RALPH_LOG_DIR` | The log directory. The default is `/tmp/ralph-sessions`. Give each agent its own. |
 | `RALPH_SHOW_BEAD=1` | Print `bd show` for each in-progress bead between sessions. |
 | `RALPH_SESSION_TIMEOUT` | The wall-clock limit per session. The default is `2h`. It needs GNU `timeout` (on macOS, `brew install coreutils`). |
@@ -108,6 +108,24 @@ RALPH_LOG_DIR=/tmp/<name>-alice-sessions uv run ralph/watch.py --agent Alice --t
 | `RALPH_PRINT_PROMPT=1` | Print the combined prompt and exit. |
 
 The `RALPH_` prefix names the technique (the ralph loop), not an agent. Every agent uses the same variables.
+
+### Cost notes
+
+An agent cannot record what its own session cost. The cost arrives in the session's closing event, after the agent has exited. So `run.sh` records it. When `RALPH_STREAM_LOG=1` is set, `run.sh` reads the finished log with `watch.py --summary` and appends one note to the bead:
+
+```text
+Session cost: Ralph, claude-opus-5-5, $1.84 est., 12m30s, 41 turns, 18.2k out, 3.1k think, 412k ctx
+```
+
+The dollar figure is Claude Code's API-equivalent estimate, not a bill. Codex on a ChatGPT plan reports tokens and no dollar figure, and the note says so. Each session of a bead adds one note: the coder's rounds, the reviewer's rounds and any rebase. The sum of the notes is what the bead cost.
+
+`run.sh` takes the bead from the log: the coder's claim or commit tag, or the reviewer's review note. If the log names no bead, `run.sh` uses the one bead that the agent held when the session started. In these cases `run.sh` prints a warning and writes no note:
+
+- The session did not reach its closing event, for example after a crash or a timeout.
+- `run.sh` cannot tell which bead the session worked on.
+- `bd` is still locked after three tries.
+
+A missing cost note never stops the loop. The note needs `uv` to run `watch.py`. Agents skip `Session cost:` notes when they route on the last status marker.
 
 ## Operations
 

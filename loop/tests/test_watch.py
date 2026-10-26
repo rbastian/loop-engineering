@@ -1025,3 +1025,110 @@ def test_replaying_a_codex_log_prints_no_finish_time(tmp_path, capsys):
 
     assert watch.SESSION.finished is None
     assert "finished " not in capsys.readouterr().out
+
+
+# --- the cost note run.sh writes ----------------------------------------------
+# An agent cannot record its own cost: the figure arrives in the closing event,
+# after the agent has exited. run.sh reads it back with --summary once the
+# session is over and appends the note to the bead (lpe-q5k).
+
+
+def summary_of(log: Path, *, agent: str = "Ralph", capsys) -> dict:
+    """Run --summary through main, the way run.sh calls it, and parse its JSON."""
+    assert watch.main(["--summary", str(log), "--agent", agent]) == 0
+    return json.loads(capsys.readouterr().out)
+
+
+def test_a_finished_claude_session_gets_a_cost_note(tmp_path, capsys):
+    summary = summary_of(
+        session_log(tmp_path / "20261002-114315.jsonl", result_line()), capsys=capsys
+    )
+
+    assert summary["bead"] == "agents-ype"
+    assert summary["cost"] == 5.38
+    assert summary["closed"] is True
+    assert summary["note"] == (
+        f"Session cost: Ralph, {MODEL}, $5.38 est., 7m00s, 3 turns,"
+        " 58.9k out, 0.0k think, 0k ctx"
+    )
+
+
+def test_a_reviewer_session_names_its_bead_from_the_review_note(tmp_path, capsys):
+    log = session_log(
+        tmp_path / "20261002-114315.jsonl", result_line(), bead_command=REVIEW
+    )
+
+    summary = summary_of(log, agent="Alice", capsys=capsys)
+
+    assert summary["bead"] == "agents-ype"
+    assert summary["note"].startswith("Session cost: Alice, ")
+
+
+def test_a_session_that_never_closed_gets_no_note(tmp_path, capsys):
+    """A crash or a timeout leaves no closing event, and a partial figure on
+    the bead would read as the whole session's."""
+    summary = summary_of(session_log(tmp_path / "20261002-114315.jsonl"), capsys=capsys)
+
+    assert summary["closed"] is False
+    assert summary["note"] is None
+
+
+def test_a_session_that_works_on_past_a_result_gets_no_note(tmp_path, capsys):
+    """The mid-session result of a background task is not the end: a session
+    that stopped after it never reported its full cost."""
+    log = session_log(tmp_path / "20261002-114315.jsonl", *RESUMED)
+
+    assert summary_of(log, capsys=capsys)["note"] is None
+
+
+def test_the_last_result_sets_the_cost(tmp_path, capsys):
+    log = session_log(
+        tmp_path / "20261002-114315.jsonl", *RESUMED, result_line(cost=7.10)
+    )
+
+    summary = summary_of(log, capsys=capsys)
+
+    assert summary["cost"] == 7.10
+    assert "$7.10 est." in summary["note"]
+
+
+def test_a_session_without_a_bead_still_gets_its_note(tmp_path, capsys):
+    """A resumed session can finish without claiming, tagging or reviewing.
+    The note is still written; run.sh supplies the bead it knows the agent held."""
+    log = session_log(
+        tmp_path / "20261002-114315.jsonl", result_line(), bead_command="git status"
+    )
+
+    summary = summary_of(log, capsys=capsys)
+
+    assert summary["bead"] is None
+    assert summary["note"].startswith("Session cost: Ralph, ")
+
+
+def test_a_codex_session_reports_tokens_and_no_cost(tmp_path, capsys):
+    log = codex_log(
+        tmp_path / "20261005-143012.jsonl",
+        codex_usage(output=4200, reasoning=1300),
+        model=CODEX_MODEL,
+    )
+
+    summary = summary_of(log, agent="Alice", capsys=capsys)
+
+    assert summary["bead"] == "agents-ype"
+    assert summary["cost"] is None
+    assert summary["note"] == (
+        f"Session cost: Alice, {CODEX_MODEL}, no cost reported (ChatGPT plan),"
+        " 1 turns, 4.2k out, 1.3k think, 33k ctx (25k cached)"
+    )
+
+
+def test_the_cost_note_is_not_a_status_marker():
+    """CODER.md and REVIEWER.md route on the last status marker in a bead's
+    notes, and the cost note always lands after the agent's own. None of the
+    markers the prompts route on may start the way the note does."""
+    prompts = (ROOT / "CODER.md").read_text() + (ROOT / "REVIEWER.md").read_text()
+    markers = set(re.findall(r'bd note <id> "([A-Z][a-z]+(?: [a-z]+)?)', prompts))
+
+    assert markers, "found no markers to compare against"
+    assert not any("Session cost:".startswith(marker) for marker in markers)
+    assert "Session cost" not in markers

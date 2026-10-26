@@ -26,6 +26,7 @@ Usage:
     uv run ralph/watch.py --tui      # the same, with a pinned header and footer
     uv run ralph/watch.py --replay   # print a finished log and exit
     uv run ralph/watch.py --file X   # a specific session log
+    uv run ralph/watch.py --summary X   # one finished log as JSON (run.sh)
     RALPH_LOG_DIR=/tmp/alice-sessions uv run ralph/watch.py   # Alice
 """
 
@@ -1045,6 +1046,75 @@ def replay(path: Path) -> None:
     SESSION.footer()
 
 
+def cost_note(summary: dict) -> str:
+    """The bead note run.sh appends after a session: who ran, on what, for how much.
+
+    Worded so it can never be read as a status marker: CODER.md and REVIEWER.md
+    route on the last marker in a bead's notes, and this note lands after the
+    agent's own. Codex on a ChatGPT plan reports tokens and no dollar figure,
+    and says so rather than printing $0.00.
+    """
+    if summary["engine"] == "codex":
+        cost = "no cost reported (ChatGPT plan)"
+    elif summary["cost"] is None:
+        cost = "no cost reported"
+    else:
+        cost = f"${summary['cost']:.2f} est."
+    ctx = f"{summary['context'] / 1000:.0f}k ctx"
+    if summary["cached"]:
+        ctx += f" ({summary['cached'] / 1000:.0f}k cached)"
+    parts = [summary["agent"], summary["model"], cost]
+    if summary["elapsed"] != "?":
+        parts.append(summary["elapsed"])
+    parts += [
+        f"{summary['turns']} turns",
+        f"{summary['output'] / 1000:.1f}k out",
+        f"{summary['thinking'] / 1000:.1f}k think",
+        ctx,
+    ]
+    return "Session cost: " + ", ".join(parts)
+
+
+def summarize(path: Path) -> dict:
+    """What one finished session log says about its session, for run.sh.
+
+    The agent cannot record its own cost: the figure arrives in the closing
+    event, after the agent has exited. So run.sh calls this once the session
+    is over and writes the note itself. The log is folded through `tally`
+    alone, the path the catch-up takes, so the bead, model, cost and tokens
+    are the ones the watcher reported.
+
+    `note` is None when the log never reached its closing event — a crash or
+    a timeout. A partial figure on a bead reads as the whole session's, which
+    is worse than no note. `bead` can be None while `note` is not: a resumed
+    session may never claim, tag or review, and run.sh knows which bead the
+    agent held when the session started.
+    """
+    global SESSION, REPLAYING
+    REPLAYING = True
+    SESSION = Session(path.name)
+    with open(path, encoding="utf-8", errors="replace") as fp:
+        for line in fp:
+            if line.strip():
+                feed(line, tally)
+    summary = {
+        "bead": SESSION.bead,
+        "agent": AGENT,
+        "engine": SESSION.engine,
+        "model": SESSION.model_label,
+        "cost": SESSION.cost,
+        "elapsed": SESSION.elapsed(),
+        "turns": SESSION.turns,
+        "output": SESSION.output,
+        "thinking": SESSION.thinking,
+        "context": SESSION.context,
+        "cached": SESSION.cached,
+        "closed": SESSION.last_kind in CLOSING_KINDS,
+    }
+    summary["note"] = cost_note(summary) if summary["closed"] else None
+    return summary
+
+
 def follow(path_of, *, from_start: bool = False) -> None:
     """Tail whatever path_of() returns, restarting when it moves.
 
@@ -1099,10 +1169,19 @@ def main(argv: list | None = None) -> int:
         action="store_true",
         help="when following, replay the log before tailing it",
     )
+    parser.add_argument(
+        "--summary",
+        type=Path,
+        metavar="LOG",
+        help="print one finished log's bead, cost and tokens as JSON and exit",
+    )
     args = parser.parse_args(argv)
 
     global AGENT
     AGENT = args.agent or agent_name(LOG_DIR)
+    if args.summary:
+        print(json.dumps(summarize(args.summary)))
+        return 0
     # A replay or stdin run prints a whole log and exits, and a full-screen
     # view would wipe it on the way out. Those stay plain.
     PINNED.enabled = args.tui and not args.replay and args.file != Path("-")

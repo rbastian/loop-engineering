@@ -8,7 +8,9 @@
 #   RALPH_STREAM_LOG=1   Stream tool calls + assistant turns as JSONL.
 #                        Tees claude output to $RALPH_LOG_DIR/<timestamp>.jsonl
 #                        (default $RALPH_LOG_DIR=/tmp/ralph-sessions) and maintains
-#                        a "current.jsonl" symlink for tail -f.
+#                        a "current.jsonl" symlink for tail -f. After each
+#                        session, also appends a "Session cost:" note to the
+#                        bead (needs uv, which runs watch.py --summary).
 #   RALPH_SHOW_BEAD=1    For each in-progress bead, also run `bd show <id>` so
 #                        notes/checkpoint/gate-output are visible between sessions.
 #   RALPH_SESSION_TIMEOUT  Max wall-clock time per session (default: 2h).
@@ -99,6 +101,52 @@ bead_count() {
     jq 'length' <<<"$json" 2>/dev/null || echo -1
 }
 
+# watch.py sits beside this script, in the primary checkout's ralph/ folder.
+HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Append the finished session's cost to its bead. The agent cannot do this:
+# the cost arrives in the closing event, after the agent has exited. watch.py
+# --summary reads the bead and the cost back out of the log. A resumed session
+# may never claim, tag or review, so the bead falls back to the one bead the
+# agent held when the session started. Every failure only warns: a missing
+# cost note must never stop the loop.
+record_cost() {
+    local log="$1" held="$2" summary bead note ids attempt
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "WARNING: uv not found; no cost note for this session"
+        return 0
+    fi
+    if ! summary=$(uv run --quiet "$HARNESS_DIR/watch.py" --summary "$log" --agent "$AGENT_NAME" 2>/dev/null); then
+        echo "WARNING: could not read $log; no cost note for this session"
+        return 0
+    fi
+    note=$(jq -r '.note // empty' <<<"$summary" 2>/dev/null) || note=""
+    bead=$(jq -r '.bead // empty' <<<"$summary" 2>/dev/null) || bead=""
+    if [ -z "$note" ]; then
+        echo "WARNING: the session did not finish; no cost note"
+        return 0
+    fi
+    if [ -z "$bead" ]; then
+        read -ra ids <<<"$held"
+        if [ "${#ids[@]}" -eq 1 ]; then
+            bead="${ids[0]}"
+        else
+            echo "WARNING: no bead found for this session; no cost note: $note"
+            return 0
+        fi
+    fi
+    # bd is single-writer, so a human's interactive session can hold the lock.
+    for attempt in 1 2 3; do
+        if bd note "$bead" "$note" >/dev/null 2>&1; then
+            echo "Cost note on $bead: $note"
+            return 0
+        fi
+        [ "$attempt" -lt 3 ] && sleep 10
+    done
+    echo "WARNING: bd note failed on $bead; no cost note: $note"
+    return 0
+}
+
 while true; do
 
     # Re-read $PROMPT_FILE each iteration so changes take effect without restart
@@ -147,6 +195,11 @@ while true; do
         echo ""
     fi
 
+    # The beads this agent holds as the session starts: the fallback for a
+    # session whose log names no bead (see record_cost).
+    HELD=$(bd list --assignee="$AGENT_NAME" --status=in_progress --json 2>/dev/null \
+               | jq -r '.[].id // empty' 2>/dev/null | tr '\n' ' ') || HELD=""
+
     echo ""
     echo "=== $(date '+%Y-%m-%d %H:%M:%S') === Starting $ENGINE session (model: ${MODEL:-codex default}) ==="
     echo "=================================================="
@@ -172,6 +225,7 @@ while true; do
     # command would kill the whole loop, turning one bad session (API blip,
     # rate limit, timeout) into a dead daemon.
     set +e
+    SESSION_LOG=""
     if [ -n "${RALPH_STREAM_LOG:-}" ]; then
         LOG_DIR="${RALPH_LOG_DIR:-/tmp/ralph-sessions}"
         mkdir -p "$LOG_DIR"
@@ -199,6 +253,9 @@ while true; do
         echo "$ENGINE session timed out after $SESSION_TIMEOUT"
     else
         echo "$ENGINE exited with $SESSION_EXIT"
+    fi
+    if [ -n "$SESSION_LOG" ]; then
+        record_cost "$SESSION_LOG" "$HELD"
     fi
     echo "=== $(date '+%Y-%m-%d %H:%M:%S') === Session ended ==="
     echo ""
