@@ -8,7 +8,7 @@ The loop has three roles: CODER, REVIEWER and HUMAN. The coder and the reviewer 
 - The reviewer reads the coder's branch in its own worktree, on a detached HEAD.
 - What happens after a review passes depends on the ship mode.
 
-You write the spec interactively, and the agents implement it headlessly. Each session starts with a fresh context, and the beads database is the only memory.
+You write the spec interactively, and the agents implement it headlessly. Each session starts fresh and reads its bead, prompts, project configuration and repository. Beads records task progress and handoffs between sessions.
 
 ## Ship modes
 
@@ -109,14 +109,85 @@ RALPH_LOG_DIR=/tmp/<name>-alice-sessions uv run ralph/watch.py --agent Alice --t
 
 The `RALPH_` prefix names the technique (the ralph loop), not an agent. Every agent uses the same variables.
 
+## Operations
+
+### Stop and restart
+
+Stop both the shell loop and its headless session before restarting. A session runs under GNU `timeout` when available and can outlive Ctrl-C or a closed terminal tab. Checkpoint commits, saved files and bead notes provide recovery state for the next session.
+
+1. Press Ctrl-C in each loop pane to stop the shell loop. Make sure that the loop stops instead of starting another session.
+2. From another terminal, list candidate agent processes:
+
+   ```bash
+   pgrep -fl 'ralph/run.sh|claude|codex'
+   ```
+
+3. Identify each old session by its working directory and parent process. Replace `12345` with a candidate process ID:
+
+   ```bash
+   lsof -a -p 12345 -d cwd
+   ps -p 12345 -o pid,ppid,pgid,command
+   pgrep -P 12345
+   ```
+
+   Match the directory to the coder or reviewer worktree in `ralph/project.md`. Inspect the parent process if necessary. Record the child process IDs and inspect their children too before stopping the session. The list can include unrelated interactive sessions or agents from other projects.
+4. Stop only the identified old session and any remaining child processes. For each identified process, replace `12345` with its process ID:
+
+   ```bash
+   kill -TERM 12345
+   ```
+
+5. Repeat the process checks. Make sure that no shell loop, agent session or child process from the old loops remains before restarting. Do not stop unrelated sessions.
+
+For a Herdr restart, then close the project's loop tab, both watcher panes and the Beads pane. Closing panes alone does not confirm that their sessions stopped. `layout.sh` refuses to start while that tab or those panes exist. From a Herdr pane that fills its tab, run the setup skill's layout script:
+
+```bash
+/path/to/loop-engineering/skills/dev-env-setup/scripts/layout.sh /path/to/project
+```
+
+The script reads names, paths and the reviewer's engine from `ralph/project.md`. For a manual restart, use the commands under [Running](#running) from each agent's worktree. In-progress beads take priority over new work.
+
+### Session logs
+
+The setup layout writes logs to `/tmp/<project>-<coder>-sessions` and `/tmp/<project>-<reviewer>-sessions`, with lowercase agent names. Each directory contains session JSONL files and a `current.jsonl` link to the latest session. These temporary files are not a durable archive.
+
+Use the watcher commands under [Running](#running) for a live view. To read an older log, run:
+
+```bash
+uv run ralph/watch.py --agent Ralph --file /path/to/session.jsonl --replay
+```
+
+Use your configured agent name in place of `Ralph`.
+
+### Update an installed harness
+
+Bootstrap preserves existing files in `ralph/`. Rerunning it does not install newer copies of the runner, watcher or role prompts. It still runs `uv add --dev`, `ruff format .` and `ruff check --fix .`, which can change project files. In `local` mode, modified tracked files prevent merges until the human resolves those changes.
+
+The standard launch commands read the runner and prompts from the primary checkout's working tree. They do not select the committed version on `main`. Keep that checkout on the reviewed version before restarting.
+
+1. Stop both loops and their sessions with the procedure under [Stop and restart](#stop-and-restart).
+2. Prepare the update on a branch in a separate clone or worktree. Compare the source files in `loop/` with that checkout's installed files in `ralph/`. Copy the intended updates there and review the diff. Keep project facts in `ralph/project.md`. Compare it with `loop/project.template.md` for new configuration fields instead of replacing it.
+3. In the update checkout, inspect the combined prompts and resolve every `{{...}}` placeholder before committing. From that checkout's root, run `RALPH_PRINT_PROMPT=1 ralph/run.sh <agent> <prompt>` for each role. Use the configured agent name and its prompt path, such as `ralph/CODER.md`.
+4. In `pr` mode, open a pull request and merge the reviewed update. In the primary checkout on `main`, pull the merged update with `git pull --ff-only origin main`. In `local` mode, merge the reviewed update into `main` in the primary checkout.
+5. From the primary checkout's root, inspect the installed prompts again:
+
+   ```bash
+   cd /path/to/primary-checkout
+   RALPH_PRINT_PROMPT=1 ralph/run.sh Ralph ralph/CODER.md
+   RALPH_PRINT_PROMPT=1 ralph/run.sh Alice ralph/REVIEWER.md
+   ```
+
+   Use your configured agent names. Make sure that neither output contains unresolved `{{...}}` placeholders. This final check must read the primary checkout, because the loops use those files.
+6. Restart the loops only after the reviewed update is on `main` in the primary checkout and the prompt checks pass. Restart the watchers to load watcher updates.
+
 ## Rules of engagement
 
 - The coder implements and the reviewer reviews. In `pr` mode the human approves and merges. In `local` mode the reviewer merges and the human accepts.
 - If the reviewer finds a blocking problem, it returns the bead to the coder once. After a second failed round, it escalates the bead to the human.
 - The human has these queues, each one a bead label:
   - `merge` (`pr` mode): reviewed pull requests that wait for approval and merge.
-  - `accept` (`local` mode): merged work that waits for acceptance.
-  - `escalated`: unmerged work where the coder and the reviewer disagree.
+  - `accept` (`local` mode): merged work that waits for acceptance. The human removes the label when satisfied, or reopens the bead.
+  - `escalated`: unmerged work where the coder and the reviewer disagree. The human reads the findings and disputes, then updates the instructions, assignee and label.
 - The rule for closing a bead is that its code must be on `main`. A dependent bead becomes ready only after its blocker closes. In `pr` mode, the human closes the bead after the merge. In `local` mode, the reviewer closes it at the merge.
 - The primary checkout belongs to the human. In `pr` mode no agent runs commands in it. In `local` mode, the reviewer first makes sure that it is on `main` with no modified or staged tracked files. Then the reviewer merges there. If it is not, the reviewer parks the bead as "Review passed, awaiting merge".
 - Bead notes are an append-only log. The last status line tells where the bead stands. Use `bd note`, not `bd update --notes`, on a live bead. In `pr` mode the pull request comments copy the review, but the bead notes stay the record.
