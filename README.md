@@ -12,7 +12,41 @@ The core idea is to specify interactively and implement headlessly:
 
 ## Why
 
-Coding agents have no memory between sessions, and their markdown plans rot. Plans spawn sub-plans, compactions erase the outer context, and the agent notices problems and then forgets them. Two writeups shaped this setup:
+### The problem
+
+Give one agent a large specification and the plan lives only in that agent's context window. The agent can break the work into steps, or it can start to code at once. The choice is the agent's, or the operator's, and nobody reviews it. If the agent writes a plan, the plan is usually a markdown file. Markdown plans rot: they spawn sub-plans, and the agent loses track of which plan is current.
+
+A long session also fills its context window. When the window is full, the agent compacts it: it replaces the history with a summary. Each compaction loses detail. It can drop a constraint from the specification or a decision from an hour ago. It can also drop a problem that the agent noticed and meant to fix later. The agent makes its worst decisions late in a full context, and it takes more shortcuts there.
+
+### The dependency graph
+
+In this loop, the plan is a graph of beads, not a file and not a context window. The human and an interactive agent break the specification into beads before any code exists:
+
+- Each bead is one implementation step that one session can finish.
+- Each dependency says that one step needs the code of another step on `main` first.
+- The human reviews the graph, so a missing step or a wrong order shows up while it costs nothing to fix.
+
+The graph then controls the work. `bd ready` shows only the beads whose dependencies are closed, so the agents take the steps in a correct order. Progress is the number of closed beads, not an agent's own report. Work that an agent finds along the way becomes a new bead in the graph, not a note that gets lost.
+
+### Fresh context, no compaction
+
+Because the graph holds the plan, no agent needs to keep the plan in its head. Each headless session starts with an empty context window, reads one bead, does that one step and exits. The bead holds everything the session needs: the design, the acceptance criteria and the notes from earlier sessions. The session gets its bearings from `bd show` in seconds.
+
+A bead is sized for one session, so a session ends before its context window fills. In normal operation the agents never compact. Each agent always works near the start of its context window, where it makes its best decisions. If a session crashes, nothing is lost: the next session reads the bead's notes and continues.
+
+### A record for later work
+
+A bead is not only a task. As the work goes on, the bead collects the record of that work:
+
+- The design, with the allocated and derived requirements and the trap list.
+- The branch, each checkpoint commit and the pull request.
+- Each review round, with the blocking findings, the disputed findings and the non-blocking findings.
+
+Every commit message carries the bead ID, in the form `feat: <description> [<bead-id>]`. Months later, an agent that fixes a bug or adds a feature can go from `git log` or `git blame` to the bead that made the code. From the bead it learns why the code has its shape and what the reviewer already checked. A commit history alone cannot tell it that.
+
+### Sources
+
+Two writeups shaped this setup:
 
 - Steve Yegge, [Introducing Beads](https://steve-yegge.medium.com/introducing-beads-a-coding-agent-memory-system-637d7d92514a). Replace prose plans with a dependency graph of issues that agents query (`bd ready`). A fresh session gets its bearings in seconds, and discovered work goes into a new bead instead of getting lost.
 - Geoffrey Huntley, [everything is a ralph loop](https://ghuntley.com/loop/). Run the agent in a loop, one task per iteration. Put your engineering effort into watching the loop and removing each class of failure for good.
@@ -152,7 +186,7 @@ To set up a project without the skill, follow the manual steps in [loop/README.m
 
 ## Design notes
 
-- One bead per session, then exit. Sessions are disposable. The agent always works near the start of its context window, where it makes its best decisions and takes the fewest shortcuts.
+- One bead per session, then exit. Sessions are disposable. "Fresh context, no compaction" under "Why" explains the reason.
 - The status of a bead follows `main`. The rule for closing a bead is that its code must be on `main`. Dependent beads become ready only after the close.
 - A crashed session leaves enough to resume. Checkpoint commits and breadcrumb notes on the bead (`Branch created: …`, `Checkpoint committed: …`, `PR opened: …`) let the next session continue the work.
 - Discovered work goes into Beads. Bugs and unrelated work become new beads. Subtasks in scope become child beads, never prose notes.
