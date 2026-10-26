@@ -30,7 +30,7 @@ You need these tools for some features:
 
 - [GitHub CLI](https://cli.github.com/) (`gh`), authenticated, and an `origin` remote on GitHub. You need both for `pr` mode. Make sure that the active `gh` account can open pull requests on the repository.
 - [Codex](https://github.com/openai/codex) CLI (`codex`), authenticated. You need it only for a reviewer on Codex. Before the first headless Codex session, open `codex` once in the primary checkout, trust the project and approve its hooks.
-- herdr, a terminal multiplexer for coding agents. The setup skill's last step (`layout.sh`) uses it. It starts both loops in a tab of their own, with both watchers and a Beads pane beside your session. Without herdr, start the loops and watchers by hand, as [loop/README.md](loop/README.md) shows.
+- [herdr](https://herdr.dev/), a terminal multiplexer for coding agents. The setup skill's last step (`layout.sh`) uses it. It starts both loops in a tab of their own, with both watchers and a Beads pane beside your session. Without herdr, start the loops and watchers by hand, as [loop/README.md](loop/README.md) shows.
 - GNU `timeout`, for the time limit on each session. On macOS, run `brew install coreutils`. Without it, sessions have no time limit.
 
 ## Get started
