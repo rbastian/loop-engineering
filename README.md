@@ -191,17 +191,9 @@ Read the graph before you go on. Each bead must contain enough context to implem
 
 ## Human queues and operations
 
-The reviewer assigns work to the human with one of these labels:
+The human handles the `merge`, `accept` and `escalated` queues. See [Rules of engagement](loop/README.md#rules-of-engagement) for the queue workflow and merge preconditions.
 
-| Label | Human action |
-|---|---|
-| `merge` (`pr` mode) | Approve and merge the reviewed pull request. Close the bead after the merge, then remove the label. |
-| `accept` (`local` mode) | Inspect the merged work. Remove the label when satisfied, or reopen the bead if it needs more work. |
-| `escalated` | Read the findings and disputes. Decide the next action and update the bead's instructions, assignee and label. |
-
-In `local` mode, keep the primary checkout on `main` with no modified or staged tracked files when you want the reviewer to merge. Otherwise, the reviewer parks the bead until the checkout is available.
-
-See [Operations](loop/README.md#operations) for stopping and restarting loops, finding logs and updating an installed harness. Rerunning bootstrap preserves existing harness files and does not upgrade them.
+See [Operations](loop/README.md#operations) for stopping and restarting loops, finding logs and updating an installed harness. Bootstrap preserves existing harness files and does not upgrade them. A rerun still runs `uv add --dev`, `ruff format .` and `ruff check --fix .`, which can change project files. In `local` mode, modified tracked files prevent the reviewer from merging until the human resolves those changes.
 
 ## Design notes
 
