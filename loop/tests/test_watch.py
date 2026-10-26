@@ -412,10 +412,10 @@ def test_a_malformed_line_in_the_catch_up_does_not_raise(tmp_path):
 
 
 def test_the_review_marker_matches_the_one_alice_is_told_to_write():
-    """REVIEW_RE quotes prose out of ralph/ALICE.md, and nothing else binds the
+    """REVIEW_RE quotes prose out of ralph/REVIEWER.md, and nothing else binds the
     two: reword the marker there and the header silently loses Alice's bead.
     So build the command out of the document rather than out of a literal."""
-    alice = (ROOT / "ALICE.md").read_text()
+    alice = (ROOT / "REVIEWER.md").read_text()
     (quoted,) = [
         found[1]
         for line in alice.splitlines()
@@ -740,7 +740,7 @@ CODEX_STARTED = "2026-10-05T14:30:12-0500"
 # a start time read off the session line from one read off the stream.
 EARLY = (datetime.fromisoformat(STARTED) - timedelta(minutes=5)).isoformat()
 # The same note as Codex reports it: one command, no shell chaining. Derived
-# from REVIEW rather than retyped, so the marker stays tied to the ALICE.md
+# from REVIEW rather than retyped, so the marker stays tied to the REVIEWER.md
 # prose that `test_the_review_marker_matches_the_one_alice_is_told_to_write`
 # pins — reword it there and the Codex half of the watcher fails too.
 CODEX_REVIEW = REVIEW.split(" && ")[0]

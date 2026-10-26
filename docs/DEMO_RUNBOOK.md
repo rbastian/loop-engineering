@@ -1,5 +1,7 @@
 # AI Guild Demo Runbook — 15 minutes, hybrid live + pre-run
 
+> This document describes the first, single-agent version of the loop. Its files are in commit `194238a`. The repository now runs the multi-agent loop in `loop/`. See the root README.
+
 **Format:** live spec-refinement session + pre-run ralph results. The headless loop is never run live — it's minutes of silent tool calls and a CI wait you cannot afford in a 15-minute slot.
 
 **The one-sentence pitch you're building to:** *"I spec work with an agent until there are no open questions, hand the bead to a loop, and it ships a merged PR while I do something else."*

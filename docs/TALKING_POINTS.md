@@ -1,5 +1,7 @@
 # Talking Points — "Spec interactively, implement headlessly"
 
+> This document describes the first, single-agent version of the loop. Its files are in commit `194238a`. The repository now runs the multi-agent loop in `loop/`. See the root README.
+
 Narrative arc for the AI Guild session. Six beats, one slide each if you want slides at all — the terminal is the better visual for beats 3–5.
 
 ---

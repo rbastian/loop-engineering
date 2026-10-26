@@ -1,6 +1,6 @@
 # Project
 
-This section gives the facts about this project. The prompt above refers to it by the names "the Project section", "the gate", "the format commands", "your worktree" and `$PRIMARY`.
+This section gives the facts about this project. The prompt above refers to it as "the Project section". The prompt also uses names that this section defines, for example "the gate", `$PRIMARY` and `$CODER`.
 
 ## What the project is
 
@@ -8,12 +8,32 @@ This section gives the facts about this project. The prompt above refers to it b
 
 {{Out of scope: the files or directories that the loop must not change}}.
 
+## Roles
+
+```bash
+CODER={{CODER}}
+REVIEWER={{REVIEWER}}
+HUMAN={{HUMAN}}
+```
+
+`$CODER` is the agent that implements beads. `$REVIEWER` is the agent that reviews them. Each name is the bead assignee that the agent's loop polls for. `$HUMAN` is the bd assignee for the human's queues: merge approval, acceptance and escalation.
+
+## Ship mode
+
+```bash
+SHIP_MODE={{SHIP_MODE}}
+```
+
+`pr` is the default. `$CODER` pushes each branch to `origin` and opens a pull request against `main`. `$REVIEWER` reviews the branch and comments on the pull request. `$HUMAN` approves and merges it. `$BASE` is `origin/main`.
+
+`local` is only for a repository with one user and no shared remote. `$REVIEWER` merges the branch into `main` in the primary checkout, and no pull request exists. `$BASE` is `main`.
+
 ## Paths
 
 ```bash
 PRIMARY={{PRIMARY}}
-RALPH_WORKTREE={{RALPH_WORKTREE}}
-ALICE_WORKTREE={{ALICE_WORKTREE}}
+CODER_WORKTREE={{CODER_WORKTREE}}
+REVIEWER_WORKTREE={{REVIEWER_WORKTREE}}
 ```
 
 There are no exceptions to the rule that agents do not write in the primary checkout.
@@ -48,6 +68,6 @@ uv run ruff format --check . && uv run ruff check . && uv run pytest -q
 
 {{Name each external service, the variables or login it uses, and where they come from. If the project uses none, write "None"}}. If a bead needs a service and it is unavailable, follow "When Things Go Wrong".
 
-## Review method (for Alice)
+## Review method (for the reviewer)
 
 Use the default method for your engine. {{If some kinds of change need a different method, describe it here, chosen by the files that the branch changes}}.
