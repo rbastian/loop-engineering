@@ -10,6 +10,7 @@
 #   LOOP_REVIEWER   — the reviewer agent's name (default: Alice)
 #   LOOP_HUMAN      — the bd assignee who approves merges (default: $USER)
 #   LOOP_SHIP_MODE  — pr (default) or local, for a repository with one user
+#   LOOP_REVIEWER_ENGINE — claude (default) or codex, the reviewer's CLI
 #
 # Safe to run twice: each step skips itself when its work is already done.
 # Commits nothing and creates no worktrees; worktrees.sh does that afterwards.
@@ -41,6 +42,7 @@ CODER="${LOOP_CODER:-Ralph}"
 REVIEWER="${LOOP_REVIEWER:-Alice}"
 HUMAN="${LOOP_HUMAN:-$USER}"
 SHIP_MODE="${LOOP_SHIP_MODE:-pr}"
+REVIEWER_ENGINE="${LOOP_REVIEWER_ENGINE:-claude}"
 # The agent names become bd assignees and, lowercased, worktree and log paths.
 for agent in "$CODER" "$REVIEWER"; do
     if ! [[ "$agent" =~ ^[A-Za-z]+$ ]]; then
@@ -52,6 +54,13 @@ if [ "$CODER" = "$REVIEWER" ]; then
     echo "ERROR: the coder and the reviewer need different names"
     exit 1
 fi
+case "$REVIEWER_ENGINE" in
+    claude | codex) ;;
+    *)
+        echo "ERROR: LOOP_REVIEWER_ENGINE must be claude or codex (got: $REVIEWER_ENGINE)"
+        exit 1
+        ;;
+esac
 case "$SHIP_MODE" in
     pr | local) ;;
     *)
@@ -72,6 +81,7 @@ missing=0
 TOOLS=(git uv bd jq claude)
 # pr mode pushes branches and opens pull requests.
 [ "$SHIP_MODE" = pr ] && TOOLS+=(gh)
+[ "$REVIEWER_ENGINE" = codex ] && TOOLS+=(codex)
 for tool in "${TOOLS[@]}"; do
     command -v "$tool" >/dev/null 2>&1 || { echo "ERROR: $tool not found"; missing=1; }
 done
@@ -179,8 +189,9 @@ else
         -e "s#{{REVIEWER}}#$REVIEWER#g" \
         -e "s#{{HUMAN}}#$HUMAN#g" \
         -e "s#{{SHIP_MODE}}#$SHIP_MODE#g" \
+        -e "s#{{REVIEWER_ENGINE}}#$REVIEWER_ENGINE#g" \
         "$HARNESS/project.template.md" >ralph/project.md
-    echo "wrote ralph/project.md for $NAME: $CODER codes, $REVIEWER reviews, $HUMAN merges, ship mode $SHIP_MODE"
+    echo "wrote ralph/project.md for $NAME: $CODER codes, $REVIEWER reviews, $HUMAN merges, ship mode $SHIP_MODE, reviewer on $REVIEWER_ENGINE"
 fi
 
 step "gate"

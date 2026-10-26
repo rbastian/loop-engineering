@@ -41,6 +41,7 @@ The reviewer comments but does not approve. The agents usually push with the hum
 The agent prompts hold only the loop protocol. They contain no facts about a project. `run.sh` appends `project.md` to each prompt at the start of every session. The overlay gives these facts:
 
 - The agent names (`CODER`, `REVIEWER`) and the human's bd assignee name (`HUMAN`).
+- The reviewer's engine (`REVIEWER_ENGINE`): `claude` or `codex`.
 - The ship mode (`SHIP_MODE`).
 - The paths, the tech stack, the gate, the external services and the review method.
 
@@ -91,7 +92,7 @@ RALPH_LOG_DIR=/tmp/<name>-ralph-sessions uv run ralph/watch.py --agent Ralph --t
 RALPH_LOG_DIR=/tmp/<name>-alice-sessions uv run ralph/watch.py --agent Alice --tui
 ```
 
-`RALPH_ENGINE` selects the agent CLI. It takes `claude` (the default) or `codex`. The coder always runs on `claude`. The reviewer can run on `codex`, so that a different model family reads the diff. On `codex`, `RALPH_MODEL` has no default, and the review uses `codex exec review`. Before the first headless Codex session, open `codex` once in the primary checkout, trust the project and approve its hooks.
+`RALPH_ENGINE` selects the agent CLI. It takes `claude` (the default) or `codex`. The coder always runs on `claude`, because its prompt uses the `/simplify` skill. The reviewer can run on `codex`, so that a different model family reads the diff. On `codex`, `RALPH_MODEL` has no default, and the review uses `codex exec review`. Before the first headless Codex session, open `codex` once in the primary checkout, trust the project and approve its hooks.
 
 ### run.sh variables
 
