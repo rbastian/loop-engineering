@@ -1,10 +1,15 @@
 #!/bin/bash
-# Prepare a project for the Ralph (writer) and Alice (reviewer) loop:
+# Prepare a project for the coder and reviewer loop:
 # git, uv with the gate tools, beads, and the ralph/ harness from loop-engineering.
 # Usage: bootstrap.sh PROJECT_DIR BEAD_PREFIX [DEV_PACKAGE ...]
 #   PROJECT_DIR  — the primary checkout (created if missing)
 #   BEAD_PREFIX  — lowercase letters only; watch.py cannot parse a hyphenated one
 #   DEV_PACKAGE  — extra dev dependencies on top of ruff and pytest
+# These go into ralph/project.md, where worktrees.sh and layout.sh read them back:
+#   LOOP_CODER     — the coder agent's name (default: Ralph)
+#   LOOP_REVIEWER   — the reviewer agent's name (default: Alice)
+#   LOOP_HUMAN      — the bd assignee who approves merges (default: $USER)
+#   LOOP_SHIP_MODE  — pr (default) or local, for a repository with one user
 #
 # Safe to run twice: each step skips itself when its work is already done.
 # Commits nothing and creates no worktrees; worktrees.sh does that afterwards.
@@ -15,7 +20,7 @@ set -euo pipefail
 # installs the skill under ~/.claude/skills. LOOP_HOME overrides it.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 LOOP_HOME="${LOOP_HOME:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
-HARNESS="$LOOP_HOME/ralph-alice"
+HARNESS="$LOOP_HOME/loop"
 
 if [ $# -lt 2 ]; then
     echo "Usage: bootstrap.sh PROJECT_DIR BEAD_PREFIX [DEV_PACKAGE ...]"
@@ -32,20 +37,47 @@ if ! [[ "$PREFIX" =~ ^[a-z]+$ ]]; then
     exit 1
 fi
 
+CODER="${LOOP_CODER:-Ralph}"
+REVIEWER="${LOOP_REVIEWER:-Alice}"
+HUMAN="${LOOP_HUMAN:-$USER}"
+SHIP_MODE="${LOOP_SHIP_MODE:-pr}"
+# The agent names become bd assignees and, lowercased, worktree and log paths.
+for agent in "$CODER" "$REVIEWER"; do
+    if ! [[ "$agent" =~ ^[A-Za-z]+$ ]]; then
+        echo "ERROR: agent names must be letters only (got: $agent)"
+        exit 1
+    fi
+done
+if [ "$CODER" = "$REVIEWER" ]; then
+    echo "ERROR: the coder and the reviewer need different names"
+    exit 1
+fi
+case "$SHIP_MODE" in
+    pr | local) ;;
+    *)
+        echo "ERROR: LOOP_SHIP_MODE must be pr or local (got: $SHIP_MODE)"
+        exit 1
+        ;;
+esac
+
 NAME="$(basename "$PROJECT")"
 PARENT="$(dirname "$PROJECT")"
 PKG="$(tr '[:upper:]-' '[:lower:]_' <<<"$NAME")"
 
 
 step() { printf '\n==> %s\n' "$*"; }
+lower() { tr '[:upper:]' '[:lower:]' <<<"$1"; }
 
 missing=0
-for tool in git uv bd jq claude; do
+TOOLS=(git uv bd jq claude)
+# pr mode pushes branches and opens pull requests.
+[ "$SHIP_MODE" = pr ] && TOOLS+=(gh)
+for tool in "${TOOLS[@]}"; do
     command -v "$tool" >/dev/null 2>&1 || { echo "ERROR: $tool not found"; missing=1; }
 done
 command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1 \
     || echo "WARNING: no timeout/gtimeout; sessions will have no time limit (brew install coreutils)"
-for f in run.sh watch.py PROMPT.md ALICE.md project.template.md; do
+for f in run.sh watch.py CODER.md REVIEWER.md project.template.md; do
     [ -f "$HARNESS/$f" ] || { echo "ERROR: $HARNESS/$f not found (set LOOP_HOME)"; missing=1; }
 done
 [ "$missing" -eq 0 ] || exit 1
@@ -58,7 +90,7 @@ if [ -d .git ]; then
 else
     git init -b main
 fi
-# Both worktrees branch from main, and Alice merges into it.
+# Both worktrees branch from main, and every bead lands on it.
 BRANCH="$(git symbolic-ref --short HEAD)"
 if [ "$BRANCH" != main ]; then
     echo "ERROR: the primary checkout is on '$BRANCH'; the loop needs it on main"
@@ -126,9 +158,9 @@ bd setup codex
 
 step "harness"
 mkdir -p ralph
-# PROMPT.md and ALICE.md hold only the loop protocol, so they copy unchanged.
+# CODER.md and REVIEWER.md hold only the loop protocol, so they copy unchanged.
 # The project facts go in ralph/project.md, which run.sh appends to each prompt.
-for f in run.sh watch.py PROMPT.md ALICE.md; do
+for f in run.sh watch.py CODER.md REVIEWER.md; do
     if [ -f "ralph/$f" ]; then
         echo "ralph/$f exists; keeping it"
     else
@@ -141,10 +173,14 @@ if [ -f ralph/project.md ]; then
     echo "ralph/project.md exists; keeping it"
 else
     sed -e "s#{{PRIMARY}}#$PROJECT#g" \
-        -e "s#{{RALPH_WORKTREE}}#$PARENT/$NAME-ralph#g" \
-        -e "s#{{ALICE_WORKTREE}}#$PARENT/$NAME-alice#g" \
+        -e "s#{{CODER_WORKTREE}}#$PARENT/$NAME-$(lower "$CODER")#g" \
+        -e "s#{{REVIEWER_WORKTREE}}#$PARENT/$NAME-$(lower "$REVIEWER")#g" \
+        -e "s#{{CODER}}#$CODER#g" \
+        -e "s#{{REVIEWER}}#$REVIEWER#g" \
+        -e "s#{{HUMAN}}#$HUMAN#g" \
+        -e "s#{{SHIP_MODE}}#$SHIP_MODE#g" \
         "$HARNESS/project.template.md" >ralph/project.md
-    echo "wrote ralph/project.md with paths for $NAME"
+    echo "wrote ralph/project.md for $NAME: $CODER codes, $REVIEWER reviews, $HUMAN merges, ship mode $SHIP_MODE"
 fi
 
 step "gate"

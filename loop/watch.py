@@ -9,7 +9,7 @@
 $RALPH_LOG_DIR/<timestamp>.jsonl and repoints a `current.jsonl` symlink at it
 each iteration. Two vocabularies reach this file — Claude Code's stream-json
 and `codex exec --json`, since Alice may review on either engine — and run.sh
-names the writer in a `ralph.session` line at the top of every log. That
+names the coder in a `ralph.session` line at the top of every log. That
 stream is complete but unreadable at a glance; this turns it into one labelled
 line per tool call:
 
@@ -54,7 +54,7 @@ RULE = "\u2500" * 74
 SESSION_MARK = "\u2500\u2500 session \u2500\u2500"
 BEAD = r"[a-z]+-[a-z0-9]{3}(?:\.\d+)?"
 BEAD_RE = re.compile(rf"\b({BEAD})\b")
-# Alice's first write on every review (ralph/ALICE.md). Matched down to the
+# Alice's first write on every review (ralph/REVIEWER.md). Matched down to the
 # marker text and the bead's position as `bd note`'s argument: she also writes
 # notes that quote OTHER beads, and those must not move the header.
 REVIEW_RE = re.compile(rf"""bd note\s+({BEAD})\s+["']?Review round \d+ started""")
@@ -511,7 +511,7 @@ class Pinned:
 PINNED = Pinned(enabled=False)
 
 # (phase, label, pattern) against a Bash command string, first match wins.
-# Phases mirror ralph/PROMPT.md; ordering matters because a single command can
+# Phases mirror ralph/CODER.md; ordering matters because a single command can
 # chain several steps (`bd update --claim && git checkout -b ...`), and the
 # earlier, more specific rule is the one worth reporting.
 BASH_RULES = [

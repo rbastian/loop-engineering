@@ -1,104 +1,104 @@
 # loop-engineering
 
-A small, practical harness for running [Claude Code](https://claude.com/claude-code) as an autonomous implementation agent, with [Beads](https://github.com/gastownhall/beads) as its persistent memory and work queue.
+This repository holds the scripts and prompts that run [Claude Code](https://claude.com/claude-code) as a team of headless agents. [Beads](https://github.com/gastownhall/beads) is the agents' memory and work queue.
 
-The core idea, in one sentence: **specify interactively, implement headlessly.**
+The core idea is to specify interactively and implement headlessly:
 
 - A human and an agent refine a work item (a "bead") together until the spec has no open questions.
-- The bead is assigned to **ralph** — a shell loop that repeatedly launches a fresh headless Claude Code session to pick up one ready bead, implement it test-first, open a PR, and close the bead once the PR merges.
-- Each session starts with a clean context window and re-orients itself entirely from the bead database. No markdown plans, no session memory, nothing to decay.
+- The human assigns the bead to the coder agent. A shell loop starts a fresh headless session for each bead. The coder implements the bead test-first on a feature branch.
+- The coder hands the bead to the reviewer agent. The reviewer checks the branch against the spec. By default the coder opens a pull request, and a human approves and merges it.
+- Each session starts with a clean context window and gets its bearings from the bead database alone. No markdown plan and no session memory exist to decay.
 
 ## Why
 
-Coding agents have no memory between sessions, and their markdown plans rot: plans spawn sub-plans, compactions erase the outer context, and discovered problems get noticed and then forgotten. Two writeups shaped this setup:
+Coding agents have no memory between sessions, and their markdown plans rot. Plans spawn sub-plans, compactions erase the outer context, and the agent notices problems and then forgets them. Two writeups shaped this setup:
 
-- **Steve Yegge — [Introducing Beads](https://steve-yegge.medium.com/introducing-beads-a-coding-agent-memory-system-637d7d92514a):** replace prose plans with a dependency-aware issue graph agents can *query* (`bd ready`), so a fresh session re-orients in seconds and discovered work is filed instead of lost.
-- **Geoffrey Huntley — [everything is a ralph loop](https://ghuntley.com/loop/):** run the agent in a loop, one task per iteration, and put your engineering effort into watching the loop and eliminating each failure class so it never recurs.
+- Steve Yegge, [Introducing Beads](https://steve-yegge.medium.com/introducing-beads-a-coding-agent-memory-system-637d7d92514a). Replace prose plans with a dependency graph of issues that agents query (`bd ready`). A fresh session gets its bearings in seconds, and discovered work goes into a new bead instead of getting lost.
+- Geoffrey Huntley, [everything is a ralph loop](https://ghuntley.com/loop/). Run the agent in a loop, one task per iteration. Put your engineering effort into watching the loop and removing each class of failure for good.
 
-This repo is the minimal synthesis: Beads holds the *what*, the loop provides the *how*, and the human's job is the spec and the loop's failure modes.
+Beads holds the what, and the loop provides the how. The human owns the spec, the merge and the loop's failure modes.
 
 ## What's here
 
-| File | Purpose |
+| Path | Purpose |
 |------|---------|
-| `run.sh` | The ralph loop. Polls Beads for work assigned to an agent name, launches one headless Claude Code session per iteration, sleeps, repeats. |
-| `PROMPT_TEMPLATE.md` | The prompt each headless session receives. Defines a four-phase workflow: resume check → implement (TDD) → clean → ship (PR, auto-merge, close bead). |
-| `docs/DEMO_RUNBOOK.md` | Minute-by-minute script for demoing the process live. |
-| `docs/TALKING_POINTS.md` | Narrative arc and slide outline for presenting it. |
-| `ralph-alice/` | A two-agent, local version of the loop: Ralph writes, Alice reviews and merges. Includes the watcher `watch.py`. See below. |
-| `skills/dev-env-setup/` | A Claude Code skill that installs `ralph-alice/` into a project and starts both loops. See below. |
+| `loop/` | The multi-agent loop: `run.sh`, the coder and reviewer prompts, the project overlay template, and the watcher `watch.py`. See [loop/README.md](loop/README.md). |
+| `skills/dev-env-setup/` | A Claude Code skill that installs `loop/` into a project and starts the agents. |
+| `docs/` | The talk material from the AI Guild demo. It describes the earlier single-agent version. |
+
+## How the loop works
+
+Each agent is the same `run.sh` with its own prompt and its own git worktree. The loop for an agent polls Beads for beads assigned to that agent's name, and starts one headless session per bead. To hand a bead on, a session changes the assignee.
+
+The loop has three roles: CODER, REVIEWER and HUMAN.
+
+- The coder (default name Ralph) is an agent. It claims a bead, writes tests first, implements, runs the gate and hands the bead to the reviewer.
+- The reviewer (default name Alice) is an agent. It reads the branch against the bead's design and runs a code review and the gate. Then it passes the bead or returns it once.
+- The human specs each bead, approves and merges pull requests, and settles escalations.
+
+Each project names its agents and the human in `ralph/project.md`, so you can rename them. The agent prompts refer to roles, not to fixed names. You can add more agent roles over time. [loop/README.md](loop/README.md) tells you how.
+
+## Ship modes
+
+The ship mode decides what happens after a review passes. Each project sets it in `ralph/project.md`.
+
+`pr` is the default. The coder pushes the branch and opens a pull request. The reviewer posts the review as a comment, and the human approves and merges the pull request. Use this mode for every repository that more than one person works in.
+
+`local` is for a repository with one user. The reviewer merges the branch into `main` in the primary checkout, with no remote and no pull request.
 
 ## Prerequisites
 
-- [Claude Code](https://claude.com/claude-code) CLI, authenticated
-- [Beads](https://github.com/gastownhall/beads) (`bd`) — installed system-wide, `bd init` run in the target repo
-- [GitHub CLI](https://cli.github.com/) (`gh`), authenticated, with auto-merge enabled on the target repo
-- `jq`
-- GNU `timeout` for per-session time limits (macOS: `brew install coreutils`) — optional but recommended
+- [Claude Code](https://claude.com/claude-code) CLI, authenticated.
+- [Beads](https://github.com/gastownhall/beads) (`bd`), installed system-wide.
+- `git`, `uv` and `jq`.
+- For `pr` mode: the [GitHub CLI](https://cli.github.com/) (`gh`), authenticated, and an `origin` remote.
+- GNU `timeout` for the time limit on each session (macOS: `brew install coreutils`). It is optional.
+- For the setup skill's last step: herdr.
 
-## Setup
+## Get started
 
-1. **Create a dedicated git worktree** for the agent, on a home-base branch named `loop`:
+1. Install the setup skill. Run this command from the root of your clone:
 
    ```bash
-   git worktree add ../myproject-ralph loop
+   ln -s "$(pwd)/skills/dev-env-setup" ~/.claude/skills/dev-env-setup
    ```
 
-   The agent branches off `origin/main` for each bead and never touches your checkout.
+   The skill finds `loop/` relative to its own folder, so the link works from any clone of this repository.
 
-2. **Instantiate the prompt.** Copy `PROMPT_TEMPLATE.md` into the worktree as `PROMPT.md` and fill in the `{{PLACEHOLDERS}}` (project name/description, tech stack, key directories, lint commands, merge-queue notes).
+2. In a Claude Code session in the new project, type `/dev-env-setup`. The skill asks for the bead prefix, the ship mode, the human who approves merges and the agent names. Then it sets up git, uv, beads, the `ralph/` folder and both worktrees, and starts the loops.
 
-3. **Spec the work.** In an interactive Claude Code session, flesh out a bead until it can stand alone:
+3. Do the spec ritual on a bead. In an interactive Claude Code session, enter:
 
    > Read bead `<id>`. Ask me questions about the spec, one round at a time, until you have no questions left. Then update the bead's design field with the final spec.
 
-   This ritual is the load-bearing step — it front-loads every clarification that a headless agent would otherwise resolve by guessing.
+   This step carries the most weight. Each question that you answer here is a guess that a headless agent does not make later.
 
-4. **Assign and run:**
+4. Assign the bead to the coder:
 
    ```bash
    bd update <id> --assignee=Ralph
-   cd ../myproject-ralph && /path/to/run.sh Ralph PROMPT.md
    ```
 
-### Options
+5. In `pr` mode, watch the `merge` label. Each bead with that label has a reviewed pull request. Approve and merge the pull request, then run `bd close <id>` and remove the label.
 
-| Variable | Effect |
-|----------|--------|
-| `RALPH_STREAM_LOG=1` | Tee each session's tool calls/turns as JSONL to `$RALPH_LOG_DIR` (default `/tmp/ralph-sessions`), with a `current.jsonl` symlink for `tail -f`. |
-| `RALPH_SHOW_BEAD=1` | Print `bd show` for each in-progress bead between sessions. |
-| `RALPH_SESSION_TIMEOUT` | Wall-clock cap per session (default `2h`). |
-
-## Ralph and Alice: the two-agent loop
-
-The `ralph-alice/` folder holds a second version of the loop. Ralph implements a bead in his worktree. Alice reviews the branch in her own worktree and merges it into `main` locally. No remote, pull request or CI is necessary. A `project.md` overlay holds the facts about each project, so the two prompts stay the same in every project. `watch.py` shows each live session as one line per tool call. See [ralph-alice/README.md](ralph-alice/README.md).
-
-## Install the setup skill
-
-The `dev-env-setup` skill sets up a project for Ralph and Alice. It runs git, uv, ruff, pytest and beads setup and copies `ralph-alice/` into the project as `ralph/`. It also writes `ralph/project.md`, creates both worktrees and starts the loops and watchers in a herdr tab.
-
-To install it, link the skill folder into your Claude Code skills directory. Run this command from the root of your clone:
-
-```bash
-ln -s "$(pwd)/skills/dev-env-setup" ~/.claude/skills/dev-env-setup
-```
-
-The skill finds `ralph-alice/` relative to its own folder, so the link works from any clone of this repository. To use the skill, type `/dev-env-setup` in a Claude Code session in the new project.
-
-The skill needs `git`, `uv`, `bd`, `jq` and `claude`. The last step needs herdr and runs only inside a herdr pane.
+To set up a project without the skill, follow the manual steps in [loop/README.md](loop/README.md).
 
 ## Design notes
 
-- **One bead per session, then exit.** Sessions are disposable; the agent always works near the start of its context window, where it makes its best decisions and takes the fewest shortcuts.
-- **Bead status mirrors `main`.** A bead closes only when its PR has actually merged. A session may legitimately end with the PR still in the merge queue — the next session's resume check (Phase 0) reconciles it.
-- **Crash-safe by construction.** Checkpoint commits plus breadcrumb notes on the bead (`Branch created: …`, `Checkpoint committed: …`, `PR #N opened…`) mean any interrupted session can be resumed by the next one.
-- **Discovered work is never lost.** Bugs and orthogonal work become new beads; in-scope subtasks become hierarchical child beads — never prose notes.
-- **`BEADS_ACTOR` matters.** `run.sh` exports it to the agent name; without it, `bd update --claim` fails because the actor won't match the bead's assignee.
+- One bead per session, then exit. Sessions are disposable. The agent always works near the start of its context window, where it makes its best decisions and takes the fewest shortcuts.
+- The status of a bead follows `main`. The rule for closing a bead is that its code must be on `main`. Dependent beads become ready only after the close.
+- A crashed session leaves enough to resume. Checkpoint commits and breadcrumb notes on the bead (`Branch created: …`, `Checkpoint committed: …`, `PR opened: …`) let the next session continue the work.
+- Discovered work goes into Beads. Bugs and unrelated work become new beads. Subtasks in scope become child beads, never prose notes.
+- `BEADS_ACTOR` matters. `run.sh` sets it to the agent name. Without it, `bd update --claim` fails because the actor does not match the bead's assignee.
 
-## Safety caveats
+## Safety
 
-The headless session runs with `--dangerously-skip-permissions` and ships via PR auto-merge, so the only gates between the agent and `main` are your CI and branch protection. Run it in a dedicated worktree, on repos where that trade-off is acceptable, with credentials scoped as tightly as you can. If you want a human gate, replace the auto-merge step with "request review and exit" — the resume logic handles the rest unchanged.
+Headless sessions run with `--dangerously-skip-permissions`. Run each agent in its own worktree, with credentials scoped as tightly as you can. In `pr` mode, the human approves every merge to `main`. In `local` mode, the reviewer and the gate are the only checks between the agents and `main`. Use `local` mode only on a repository where you accept that.
+
+## History
+
+The first version of this repository ran one agent that shipped through a pull request and auto-merge. Its files (`run.sh` and `PROMPT_TEMPLATE.md` at the root) are in commit `194238a`. The talk material in `docs/` describes that version.
 
 ## Credits
 
-Process synthesized from Steve Yegge's Beads posts and Geoffrey Huntley's ralph-loop writing. Reviewed and hardened with Claude Code — see the commit history for the bugs found along the way, which are themselves a decent argument for reviewing your automation like production code.
+The process comes from Steve Yegge's Beads posts and Geoffrey Huntley's ralph-loop writing. Claude Code reviewed and hardened it. The commit history records the bugs found along the way. Those bugs are a good argument to review your automation like production code.

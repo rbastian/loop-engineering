@@ -2,7 +2,7 @@
 # Reusable agent loop. Run from the target repo (or worktree).
 # Usage: run.sh [AGENT_NAME] [PROMPT_FILE]
 #   AGENT_NAME  — bd assignee filter (default: Ralph)
-#   PROMPT_FILE — prompt file path, relative to cwd (default: PROMPT.md)
+#   PROMPT_FILE — prompt file path, relative to cwd (default: CODER.md)
 #
 # Optional switches (default OFF — set to any non-empty value to enable):
 #   RALPH_STREAM_LOG=1   Stream tool calls + assistant turns as JSONL.
@@ -24,7 +24,7 @@
 set -euo pipefail
 
 AGENT_NAME="${1:-Ralph}"
-PROMPT_FILE="${2:-PROMPT.md}"
+PROMPT_FILE="${2:-CODER.md}"
 SESSION_TIMEOUT="${RALPH_SESSION_TIMEOUT:-2h}"
 ENGINE="${RALPH_ENGINE:-claude}"
 
@@ -40,7 +40,7 @@ case "$ENGINE" in
         ;;
 esac
 
-# The agent reads this to choose its engine-specific steps: on codex, Alice
+# The agent reads this to choose its engine-specific steps: on codex, the reviewer
 # reviews with `codex exec review` instead of the /code-review skill.
 export RALPH_ENGINE="$ENGINE"
 
@@ -111,7 +111,7 @@ while true; do
     fi
 
     # Show both in_progress (agent's claimed work) and ready (new work) beads.
-    # Agent resumes in_progress first per PROMPT.md Phase 0; both lists are
+    # Agent resumes in_progress first per its prompt's Phase 0; both lists are
     # shown here for operator visibility.
     IN_PROGRESS_COUNT=$(bead_count bd list --assignee="$AGENT_NAME" --status=in_progress)
     READY_COUNT=$(bead_count bd ready --assignee="$AGENT_NAME")
