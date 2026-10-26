@@ -18,7 +18,7 @@ The three scripts in `scripts/` do the mechanical work. Each script is safe to r
 |---|---|
 | `bootstrap.sh PROJECT_DIR BEAD_PREFIX [DEV_PACKAGE ...]` | git, uv, ruff and pytest, beads, the `ralph/` harness, `ralph/project.md` with the names, the ship mode and the paths filled in, one gate run |
 | `worktrees.sh PROJECT_DIR` | the first commit on `main`, then the push to `origin` in `pr` mode, then the two worktrees: the coder on branch `loop`, the reviewer on a detached HEAD |
-| `layout.sh PROJECT_DIR` | a `<name> loop` tab with both loops side by side, and the two watchers in the top third of the calling tab (coder left, reviewer right) |
+| `layout.sh PROJECT_DIR` | a `<name> loop` tab with both loops side by side, and the two watchers and a Beads pane in the top third of the calling tab (coder left, reviewer center, Beads right) |
 
 `bootstrap.sh` takes the names and the ship mode from four variables: `LOOP_CODER`, `LOOP_REVIEWER`, `LOOP_HUMAN` and `LOOP_SHIP_MODE`. It writes them into `ralph/project.md`. `worktrees.sh` and `layout.sh` read them back from that file, so `ralph/project.md` is the one place to change them.
 
@@ -40,7 +40,7 @@ The harness source is `loop/` in the same repository. `bootstrap.sh` finds it fr
 6. In `pr` mode, make sure that the repository has an `origin` remote and that `gh auth status` succeeds. If there is no remote, ask the user which remote to use. Tell the user that the next step pushes `main` to `origin`.
 7. Run `worktrees.sh`. It commits all files, pushes `main` in `pr` mode, then creates both worktrees.
 8. Run `layout.sh`. It needs `HERDR_ENV=1`. If the skill does not run inside herdr, stop and give the user the command to run from a herdr pane.
-9. Report the result: the ship mode, the loop tab name, the four pane IDs, and the log directories `/tmp/<name>-<coder>-sessions` and `/tmp/<name>-<reviewer>-sessions`, with the agent names in lowercase. Remind the user that the loops find no work until a bead gets the spec ritual and an assignment to the coder. In `pr` mode, also tell the user that beads with the label `merge` wait for them: approve and merge the pull request, then run `bd close <id>` and remove the label.
+9. Report the result: the ship mode, the loop tab name, the five pane IDs, and the log directories `/tmp/<name>-<coder>-sessions` and `/tmp/<name>-<reviewer>-sessions`, with the agent names in lowercase. Remind the user that the loops find no work until a bead gets the spec ritual and an assignment to the coder. In `pr` mode, also tell the user that beads with the label `merge` wait for them: approve and merge the pull request, then run `bd close <id>` and remove the label.
 
 ## Facts the scripts depend on
 
@@ -50,5 +50,6 @@ The harness source is `loop/` in the same repository. `bootstrap.sh` finds it fr
 - `run.sh` appends `ralph/project.md` to the prompt at each session. `RALPH_OVERLAY` points it at another file, and `RALPH_OVERLAY=none` runs the prompt alone.
 - The loops read `CODER.md`, `REVIEWER.md` and `project.md` from the primary checkout, not from the worktrees. Prompt changes merged to `main` take effect at the next session.
 - In `pr` mode, the reviewer comments on the pull request but does not approve it. The agents usually push with the human's GitHub account, and GitHub does not let an account approve its own pull request.
-- `layout.sh` refuses to run when a tab named `<name> loop` already exists, or when the calling tab already has watcher panes. To restart, close the loop tab and both watcher panes first.
+- `layout.sh` refuses to run when a tab named `<name> loop` already exists, or when the calling tab already has watcher panes or a Beads pane. To restart, close the loop tab, both watcher panes and the Beads pane first.
 - `layout.sh` splits the calling pane, so the watchers take one third of that pane's height, not of the whole tab. Run it from a pane that fills the tab.
+- The Beads pane runs `bd list --status open,blocked,in_progress` every 5 seconds and redraws only when the output changes. The header line shows the time of the last change, not the time of the last check.

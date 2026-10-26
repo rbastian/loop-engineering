@@ -1,8 +1,9 @@
 #!/bin/bash
-# Start both loops in their own herdr tab, and both watchers in the caller's tab:
+# Start both loops in their own herdr tab, and both watchers and the beads list
+# in the caller's tab:
 #   loop tab:      coder loop | reviewer loop (Claude, a different model from the coder)
-#   caller's tab:  coder watcher | reviewer watcher   (top third)
-#                  the calling pane                    (bottom two thirds)
+#   caller's tab:  coder watcher | reviewer watcher | Beads   (top third)
+#                  the calling pane                            (bottom two thirds)
 # Usage: layout.sh PROJECT_DIR
 # The agent names and worktree paths come from ralph/project.md.
 # The coder runs on CODER_MODEL (default claude-opus-5-5). The reviewer runs on
@@ -48,8 +49,8 @@ if herdr tab list --workspace "$HERDR_WORKSPACE_ID" \
 fi
 if herdr pane list --workspace "$HERDR_WORKSPACE_ID" \
     | jq -e --arg t "$HERDR_TAB_ID" \
-        '.result.panes[] | select(.tab_id == $t and (.label // "" | endswith(" watcher")))' >/dev/null; then
-    echo "ERROR: this tab already has watcher panes; close them first"
+        '.result.panes[] | select(.tab_id == $t and (.label // "" | endswith(" watcher") or . == "Beads"))' >/dev/null; then
+    echo "ERROR: this tab already has watcher or Beads panes; close them first"
     exit 1
 fi
 
@@ -64,7 +65,8 @@ REVIEWER_PANE=$(split "$CODER_PANE" right 0.5 "$REVIEWER_TREE")
 # the new pane up there. Pane IDs follow their processes through a swap.
 CODER_WATCH=$(split "$HERDR_PANE_ID" down 0.33 "$PROJECT")
 herdr pane swap --source-pane "$CODER_WATCH" --target-pane "$HERDR_PANE_ID" >/dev/null
-REVIEWER_WATCH=$(split "$CODER_WATCH" right 0.5 "$PROJECT")
+REVIEWER_WATCH=$(split "$CODER_WATCH" right 0.33 "$PROJECT")
+BEADS_PANE=$(split "$REVIEWER_WATCH" right 0.5 "$PROJECT")
 # The swap moves focus to the watcher; give it back to the caller below.
 herdr pane focus --direction down --pane "$CODER_WATCH" >/dev/null
 
@@ -72,10 +74,16 @@ herdr pane rename "$CODER_PANE" "$CODER" >/dev/null
 herdr pane rename "$REVIEWER_PANE" "$REVIEWER" >/dev/null
 herdr pane rename "$CODER_WATCH" "$CODER watcher" >/dev/null
 herdr pane rename "$REVIEWER_WATCH" "$REVIEWER watcher" >/dev/null
+herdr pane rename "$BEADS_PANE" "Beads" >/dev/null
 
 # Watchers first: they wait for current.jsonl, so nothing is missed.
 herdr pane run "$CODER_WATCH" "RALPH_LOG_DIR=$CODER_LOG uv run python ralph/watch.py --agent $CODER --tui" >/dev/null
 herdr pane run "$REVIEWER_WATCH" "RALPH_LOG_DIR=$REVIEWER_LOG uv run python ralph/watch.py --agent $REVIEWER --tui" >/dev/null
+
+# The beads list redraws only when it changes. bd list takes about 0.6 s, so a
+# loop that clears first leaves the pane blank on every cycle.
+BEADS_LOOP='clear; prev=; while true; do out=$(bd list --status open,blocked,in_progress 2>&1); if [ "$out" != "$prev" ]; then clear; date "+updated %H:%M:%S"; printf "%s\n" "$out"; prev=$out; fi; sleep 5; done'
+herdr pane run "$BEADS_PANE" "$BEADS_LOOP" >/dev/null
 
 # The loops read the primary's harness files, so prompt changes merged to
 # main take effect without touching the worktrees.
@@ -87,4 +95,4 @@ herdr pane run "$REVIEWER_PANE" \
 echo "opened tab '$LABEL'"
 echo "  $CODER: $CODER_PANE   $REVIEWER: $REVIEWER_PANE"
 echo "watchers in this tab"
-echo "  $CODER watcher: $CODER_WATCH   $REVIEWER watcher: $REVIEWER_WATCH"
+echo "  $CODER watcher: $CODER_WATCH   $REVIEWER watcher: $REVIEWER_WATCH   Beads: $BEADS_PANE"
