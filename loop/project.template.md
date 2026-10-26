@@ -14,9 +14,10 @@ This section gives the facts about this project. The prompt above refers to it a
 CODER={{CODER}}
 REVIEWER={{REVIEWER}}
 HUMAN={{HUMAN}}
+REVIEWER_ENGINE={{REVIEWER_ENGINE}}
 ```
 
-`$CODER` is the agent that implements beads. `$REVIEWER` is the agent that reviews them. Each name is the bead assignee that the agent's loop polls for. `$HUMAN` is the bd assignee for the human's queues: merge approval, acceptance and escalation.
+`$CODER` is the agent that implements beads. `$REVIEWER` is the agent that reviews them. Each name is the bead assignee that the agent's loop polls for. `$HUMAN` is the bd assignee for the human's queues: merge approval, acceptance and escalation. `REVIEWER_ENGINE` is the CLI that the reviewer's loop runs on: `claude` or `codex`. The coder always runs on `claude`.
 
 ## Ship mode
 

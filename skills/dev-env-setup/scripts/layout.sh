@@ -1,14 +1,16 @@
 #!/bin/bash
 # Start both loops in their own herdr tab, and both watchers and the beads list
 # in the caller's tab:
-#   loop tab:      coder loop | reviewer loop (Claude, a different model from the coder)
+#   loop tab:      coder loop | reviewer loop (Claude or Codex, another model from the coder)
 #   caller's tab:  coder watcher | reviewer watcher | Beads   (top third)
 #                  the calling pane                            (bottom two thirds)
 # Usage: layout.sh PROJECT_DIR
 # The agent names and worktree paths come from ralph/project.md.
-# The coder runs on CODER_MODEL (default claude-opus-5-5). The reviewer runs on
-# Claude Code with REVIEWER_MODEL (default claude-sonnet-5-5), so it reviews with
-# a different model.
+# The coder runs on Claude Code with CODER_MODEL (default claude-opus-5-5).
+# REVIEWER_ENGINE in ralph/project.md picks the reviewer's CLI: claude or codex.
+# The REVIEWER_ENGINE environment variable overrides it for one start. On claude,
+# REVIEWER_MODEL defaults to claude-sonnet-5-5, so it reviews with a different
+# model. On codex it has no default, and run.sh uses the plan's default model.
 # Must run inside a herdr pane. Refuses to run twice for the same project.
 set -euo pipefail
 
@@ -32,6 +34,20 @@ REVIEWER_TREE="$(conf REVIEWER_WORKTREE)"
 for v in CODER REVIEWER CODER_TREE REVIEWER_TREE; do
     case "${!v}" in "" | *"{{"*) echo "ERROR: $v is not set in ralph/project.md"; exit 1 ;; esac
 done
+
+REVIEWER_ENGINE="${REVIEWER_ENGINE:-$(conf REVIEWER_ENGINE)}"
+REVIEWER_ENGINE="${REVIEWER_ENGINE:-claude}"
+case "$REVIEWER_ENGINE" in
+    claude) REVIEWER_MODEL="${REVIEWER_MODEL:-claude-sonnet-5-5}" ;;
+    codex)
+        command -v codex >/dev/null 2>&1 || { echo "ERROR: REVIEWER_ENGINE=codex, but codex is not installed"; exit 1; }
+        REVIEWER_MODEL="${REVIEWER_MODEL:-}"
+        ;;
+    *)
+        echo "ERROR: REVIEWER_ENGINE must be claude or codex (got: $REVIEWER_ENGINE)"
+        exit 1
+        ;;
+esac
 
 # Per-project log directories, so two projects never share a current.jsonl.
 # The names do not end in "<agent>-sessions", so the watchers get --agent.
@@ -90,9 +106,9 @@ herdr pane run "$BEADS_PANE" "$BEADS_LOOP" >/dev/null
 herdr pane run "$CODER_PANE" \
     "RALPH_MODEL=${CODER_MODEL:-claude-opus-5-5} RALPH_STREAM_LOG=1 RALPH_SHOW_BEAD=1 RALPH_LOG_DIR=$CODER_LOG $PROJECT/ralph/run.sh $CODER $PROJECT/ralph/CODER.md" >/dev/null
 herdr pane run "$REVIEWER_PANE" \
-    "RALPH_MODEL=${REVIEWER_MODEL:-claude-sonnet-5-5} RALPH_STREAM_LOG=1 RALPH_SHOW_BEAD=1 RALPH_LOG_DIR=$REVIEWER_LOG $PROJECT/ralph/run.sh $REVIEWER $PROJECT/ralph/REVIEWER.md" >/dev/null
+    "RALPH_ENGINE=$REVIEWER_ENGINE RALPH_MODEL=$REVIEWER_MODEL RALPH_STREAM_LOG=1 RALPH_SHOW_BEAD=1 RALPH_LOG_DIR=$REVIEWER_LOG $PROJECT/ralph/run.sh $REVIEWER $PROJECT/ralph/REVIEWER.md" >/dev/null
 
 echo "opened tab '$LABEL'"
-echo "  $CODER: $CODER_PANE   $REVIEWER: $REVIEWER_PANE"
+echo "  $CODER: $CODER_PANE   $REVIEWER: $REVIEWER_PANE ($REVIEWER_ENGINE)"
 echo "watchers in this tab"
 echo "  $CODER watcher: $CODER_WATCH   $REVIEWER watcher: $REVIEWER_WATCH   Beads: $BEADS_PANE"
