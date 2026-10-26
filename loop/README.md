@@ -8,7 +8,7 @@ The loop has three roles: CODER, REVIEWER and HUMAN. The coder and the reviewer 
 - The reviewer reads the coder's branch in its own worktree, on a detached HEAD.
 - What happens after a review passes depends on the ship mode.
 
-You write the spec interactively, and the agents implement it headlessly. Each session starts with a fresh context, and the beads database is the only memory.
+You write the spec interactively, and the agents implement it headlessly. Each session starts fresh and reads its bead, prompts, project configuration and repository. Beads records task progress and handoffs between sessions.
 
 ## Ship modes
 
@@ -108,6 +108,47 @@ RALPH_LOG_DIR=/tmp/<name>-alice-sessions uv run ralph/watch.py --agent Alice --t
 | `RALPH_PRINT_PROMPT=1` | Print the combined prompt and exit. |
 
 The `RALPH_` prefix names the technique (the ralph loop), not an agent. Every agent uses the same variables.
+
+## Operations
+
+### Stop and restart
+
+To stop an agent, interrupt its active session and stop the enclosing shell loop in its terminal pane. Make sure that the agent process exits before you restart it. Checkpoint commits, saved files and bead notes provide recovery state for the next session.
+
+For a Herdr restart, close the project's loop tab, both watcher panes and the Beads pane. `layout.sh` refuses to start while that tab or those panes exist. From a Herdr pane that fills its tab, run the setup skill's layout script:
+
+```bash
+/path/to/loop-engineering/skills/dev-env-setup/scripts/layout.sh /path/to/project
+```
+
+The script reads names, paths and the reviewer's engine from `ralph/project.md`. For a manual restart, use the commands under [Running](#running) from each agent's worktree. In-progress beads take priority over new work.
+
+### Session logs
+
+The setup layout writes logs to `/tmp/<project>-<coder>-sessions` and `/tmp/<project>-<reviewer>-sessions`, with lowercase agent names. Each directory contains session JSONL files and a `current.jsonl` link to the latest session. These temporary files are not a durable archive.
+
+Use the watcher commands under [Running](#running) for a live view. To read an older log, run:
+
+```bash
+uv run ralph/watch.py --agent Ralph --file /path/to/session.jsonl --replay
+```
+
+Use your configured agent name in place of `Ralph`.
+
+### Update an installed harness
+
+Bootstrap preserves existing files in `ralph/`. Rerunning it does not install newer copies of the runner, watcher or role prompts.
+
+Stop both loops before an update. Compare the source files in `loop/` with the installed files in `ralph/`. Copy the intended updates into the primary checkout and review the diff. Keep project facts in `ralph/project.md`. Compare that file with `loop/project.template.md` for new configuration fields instead of replacing it.
+
+Make sure that the combined prompts contain no unresolved `{{...}}` placeholders:
+
+```bash
+RALPH_PRINT_PROMPT=1 ralph/run.sh Ralph ralph/CODER.md
+RALPH_PRINT_PROMPT=1 ralph/run.sh Alice ralph/REVIEWER.md
+```
+
+Use your configured agent names. Commit the reviewed update through your project's normal workflow, then restart the loops. The standard launch commands read prompts and the runner from the primary checkout. Restart the watchers to load watcher updates.
 
 ## Rules of engagement
 
