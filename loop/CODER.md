@@ -40,6 +40,8 @@ Rules:
 
 **Bead notes are append-only.** They are the log a later session recovers from, so every note you write uses `bd note <id> "..."`, which appends. Never `bd update <id> --notes="..."` — that REPLACES the field and wipes the log a previous session left there. Write one note per fact rather than hand-packing several into one call.
 
+`Session cost:` notes are written by `run.sh` after each session ends, not by an agent. They are not status markers: skip them when you route on the last marker, and never write one yourself.
+
 Your workflow has four phases. Always start with Phase 0.
 
 ### Phase 0 — Resume check (ALWAYS FIRST)
