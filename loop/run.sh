@@ -147,6 +147,38 @@ record_cost() {
     return 0
 }
 
+# A KEY=value line from the overlay, the same way worktrees.sh reads it.
+# Prints nothing when there is no overlay or no such line.
+overlay_value() {
+    [ -n "$OVERLAY_FILE" ] || return 0
+    sed -n "s/^$1=//p" "$OVERLAY_FILE" | head -1
+}
+
+# In local mode the reviewer merges into the primary checkout, and REVIEWER.md
+# exits without a merge when the primary is not on main or has modified or
+# staged tracked files outside .beads/. Starting a session then only burns
+# money, so the loop waits. Prints the reason when busy; prints nothing and
+# fails when the reviewer may run (also for the coder, pr mode, no overlay).
+primary_busy_reason() {
+    local primary branch
+    [ "$(overlay_value SHIP_MODE)" = "local" ] || return 1
+    [ "$AGENT_NAME" = "$(overlay_value REVIEWER)" ] || return 1
+    primary=$(overlay_value PRIMARY)
+    [ -n "$primary" ] || return 1
+    branch=$(git -C "$primary" rev-parse --abbrev-ref HEAD 2>/dev/null) || branch="?"
+    if [ "$branch" != "main" ]; then
+        echo "on $branch"
+    elif git -C "$primary" status --porcelain --untracked-files=no 2>/dev/null \
+            | grep -v '\.beads/' | grep -q .; then
+        echo "modified tracked files"
+    else
+        return 1
+    fi
+}
+
+# The busy reason printed last, so a wait prints its reason once, not every 30s.
+LAST_BUSY=""
+
 while true; do
 
     # Re-read $PROMPT_FILE each iteration so changes take effect without restart
@@ -175,6 +207,17 @@ while true; do
         sleep 30
         continue
     fi
+
+    # After the bead counts, so that "No beads" still prints with no work.
+    if BUSY=$(primary_busy_reason); then
+        if [ "$BUSY" != "$LAST_BUSY" ]; then
+            echo "primary checkout busy: $BUSY; waiting to start $AGENT_NAME"
+            LAST_BUSY="$BUSY"
+        fi
+        sleep 30
+        continue
+    fi
+    LAST_BUSY=""
 
     if [ "$IN_PROGRESS_COUNT" -gt 0 ]; then
         echo "In-progress beads (claimed, not finished):"
