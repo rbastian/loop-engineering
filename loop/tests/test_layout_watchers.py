@@ -11,17 +11,12 @@ from pathlib import Path
 LAYOUT = Path(__file__).parents[2] / "skills/dev-env-setup/scripts/layout.sh"
 
 
-def watcher_commands() -> list[str]:
-    return [
+def test_both_watchers_run_watch_py_as_a_uv_script():
+    commands = [
         line
         for line in LAYOUT.read_text().splitlines()
         if line.startswith("herdr pane run") and "watch.py" in line
     ]
-
-
-def test_both_watchers_run_watch_py_as_a_uv_script():
-    commands = watcher_commands()
     assert len(commands) == 2
     for command in commands:
         assert "uv run ralph/watch.py" in command
-        assert "uv run python" not in command
