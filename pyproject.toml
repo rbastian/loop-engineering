@@ -1,0 +1,20 @@
+[project]
+name = "loop-engineering"
+version = "0.1.0"
+description = "A coder and reviewer agent loop driven by beads"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "rich>=15.0.0",
+    "ruff>=0.17.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["loop/tests"]
+
+[tool.ruff.lint]
+extend-select = ["I"]
