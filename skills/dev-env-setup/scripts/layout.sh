@@ -97,8 +97,10 @@ herdr pane run "$CODER_WATCH" "RALPH_LOG_DIR=$CODER_LOG uv run python ralph/watc
 herdr pane run "$REVIEWER_WATCH" "RALPH_LOG_DIR=$REVIEWER_LOG uv run python ralph/watch.py --agent $REVIEWER --tui" >/dev/null
 
 # The beads list redraws only when it changes. bd list takes about 0.6 s, so a
-# loop that clears first leaves the pane blank on every cycle.
-BEADS_LOOP='clear; prev=; while true; do out=$(bd list --status open,blocked,in_progress 2>&1); if [ "$out" != "$prev" ]; then clear; date "+updated %H:%M:%S"; printf "%s\n" "$out"; prev=$out; fi; sleep 5; done'
+# loop that clears first leaves the pane blank on every cycle. bd turns color
+# off when it writes into a command substitution, so CLICOLOR_FORCE=1 keeps the
+# colors. Set it on the bd call only, not for the whole pane shell.
+BEADS_LOOP='clear; prev=; while true; do out=$(CLICOLOR_FORCE=1 bd list --status open,blocked,in_progress 2>&1); if [ "$out" != "$prev" ]; then clear; date "+updated %H:%M:%S"; printf "%s\n" "$out"; prev=$out; fi; sleep 5; done'
 herdr pane run "$BEADS_PANE" "$BEADS_LOOP" >/dev/null
 
 # The loops read the primary's harness files, so prompt changes merged to
