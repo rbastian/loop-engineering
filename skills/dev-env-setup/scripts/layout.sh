@@ -93,8 +93,8 @@ herdr pane rename "$REVIEWER_WATCH" "$REVIEWER watcher" >/dev/null
 herdr pane rename "$BEADS_PANE" "Beads" >/dev/null
 
 # Watchers first: they wait for current.jsonl, so nothing is missed.
-herdr pane run "$CODER_WATCH" "RALPH_LOG_DIR=$CODER_LOG uv run python ralph/watch.py --agent $CODER --tui" >/dev/null
-herdr pane run "$REVIEWER_WATCH" "RALPH_LOG_DIR=$REVIEWER_LOG uv run python ralph/watch.py --agent $REVIEWER --tui" >/dev/null
+herdr pane run "$CODER_WATCH" "RALPH_LOG_DIR=$CODER_LOG uv run ralph/watch.py --agent $CODER --tui" >/dev/null
+herdr pane run "$REVIEWER_WATCH" "RALPH_LOG_DIR=$REVIEWER_LOG uv run ralph/watch.py --agent $REVIEWER --tui" >/dev/null
 
 # The beads list redraws only when it changes. bd list takes about 0.6 s, so a
 # loop that clears first leaves the pane blank on every cycle. bd turns color
