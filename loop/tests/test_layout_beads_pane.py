@@ -40,9 +40,5 @@ def run_capture(tmp_path: Path) -> str:
     return result.stdout
 
 
-def test_bd_call_forces_color(tmp_path):
-    assert run_capture(tmp_path).startswith("bd sees 1|")
-
-
-def test_color_setting_stays_on_the_bd_call(tmp_path):
-    assert run_capture(tmp_path).endswith("|shell sees unset")
+def test_color_is_forced_on_the_bd_call_only(tmp_path):
+    assert run_capture(tmp_path) == "bd sees 1|shell sees unset"
