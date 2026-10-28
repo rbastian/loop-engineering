@@ -64,7 +64,7 @@ def run_loop(
     ready_beads = ",".join('{"id":"lpe-y"}' for _ in range(ready))
     write_exe(
         bin_dir / "bd",
-        'case "$1 $*" in\n'
+        'case "$*" in\n'
         f"  *--status=in_progress*--json*) echo '[{beads}]' ;;\n"
         f"  ready*--json*) echo '[{ready_beads}]' ;;\n"
         "esac\n",
@@ -113,7 +113,7 @@ def run_loop(
 def test_primary_on_a_branch_blocks_the_reviewer_and_prints_once(tmp_path):
     primary = make_primary(tmp_path)
     git(primary, "checkout", "-q", "-b", "feature")
-    out = run_loop(tmp_path, primary, in_progress=1)
+    out = run_loop(tmp_path, primary)
     assert STARTED not in out
     assert out.count(BUSY_BRANCH) == 1
 
