@@ -70,7 +70,7 @@ bd list --assignee="$CODER" --status=in_progress
 4. **Create the feature branch immediately:** `git checkout -b feat/<short-description>-<bead-short-id> "$BASE"`
    → `bd note <id> "Branch created: feat/<name>"`
 
-   If the notes already name a branch for this bead (it was blocked on a broken main, see "Gate fails on `$BASE`"), do not create a new one. Check that branch out, `git rebase "$BASE"`, run the gate, and continue from the matching phase.
+   If a `feat/` branch for this bead already exists (for example, it was blocked on a broken main), do not create a new one. Check it out, `git rebase "$BASE"`, and continue as Phase 0's "Branch exists, unmerged" says.
 5. **Write tests FIRST** before implementing (Test-Driven Development).
 6. Implement and get tests passing.
 7. **Commit checkpoint:** `git add <files> && git commit -m "wip: <description> [<bead-id>]"` — saves your work in case the session drops.
@@ -98,8 +98,7 @@ bd list --assignee="$CODER" --status=in_progress
 11. If there are uncommitted changes: `git add <files> && git commit -m "feat: <description> [<bead-id>]"`
 12. **Run the full gate (Project section) one final time, on the exact code you are about to hand over.**
     - Gate **passes** → continue to step 13.
-    - Gate **fails** and the failure may not come from your change → follow "Gate fails on `$BASE`" below.
-    - Gate **fails** → fix and repeat step 12 ONCE. If it fails again, leave the bead `in_progress` with `bd note <id> "Gate failing: <what>"` and EXIT. Do NOT hand over failing code. Ever.
+    - Gate **fails** → if the failure may not come from your change, follow "Gate fails on `$BASE`" below. Otherwise fix and repeat step 12 ONCE. If it fails again, leave the bead `in_progress` with `bd note <id> "Gate failing: <what>"` and EXIT. Do NOT hand over failing code. Ever.
 13. **In `pr` mode, push and open the pull request.** In `local` mode, skip to step 14.
     ```bash
     git push -u origin <branch>                 # after a rebase: git push --force-with-lease
@@ -126,7 +125,7 @@ bd list --assignee="$CODER" --status=in_progress
 
 When the gate fails (step 8 or step 12) and the failures may not come from your change, `$BASE` itself may be broken. Do not park: a parked bead stays `in_progress`, and `run.sh` starts a new session for it every 30 seconds. Block the bead on a bug bead instead.
 
-1. **Detect.** Commit your work (`git add -A && git commit -m "wip: <description> [<bead-id>]"`). Do not stash: the stash stack is shared with other worktrees. In `pr` mode, run `git fetch origin`. Then run the gate on `$BASE` in your own worktree, and return to your branch:
+1. **Detect.** Commit your work as a step 7 checkpoint. Do not stash: the stash stack is shared with other worktrees. In `pr` mode, run `git fetch origin`. Then run the gate on `$BASE` in your own worktree, and return to your branch:
    ```bash
    git checkout --detach "$BASE"
    <the gate>
@@ -153,8 +152,8 @@ When the gate fails (step 8 or step 12) and the failures may not come from your 
    git checkout loop
    ```
    Your worktree must be on `loop` and clean. EXIT.
-4. **Resume.** A bead with an open dependency is neither `in_progress` nor ready, so `run.sh` does not start a session for it. When `$HUMAN` closes the bug bead, the bead is ready again. Phase 1 picks it up, finds the existing branch (step 4), rebases it onto `$BASE`, runs the gate and continues as usual.
-5. **Other beads.** Do not check for an open `broken-main` bead before you claim. If you claim another bead while main is still broken, its gate fails the same way, and step 2 finds the same bug bead by its label. Block that bead on it too.
+4. **Resume.** A bead with an open dependency is not ready, so `run.sh` does not start a session for it. When `$HUMAN` closes the bug bead, the bead is ready again, and Phase 1 step 4 resumes its existing branch.
+5. **Other beads.** Do not check for an open `broken-main` bead before you claim. If another bead's gate fails the same way, step 2 finds the same bug bead by its label, and you block that bead on it too.
 
 ### Self-check: Am I done?
 
