@@ -36,7 +36,7 @@ Rules:
 
 ## Task Management (Beads)
 
-**CRITICAL: You work on ONE bead at a time. NEVER start another bead until the current one is handed to `$REVIEWER` or parked.** Once it is theirs, it is off your plate — the reviewer reviews it and sends it on, and only sends it back to you if it fails review.
+**CRITICAL: You work on ONE bead at a time. NEVER start another bead until the current one is handed to `$REVIEWER`, parked, or blocked on a broken main.** Once it is theirs, it is off your plate — the reviewer reviews it and sends it on, and only sends it back to you if it fails review.
 
 **Bead notes are append-only.** They are the log a later session recovers from, so every note you write uses `bd note <id> "..."`, which appends. Never `bd update <id> --notes="..."` — that REPLACES the field and wipes the log a previous session left there. Write one note per fact rather than hand-packing several into one call.
 
@@ -69,6 +69,8 @@ bd list --assignee="$CODER" --status=in_progress
 3. Claim it atomically: `bd update <id> --claim`
 4. **Create the feature branch immediately:** `git checkout -b feat/<short-description>-<bead-short-id> "$BASE"`
    → `bd note <id> "Branch created: feat/<name>"`
+
+   If the notes already name a branch for this bead (it was blocked on a broken main, see "Gate fails on `$BASE`"), do not create a new one. Check that branch out, `git rebase "$BASE"`, run the gate, and continue from the matching phase.
 5. **Write tests FIRST** before implementing (Test-Driven Development).
 6. Implement and get tests passing.
 7. **Commit checkpoint:** `git add <files> && git commit -m "wip: <description> [<bead-id>]"` — saves your work in case the session drops.
@@ -76,7 +78,7 @@ bd list --assignee="$CODER" --status=in_progress
 
 ### Phase 2 — Clean
 
-8. Run the project's format commands, then the gate, and fix anything they flag (both are in the Project section). Then run `/simplify` to review the code.
+8. Run the project's format commands, then the gate, and fix anything they flag (both are in the Project section). If a failure may not come from your change, follow "Gate fails on `$BASE`" below. Then run `/simplify` to review the code.
 
    **Findings `/simplify` declines to apply** (out of scope, changes a public contract, needs a design decision) go into the bead's notes — `bd note <id> "Declined /simplify findings: ..."` — NOT into new beads. Review findings are never filed as beads; the reviewer reads them in the review and the human triages them from the notes.
 
@@ -96,6 +98,7 @@ bd list --assignee="$CODER" --status=in_progress
 11. If there are uncommitted changes: `git add <files> && git commit -m "feat: <description> [<bead-id>]"`
 12. **Run the full gate (Project section) one final time, on the exact code you are about to hand over.**
     - Gate **passes** → continue to step 13.
+    - Gate **fails** and the failure may not come from your change → follow "Gate fails on `$BASE`" below.
     - Gate **fails** → fix and repeat step 12 ONCE. If it fails again, leave the bead `in_progress` with `bd note <id> "Gate failing: <what>"` and EXIT. Do NOT hand over failing code. Ever.
 13. **In `pr` mode, push and open the pull request.** In `local` mode, skip to step 14.
     ```bash
@@ -119,12 +122,47 @@ bd list --assignee="$CODER" --status=in_progress
     The bead stays `in_progress` — it belongs to the reviewer now, not to you. **Keep the feature branch**: the reviewer reads it, and in `local` mode merges and deletes it. If it is bounced back, your next Phase 0 picks it up.
 15. EXIT. **Do NOT start another bead.**
 
+### Gate fails on `$BASE` (broken main)
+
+When the gate fails (step 8 or step 12) and the failures may not come from your change, `$BASE` itself may be broken. Do not park: a parked bead stays `in_progress`, and `run.sh` starts a new session for it every 30 seconds. Block the bead on a bug bead instead.
+
+1. **Detect.** Commit your work (`git add -A && git commit -m "wip: <description> [<bead-id>]"`). Do not stash: the stash stack is shared with other worktrees. In `pr` mode, run `git fetch origin`. Then run the gate on `$BASE` in your own worktree, and return to your branch:
+   ```bash
+   git checkout --detach "$BASE"
+   <the gate>
+   git checkout <branch>
+   ```
+   - Gate **passes** on `$BASE` → the failure is your own. Fix it as usual.
+   - Gate **fails** on `$BASE` → main is broken. Go to step 2.
+2. **Find or file the bug bead.** The label `broken-main` is used only for this purpose.
+   ```bash
+   bd list --label=broken-main --status=open,in_progress
+   ```
+   - One exists → use it. If your failing test names are new to it, add them: `bd note <bug-id> "Also fails: <test names>"`.
+   - None exists → file one:
+     ```bash
+     bd create --title="Broken main: $BASE fails the gate" --type=bug --priority=1 \
+       --labels=broken-main --assignee="$HUMAN" \
+       --description="$BASE fails the gate at <sha>. Failing: <test names>."
+     ```
+3. **Block the bead.** It stays assigned to you. Leave the feature branch in place.
+   ```bash
+   bd dep add <id> <bug-id>
+   bd update <id> --status=open
+   bd note <id> "Blocked by <bug-id>: $BASE fails the gate at <sha>"
+   git checkout loop
+   ```
+   Your worktree must be on `loop` and clean. EXIT.
+4. **Resume.** A bead with an open dependency is neither `in_progress` nor ready, so `run.sh` does not start a session for it. When `$HUMAN` closes the bug bead, the bead is ready again. Phase 1 picks it up, finds the existing branch (step 4), rebases it onto `$BASE`, runs the gate and continues as usual.
+5. **Other beads.** Do not check for an open `broken-main` bead before you claim. If you claim another bead while main is still broken, its gate fails the same way, and step 2 finds the same bug bead by its label. Block that bead on it too.
+
 ### Self-check: Am I done?
 
-Before exiting, verify your end state is ONE of these two:
+Before exiting, verify your end state is ONE of these three:
 
 - **Handed off:** gate passed, work committed on its feature branch, in `pr` mode pushed with a PR open, bead `in_progress` and assigned to `$REVIEWER` with a "Handed to `$REVIEWER` for review" note, the branch left in place, your worktree back on `loop` and clean.
 - **Parked:** work committed on its feature branch, bead `in_progress` (or reopened) with a note saying exactly what is blocking, `main` untouched.
+- **Blocked on broken main:** work committed on its feature branch, bead `open` and assigned to `$CODER`, a dependency on an open `broken-main` bug bead, a "Blocked by <bug-id>" note, the branch left in place, your worktree back on `loop` and clean.
 
 Any other state means you are NOT done. Go back to the first incomplete step.
 
@@ -154,7 +192,7 @@ A bead is **not complete** until ALL of the following are true:
 - [ ] In `pr` mode, the branch is pushed and its PR is open
 - [ ] **Branch is handed to the reviewer** with the handoff note and `--assignee="$REVIEWER"`
 
-Your session's work is done at the handoff. The bead itself CLOSES only when its code is on `main`, so a bead you handed over is still open until then. A session may also legitimately END parked (the end state above).
+Your session's work is done at the handoff. The bead itself CLOSES only when its code is on `main`, so a bead you handed over is still open until then. A session may also legitimately END parked or blocked on a broken main (the end states above).
 
 ## Handling Discovered Work
 
@@ -166,7 +204,7 @@ Your session's work is done at the handoff. The bead itself CLOSES only when its
 
 ## When Things Go Wrong
 
-- **Tests already failing on `$BASE`:** Note the failures, file a bug bead, and proceed with your bead only if unrelated. Do not fix unrelated test failures on your branch, and do not hand off if your bead's own gate can't pass because of them — park instead.
+- **Tests already failing on `$BASE`:** Do not fix them on your branch, and do not park. Follow "Gate fails on `$BASE` (broken main)" in Phase 3.
 - **Bead design is incomplete or unclear:** Set it back to open and say why (`bd update <id> --status=open`, then `bd note <id> "Blocked: <reason>"`), and delete any branch you created for it. Pick up a different ready bead or EXIT. Do not guess your way through an ambiguous spec — the human specs interactively precisely so you never have to.
 - **An external service from the Project section is unavailable** (missing or expired credentials, network failure): work against fixtures or committed data. Write on the bead what you could not test live, and put a clear TODO in the bead notes, not in code comments. Never put credentials in code or in output.
 - **bd command fails with a lock/unavailable error:** the beads DB is single-writer and the human may be using it interactively. Wait a few seconds and retry the same command; only park if it stays down.
