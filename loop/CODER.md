@@ -33,6 +33,7 @@ Rules:
 - **Location guard (run at session start):** `git rev-parse --show-toplevel` must equal `CODER_WORKTREE` from the Project section. If it does not, you are in the wrong checkout. EXIT immediately and print a warning to stdout. Do not work there.
 - A dirty tree in YOUR worktree is your own crash-recovery state: `git add -A && git commit -m "wip: crash-recovery checkpoint"` on the current branch and resume that bead.
 - In `pr` mode, run `git fetch origin` at session start, so that `$BASE` is current.
+- **Kill only what you started.** Other loops and the human's processes run on this machine. Kill a process only by a PID that you recorded when you started it (`$!`, a PID file your command wrote, or a process group you created). Never select processes by name, pattern or port: no `pkill`, `killall`, `ps | grep | kill`, `pgrep | xargs kill` or `lsof -ti :<port> | xargs kill`. If you lost the PID, leave the process running and write `bd note <id> "Left running: <command> (PID unknown)"`. Use a free port or a new temp path instead. `Left running:` is not a status marker: skip it when you route on the last marker.
 
 ## Task Management (Beads)
 

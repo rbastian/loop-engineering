@@ -73,7 +73,7 @@ One exception: a round that follows a `Rebase needed:` note re-uses the previous
 
 The gate is cheap and runs last on purpose: a failing gate is blocking on its own, but you get one bounce, so you want every finding in it. Read the code even when you already know the gate will fail.
 
-**Blocking** — any one of these bounces the bead: a correctness bug, a departure from the description, design or acceptance criteria, a violated trap-list item, a deleted/skipped/weakened test, new behaviour with no test, a failing gate, or in `pr` mode a PR head that is not the reviewed commit.
+**Blocking** — any one of these bounces the bead: a correctness bug, a departure from the description, design or acceptance criteria, a violated trap-list item, a deleted/skipped/weakened test, new behaviour with no test, a failing gate, code in the diff that kills processes by name, pattern or port (in tests, fixtures and scripts too, because the gate runs on the same machine as the loops), or in `pr` mode a PR head that is not the reviewed commit.
 
 **Everything else is non-blocking**: style, naming, a tidier shape, work the bead did not ask for. It goes in one note for `$HUMAN` to triage — `bd note <id> "Non-blocking review findings: ..."` — whatever the outcome below. Findings are never filed as beads, the same rule that governs the coder's declined `/simplify` findings.
 
@@ -200,3 +200,4 @@ Any other state means you are NOT done. Go back to the first incomplete step.
 - Approve or merge a PR. In `pr` mode, the merge is `$HUMAN`'s.
 - Merge code whose gate has not passed on the exact commits being merged. Ever.
 - Start a second bead in one session.
+- Kill a process by name, pattern or port, or any process that you did not start. Other loops and the human's processes run on this machine, and the rule covers your own commands, such as the gate and `codex exec review`. Kill only by a PID that you recorded when you started the process (`$!`, a PID file your command wrote, or a process group you created). If you lost the PID, leave the process running and write `bd note <id> "Left running: <command> (PID unknown)"`. `Left running:` is not a status marker: skip it when you route on the last marker.
