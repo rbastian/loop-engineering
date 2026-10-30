@@ -101,6 +101,9 @@ bead_count() {
     jq 'length' <<<"$json" 2>/dev/null || echo -1
 }
 
+# A killed or failed sleep must not end the loop under set -e (lpe-qi4).
+pause() { sleep "$1" || true; }
+
 # watch.py sits beside this script, in the primary checkout's ralph/ folder.
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -141,7 +144,7 @@ record_cost() {
             echo "Cost note on $bead: $note"
             return 0
         fi
-        [ "$attempt" -lt 3 ] && sleep 10
+        if [ "$attempt" -lt 3 ]; then pause 10; fi
     done
     echo "WARNING: bd note failed on $bead; no cost note: $note"
     return 0
@@ -198,13 +201,13 @@ while true; do
 
     if [ "$IN_PROGRESS_COUNT" -lt 0 ] || [ "$READY_COUNT" -lt 0 ]; then
         echo "WARNING: bd unavailable (db locked or erroring); retrying in 30s"
-        sleep 30
+        pause 30
         continue
     fi
 
     if [ "$IN_PROGRESS_COUNT" -eq 0 ] && [ "$READY_COUNT" -eq 0 ]; then
         echo "No beads for $AGENT_NAME. Zzzzzz..."
-        sleep 30
+        pause 30
         continue
     fi
 
@@ -214,7 +217,7 @@ while true; do
             echo "primary checkout busy: $BUSY; waiting to start $AGENT_NAME"
             LAST_BUSY="$BUSY"
         fi
-        sleep 30
+        pause 30
         continue
     fi
     LAST_BUSY=""
@@ -303,5 +306,5 @@ while true; do
     echo "=== $(date '+%Y-%m-%d %H:%M:%S') === Session ended ==="
     echo ""
 
-    sleep 30
+    pause 30
 done
