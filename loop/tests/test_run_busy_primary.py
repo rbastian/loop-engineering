@@ -6,8 +6,7 @@ every 30 seconds into the same busy primary (lpe-47h). These tests run run.sh
 against a scratch git repository with a fake bd, a fake agent and a fake sleep.
 The fake sleep stops run.sh with SIGTERM after a set number of iterations, and
 it can run a shell command on each call to change the primary between
-iterations. A failed sleep no longer ends run.sh (lpe-qi4), so a SIGTERM is the
-only way out.
+iterations.
 """
 
 import subprocess
