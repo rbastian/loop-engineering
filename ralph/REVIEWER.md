@@ -73,7 +73,7 @@ One exception: a round that follows a `Rebase needed:` note re-uses the previous
 
 The gate is cheap and runs last on purpose: a failing gate is blocking on its own, but you get one bounce, so you want every finding in it. Read the code even when you already know the gate will fail.
 
-**Blocking** — any one of these bounces the bead: a correctness bug, a departure from the description, design or acceptance criteria, a violated trap-list item, a deleted/skipped/weakened test, new behaviour with no test, a failing gate, or in `pr` mode a PR head that is not the reviewed commit.
+**Blocking** — any one of these bounces the bead: a correctness bug, a departure from the description, design or acceptance criteria, a violated trap-list item, a deleted/skipped/weakened test, new behaviour with no test, a failing gate, code in the diff that kills processes by name, pattern or port (in tests, fixtures and scripts too, because the gate runs on the same machine as the loops), or in `pr` mode a PR head that is not the reviewed commit.
 
 **Everything else is non-blocking**: style, naming, a tidier shape, work the bead did not ask for. It goes in one note for `$HUMAN` to triage — `bd note <id> "Non-blocking review findings: ..."` — whatever the outcome below. Findings are never filed as beads, the same rule that governs the coder's declined `/simplify` findings.
 
@@ -119,7 +119,7 @@ git -C "$PRIMARY" status --porcelain --untracked-files=no | grep -v '\.beads/'  
   ```bash
   git -C "$PRIMARY" merge --no-ff <branch> -m "feat: <description> [<bead-id>]"
   ```
-- Primary is on another branch, or has modified or staged tracked changes → the human is mid-work there. Do NOT wait, do NOT touch their state. `bd note <id> "Review passed, awaiting merge: <branch> — primary checkout busy"`, leave the bead `in_progress` and assigned to you, and EXIT. A later session's Phase 0 completes the merge.
+- Primary is on another branch, or has modified or staged tracked changes → the human is mid-work there. Do NOT wait, do NOT touch their state. `bd note <id> "Review passed, awaiting merge: <branch> — primary checkout busy"`, leave the bead `in_progress` and assigned to you, and EXIT. `run.sh` does not start the next reviewer session until the primary is on `main` with no modified or staged tracked files. That session's Phase 0 then completes the merge. Do not wait or retry in this session.
 - Merge **conflicts** (`main` moved underneath the branch) → `git -C "$PRIMARY" merge --abort`, then hand it back for a rebase — see below. You never rebase; the branch is the coder's.
 
 Then record and close:
@@ -184,7 +184,7 @@ Before exiting, verify your end state is ONE of these six:
 
 - **Ready to merge (`pr` mode):** gate passed on the PR head, PR comment posted, `Review summary:` and `Review passed, PR #<number> awaiting merge approval` notes written, bead `in_progress`, labelled `merge` and assigned to `$HUMAN`, your worktree detached at `$BASE`.
 - **Merged (`local` mode):** gate passed, branch merged in the primary, `Merged to main:` and `Review summary:` notes written, bead closed, labelled `accept` and assigned to `$HUMAN`, branch deleted, your worktree detached at `main`.
-- **Awaiting merge (`local` mode):** review passed, bead `in_progress` and still yours with a "Review passed, awaiting merge" note — because the primary checkout was busy.
+- **Awaiting merge (`local` mode):** review passed, bead `in_progress` and still yours with a "Review passed, awaiting merge" note — because the primary checkout was busy. `run.sh` holds the next reviewer session until the primary is clean.
 - **Rebase needed:** merge aborted or PR conflicting, `Rebase needed:` note written, bead back with the coder.
 - **Bounced:** one note per blocking finding, `Returned to $CODER after review round 1`, bead back with the coder.
 - **Escalated:** findings noted, `Escalated to $HUMAN after review round 2`, bead labelled `escalated` and assigned to `$HUMAN`.
@@ -200,3 +200,4 @@ Any other state means you are NOT done. Go back to the first incomplete step.
 - Approve or merge a PR. In `pr` mode, the merge is `$HUMAN`'s.
 - Merge code whose gate has not passed on the exact commits being merged. Ever.
 - Start a second bead in one session.
+- Kill a process by name, pattern or port, or any process that you did not start. Other loops and the human's processes run on this machine, and the rule covers your own commands, such as the gate and `codex exec review`. Kill only by a PID that you recorded when you started the process (`$!`, a PID file your command wrote, or a process group you created). If you lost the PID, leave the process running and write `bd note <id> "Left running: <command> (PID unknown)"`. `Left running:` is not a status marker: skip it when you route on the last marker.
