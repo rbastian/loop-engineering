@@ -2,6 +2,21 @@
 
 This project uses **bd** (beads) for issue tracking. Run `bd prime` for full workflow context.
 
+## Interactive sessions: refine and assign, do not implement
+
+This rule applies when you work with the human in an interactive session. Skip it if `ralph/CODER.md` or `ralph/REVIEWER.md` started your session. In an interactive session, this rule overrides the claim and close steps in the beads block below.
+
+Ralph, the coder, implements beads. Alice, the reviewer, reviews them. You and the human refine each bead until Ralph can implement it without questions:
+
+1. Pick the next bead together.
+2. Read the bead and the code that it touches, and list the open questions.
+3. Ask the human each design question. Do not answer them yourself.
+4. Write the description, the design and the acceptance criteria into the bead.
+5. Add the dependencies that set the order of the work.
+6. When the human agrees that the bead is ready, assign it: `bd update <id> --assignee=Ralph`.
+
+You can read any code, and you can change bead records, `CLAUDE.md` and `AGENTS.md`. Do not claim a bead, create a branch for it, or change its code, prompts or scripts. If the human asks you to implement a bead, offer to refine and assign it instead. The human can override this rule for one task.
+
 > **Architecture in one line:** Issues live in a local Dolt database
 > (`.beads/dolt/`); cross-machine sync uses `bd dolt push/pull` (a
 > git-compatible protocol), stored under `refs/dolt/data` on your git
