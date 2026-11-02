@@ -179,7 +179,7 @@ Use your configured agent name in place of `Ralph`.
 
 ### Update an installed harness
 
-Bootstrap preserves existing files in `ralph/`. Rerunning it does not install newer copies of the runner, watcher or role prompts. It still runs `uv add --dev`, `ruff format .` and `ruff check --fix .`, which can change project files. In `local` mode, modified tracked files prevent merges until the human resolves those changes.
+Bootstrap preserves existing files in `ralph/`. Rerunning it does not install newer copies of the runner, watcher or role prompts. It still runs `uv add --dev`, which can change `pyproject.toml` and `uv.lock`. A rerun sees an existing repository, so it runs only the check-only gate and does not reformat files. In `local` mode, modified tracked files prevent merges until the human resolves those changes.
 
 The standard launch commands read the runner and prompts from the primary checkout's working tree. They do not select the committed version on `main`. Keep that checkout on the reviewed version before restarting.
 
