@@ -94,6 +94,13 @@ done
 
 cd "$PROJECT"
 
+# A folder that holds anything besides .git is an existing repository.
+# bootstrap.sh then adds no package and rewrites none of its files.
+EXISTING=0
+if [ -n "$(ls -A | grep -vx '.git' || true)" ]; then
+    EXISTING=1
+fi
+
 step "git"
 if [ -d .git ]; then
     echo "already a git repository"
@@ -110,8 +117,19 @@ fi
 step "uv"
 if [ -f pyproject.toml ]; then
     echo "pyproject.toml exists; skipping uv init"
-else
+elif [ "$EXISTING" -eq 0 ]; then
     uv init --package --name "$NAME"
+elif uv init --help | grep -q -- '--bare'; then
+    # Only pyproject.toml: no src/ package, README or main.py.
+    uv init --bare --name "$NAME"
+else
+    cat >pyproject.toml <<EOF
+[project]
+name = "$NAME"
+version = "0.1.0"
+dependencies = []
+EOF
+    echo "wrote a minimal pyproject.toml"
 fi
 uv add --dev ruff pytest "$@"
 # uv init writes .gitignore only when it creates the repository itself, and
@@ -130,19 +148,31 @@ __pycache__/
 data/
 EOF
 fi
+# Existing tests anywhere in the project. pytest then finds them by its
+# default rules, so bootstrap.sh sets no testpaths and writes no smoke test.
+EXISTING_TESTS="$(find . \( -name .git -o -name .venv -o -name ralph -o -name node_modules \) -prune \
+    -o -type f \( -name 'test_*.py' -o -name '*_test.py' \) -print)"
 if ! grep -q '^\[tool.pytest' pyproject.toml; then
-    cat >>pyproject.toml <<'EOF'
+    if [ -z "$EXISTING_TESTS" ]; then
+        cat >>pyproject.toml <<'EOF'
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+EOF
+    fi
+    if ! grep -q '^\[tool.ruff.lint\]' pyproject.toml; then
+        cat >>pyproject.toml <<'EOF'
 
 [tool.ruff.lint]
 extend-select = ["I"]
 EOF
+    fi
 fi
-# pytest exits 5 when it collects nothing, which fails the gate on an empty project.
-mkdir -p tests
-if ! ls tests/test_*.py >/dev/null 2>&1; then
+# pytest exits 5 when it collects nothing, which fails the gate on a project without tests.
+if [ -n "$EXISTING_TESTS" ]; then
+    echo "found existing tests; writing no tests/test_smoke.py"
+else
+    mkdir -p tests
     if [ -d "src/$PKG" ]; then
         cat >tests/test_smoke.py <<EOF
 import $PKG
@@ -195,8 +225,12 @@ else
 fi
 
 step "gate"
-uv run ruff format .
-uv run ruff check --fix .
+# On an existing repository, run only the checks: the format commands would
+# rewrite the user's files.
+if [ "$EXISTING" -eq 0 ]; then
+    uv run ruff format .
+    uv run ruff check --fix .
+fi
 uv run ruff format --check . && uv run ruff check . && uv run pytest -q
 
 echo
