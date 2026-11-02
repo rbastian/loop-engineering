@@ -231,7 +231,11 @@ if [ "$EXISTING" -eq 0 ]; then
     uv run ruff format .
     uv run ruff check --fix .
 fi
-uv run ruff format --check . && uv run ruff check . && uv run pytest -q
+# set -e ignores a failure inside an && list, so test the list explicitly.
+if ! { uv run ruff format --check . && uv run ruff check . && uv run pytest -q; }; then
+    echo "bootstrap failed: the gate failed in $PROJECT" >&2
+    exit 1
+fi
 
 echo
 echo "bootstrap done: $PROJECT"
