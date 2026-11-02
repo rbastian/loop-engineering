@@ -151,22 +151,22 @@ fi
 # Existing tests anywhere in the project. pytest then finds them by its
 # default rules, so bootstrap.sh sets no testpaths and writes no smoke test.
 EXISTING_TESTS="$(find . \( -name .git -o -name .venv -o -name ralph -o -name node_modules \) -prune \
-    -o -type f \( -name 'test_*.py' -o -name '*_test.py' \) -print)"
-if ! grep -q '^\[tool.pytest' pyproject.toml; then
-    if [ -z "$EXISTING_TESTS" ]; then
-        cat >>pyproject.toml <<'EOF'
+    -o -type f \( -name 'test_*.py' -o -name '*_test.py' \) -print -quit)"
+HAS_PYTEST_CONF=0
+grep -q '^\[tool.pytest' pyproject.toml && HAS_PYTEST_CONF=1
+if [ "$HAS_PYTEST_CONF" -eq 0 ] && [ -z "$EXISTING_TESTS" ]; then
+    cat >>pyproject.toml <<'EOF'
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 EOF
-    fi
-    if ! grep -q '^\[tool.ruff.lint\]' pyproject.toml; then
-        cat >>pyproject.toml <<'EOF'
+fi
+if [ "$HAS_PYTEST_CONF" -eq 0 ] && ! grep -q '^\[tool.ruff.lint\]' pyproject.toml; then
+    cat >>pyproject.toml <<'EOF'
 
 [tool.ruff.lint]
 extend-select = ["I"]
 EOF
-    fi
 fi
 # pytest exits 5 when it collects nothing, which fails the gate on a project without tests.
 if [ -n "$EXISTING_TESTS" ]; then
