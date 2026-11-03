@@ -72,7 +72,6 @@ Additional tools depend on your setup:
 | [GitHub CLI](https://cli.github.com/) (`gh`), authenticated, and a GitHub `origin` remote | `pr` mode. The active account must be able to open PRs. |
 | [Codex](https://github.com/openai/codex), authenticated | A Codex reviewer. Before its first headless run, open Codex in the primary checkout, trust the project and approve its hooks. |
 | [herdr](https://herdr.dev/) | The setup skill's automatic terminal layout. Without it, start the loops and watchers [manually](loop/README.md#running). |
-| GNU `timeout` or `gtimeout` | Session time limits. On macOS: `brew install coreutils`. Without it, sessions have no time limit. |
 
 The watcher requires Python 3.13 or later and Rich. Running `uv run ralph/watch.py` supplies its script dependencies.
 

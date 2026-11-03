@@ -85,8 +85,6 @@ TOOLS=(git uv bd jq claude)
 for tool in "${TOOLS[@]}"; do
     command -v "$tool" >/dev/null 2>&1 || { echo "ERROR: $tool not found"; missing=1; }
 done
-command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1 \
-    || echo "WARNING: no timeout/gtimeout; sessions will have no time limit (brew install coreutils)"
 for f in run.sh watch.py CODER.md REVIEWER.md project.template.md; do
     [ -f "$HARNESS/$f" ] || { echo "ERROR: $HARNESS/$f not found (set LOOP_HOME)"; missing=1; }
 done
