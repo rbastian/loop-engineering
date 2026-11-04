@@ -8,6 +8,10 @@ loop-engineering runs a coder and a reviewer through a queue of small, specified
 
 The coder runs on [Claude Code](https://claude.com/claude-code). The reviewer can run on Claude Code or [Codex](https://github.com/openai/codex).
 
+## Start here
+
+If the loop already runs in a repository and you are new to it, open Claude Code or Codex in that repository. Ask the agent what to do. The agent explains the loop in a few sentences and offers the jobs that the human does: refine and assign the next bead, check on the coder and the reviewer, and merge a reviewed pull request. It then does each step with you.
+
 ## Why this exists
 
 A large specification can outlast an agent's conversation. Decisions become harder to recover as context fills, and compaction can lose details.

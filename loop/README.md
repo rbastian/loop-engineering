@@ -33,6 +33,7 @@ The reviewer comments but does not approve. The agents usually push with the hum
 | `CODER.md` | The coder's prompt: the loop protocol for the coder role. |
 | `REVIEWER.md` | The reviewer's prompt: the loop protocol for the reviewer role. |
 | `project.template.md` | The template for `ralph/project.md`, the project overlay. |
+| `interactive.template.md` | The template for the interactive section of `CLAUDE.md` and `AGENTS.md`. The section tells an interactive agent to orient a new person, to refine and assign beads, and not to implement them. |
 | `watch.py` | The watcher. It shows a live session log as one line per tool call. |
 | `tests/` | Tests for `watch.py`. |
 
@@ -55,14 +56,15 @@ These variables control the overlay:
 
 ## Install in a project
 
-The `dev-env-setup` skill in `../skills/dev-env-setup` does the setup. See the root README for how to install it. The skill asks for the agent names, the ship mode and the human who approves merges. It copies this folder into the project as `ralph/` and writes `ralph/project.md` from the template. Then it creates both worktrees and starts both loops and both watchers in herdr.
+The `dev-env-setup` skill in `../skills/dev-env-setup` does the setup. See the root README for how to install it. The skill asks for the agent names, the ship mode and the human who approves merges. It copies this folder into the project as `ralph/` and writes `ralph/project.md` from the template. It also writes the interactive section into `CLAUDE.md` and `AGENTS.md`, between the `<!-- BEGIN LOOP INTERACTIVE -->` and `<!-- END LOOP INTERACTIVE -->` markers. Then it creates both worktrees and starts both loops and both watchers in herdr.
 
 To set up a project by hand, follow these steps:
 
 1. Copy `run.sh`, `watch.py`, `CODER.md` and `REVIEWER.md` into the project as `ralph/`.
 2. Copy `project.template.md` to `ralph/project.md` and fill every `{{...}}` placeholder.
-3. In `pr` mode, make sure that the repository has an `origin` remote, that `main` is on it, and that `gh` is authenticated.
-4. Create the worktrees from the primary checkout:
+3. Fill the placeholders in `interactive.template.md` and put the result into `CLAUDE.md` and `AGENTS.md`, after the first H1 heading and before the beads blocks.
+4. In `pr` mode, make sure that the repository has an `origin` remote, that `main` is on it, and that `gh` is authenticated.
+5. Create the worktrees from the primary checkout:
 
    ```bash
    git worktree add -b loop ../<name>-ralph main
