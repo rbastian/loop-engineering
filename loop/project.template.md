@@ -15,9 +15,10 @@ CODER={{CODER}}
 REVIEWER={{REVIEWER}}
 HUMAN={{HUMAN}}
 REVIEWER_ENGINE={{REVIEWER_ENGINE}}
+BEAD_PREFIX={{BEAD_PREFIX}}
 ```
 
-`$CODER` is the agent that implements beads. `$REVIEWER` is the agent that reviews them. Each name is the bead assignee that the agent's loop polls for. `$HUMAN` is the bd assignee for the human's queues: merge approval, acceptance and escalation. `REVIEWER_ENGINE` is the CLI that the reviewer's loop runs on: `claude` or `codex`. The coder always runs on `claude`.
+`$CODER` is the agent that implements beads. `$REVIEWER` is the agent that reviews them. Each name is the bead assignee that the agent's loop polls for. `$HUMAN` is the bd assignee for the human's queues: merge approval, acceptance and escalation. `REVIEWER_ENGINE` is the CLI that the reviewer's loop runs on: `claude` or `codex`. The coder always runs on `claude`. `BEAD_PREFIX` is the prefix of every bead ID in this project, and the watchers match bead IDs with it.
 
 ## Ship mode
 

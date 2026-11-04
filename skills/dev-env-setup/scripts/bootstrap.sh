@@ -3,7 +3,7 @@
 # git, uv with the gate tools, beads, and the ralph/ harness from loop-engineering.
 # Usage: bootstrap.sh PROJECT_DIR BEAD_PREFIX [DEV_PACKAGE ...]
 #   PROJECT_DIR  — the primary checkout (created if missing)
-#   BEAD_PREFIX  — lowercase letters only; watch.py cannot parse a hyphenated one
+#   BEAD_PREFIX  — lowercase letters, digits, - and _, starting with a letter
 #   DEV_PACKAGE  — extra dev dependencies on top of ruff and pytest
 # These go into ralph/project.md, where worktrees.sh and layout.sh read them back:
 #   LOOP_CODER     — the coder agent's name (default: Ralph)
@@ -29,16 +29,22 @@ if [ $# -lt 2 ]; then
     echo "Usage: bootstrap.sh PROJECT_DIR BEAD_PREFIX [DEV_PACKAGE ...]"
     exit 2
 fi
-mkdir -p "$1"
-PROJECT="$(cd "$1" && pwd)"
 PREFIX="$2"
-shift 2
 
-if ! [[ "$PREFIX" =~ ^[a-z]+$ ]]; then
-    echo "ERROR: BEAD_PREFIX must be lowercase letters only (got: $PREFIX)"
-    echo "watch.py reads bead IDs as <letters>-<3 chars>, so a hyphen breaks it."
+# bd renames a prefix that starts with a digit to bd_<prefix>, so it must start
+# with a letter. Each - or _ must be followed by a letter or a digit, so the
+# prefix cannot end with one or have two in a row. watch.py gets the prefix
+# through --prefix and matches it exactly.
+PREFIX_RE='^[a-z]([a-z0-9]|[-_][a-z0-9])*$'
+if ! [[ "$PREFIX" =~ $PREFIX_RE ]]; then
+    echo "ERROR: BEAD_PREFIX must be lowercase letters, digits, - and _, and start with a letter (got: $PREFIX)"
+    echo "It must not end with - or _, or have two of them in a row."
     exit 1
 fi
+
+mkdir -p "$1"
+PROJECT="$(cd "$1" && pwd)"
+shift 2
 
 CODER="${LOOP_CODER:-Ralph}"
 REVIEWER="${LOOP_REVIEWER:-Alice}"
@@ -273,6 +279,7 @@ else
         -e "s#{{SHIP_MODE}}#$SHIP_MODE#g" \
         -e "s#{{GITHUB_ACCOUNT}}#$GITHUB_ACCOUNT#g" \
         -e "s#{{REVIEWER_ENGINE}}#$REVIEWER_ENGINE#g" \
+        -e "s#{{BEAD_PREFIX}}#$PREFIX#g" \
         "$HARNESS/project.template.md" >ralph/project.md
     echo "wrote ralph/project.md for $NAME: $CODER codes, $REVIEWER reviews, $HUMAN merges, ship mode $SHIP_MODE${GITHUB_ACCOUNT:+ as $GITHUB_ACCOUNT}, reviewer on $REVIEWER_ENGINE"
 fi

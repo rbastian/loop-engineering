@@ -104,6 +104,9 @@ def isolated(monkeypatch):
     monkeypatch.setattr(
         watch.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="")
     )
+    yield
+    # main rebinds the bead patterns from --prefix, and a test may too.
+    watch.use_prefix(None)
 
 
 def init_line(model: str = MODEL) -> str:
@@ -449,6 +452,77 @@ def test_the_review_marker_matches_the_one_alice_is_told_to_write():
         .replace("<branch>", "f")
     )
     assert watch.bead_in(command) == "agents-ype"
+
+
+# --- the bead prefix -------------------------------------------------------
+# bd accepts prefixes such as my-app, my_app and app2. With --prefix the
+# watcher matches that exact prefix. Without it, a greedy pattern takes the
+# last hyphen as the one before the hash (lpe-7fn).
+
+
+def prefixed_commands(bead: str) -> list[str]:
+    return [
+        f"bd update {bead} --claim && git checkout -b feat/x main",
+        f'git commit -m "feat: x [{bead}]"',
+        f'bd note {bead} "Review round 1 started: feat/x @ abc1234"',
+    ]
+
+
+@pytest.mark.parametrize("prefix", ["my-app", "my_app", "app2"])
+@pytest.mark.parametrize("hash_", ["abc", "a1b2.3.1"])
+def test_an_exact_prefix_names_the_whole_bead(prefix, hash_):
+    watch.use_prefix(prefix)
+    bead = f"{prefix}-{hash_}"
+    for command in prefixed_commands(bead):
+        assert watch.bead_in(command) == bead, command
+
+
+def test_an_exact_prefix_skips_another_prefixs_tag():
+    watch.use_prefix("lpe")
+    command = 'git commit -m "fix: as in [other-abc] [lpe-abc]"'
+    assert watch.bead_in(command) == "lpe-abc"
+    assert watch.bead_in('git commit -m "fix: x [other-abc]"') is None
+
+
+def test_without_a_prefix_the_greedy_pattern_names_a_hyphenated_bead():
+    watch.use_prefix(None)
+    for command in prefixed_commands("my-app-abc"):
+        assert watch.bead_in(command) == "my-app-abc", command
+
+
+def test_without_a_prefix_the_watcher_warns_once(tmp_path, capsys):
+    log = session_log(tmp_path / "20261002-114315.jsonl")
+    assert watch.main(["--file", str(log), "--replay"]) == 0
+    out = capsys.readouterr().out
+    assert out.count(watch.PREFIX_WARNING) == 1
+
+
+def test_with_a_prefix_the_watcher_does_not_warn(tmp_path, capsys):
+    log = session_log(tmp_path / "20261002-114315.jsonl")
+    assert watch.main(["--file", str(log), "--replay", "--prefix", "agents"]) == 0
+    captured = capsys.readouterr()
+    assert watch.PREFIX_WARNING not in captured.out + captured.err
+    assert " Ralph · agents-ype" in captured.out
+
+
+def test_without_a_prefix_summary_warns_on_stderr_only(tmp_path, capsys):
+    log = session_log(tmp_path / "20261002-114315.jsonl", result_line())
+    assert watch.main(["--summary", str(log), "--agent", "Ralph"]) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["bead"] == "agents-ype"
+    assert captured.err.count(watch.PREFIX_WARNING) == 1
+
+
+def test_summary_with_a_prefix_names_a_hyphenated_bead(tmp_path, capsys):
+    log = session_log(
+        tmp_path / "20261002-114315.jsonl",
+        result_line(),
+        bead_command="bd update my-app-a1b2.3 --claim",
+    )
+    assert watch.main(["--summary", str(log), "--prefix", "my-app"]) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["bead"] == "my-app-a1b2.3"
+    assert captured.err == ""
 
 
 # --- the title lookup, now that it runs on attach ---------------------------
