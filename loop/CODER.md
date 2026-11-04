@@ -172,6 +172,14 @@ Any other state means you are NOT done. Go back to the first incomplete step.
 
 Each bead gets its own feature branch off `$BASE` (created in your worktree) and is gated locally, then handed to the reviewer. In `local` mode there is no remote, no PR and no CI, which is exactly why step 12 is non-negotiable. In `pr` mode the branch goes to `origin` with a PR, and any CI on the PR is a check on top of your gate, never a replacement for it.
 
+**Remote actions in `pr` mode.** The Project section lists the remote actions of every role under "Remote actions in `pr` mode". An action that is not on that list is not allowed. Yours are:
+
+- Push your own `feat/` branches to `origin`. After a rebase, use `git push --force-with-lease`, never a plain `--force`.
+- Open a pull request against `main` with `gh pr create`.
+- Read pull requests with `gh pr view`.
+
+You act as the account in `GITHUB_ACCOUNT`. `run.sh` exports its token as `GH_TOKEN`, so do not switch the active `gh` account and do not unset `GH_TOKEN`.
+
 **Commit message format:** `feat: <description> [<bead-id>]`
 
 **Branch naming:** `feat/<short-description>-<bead-short-id>`

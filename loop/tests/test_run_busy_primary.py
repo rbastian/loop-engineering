@@ -71,6 +71,9 @@ def run_loop(
         "esac\n",
     )
     write_exe(bin_dir / "claude", 'echo "agent ran" >>"$AGENT_LOG"\n')
+    # pr mode pins GITHUB_ACCOUNT at start (lpe-e52). The scratch folder has
+    # no origin, so run.sh needs only a token, not the SSH check.
+    write_exe(bin_dir / "gh", "echo stub-token\n")
     hooks = "".join(f"  {n}) {cmd} ;;\n" for n, cmd in (on_sleep or {}).items())
     write_exe(
         bin_dir / "sleep",
@@ -89,7 +92,7 @@ def run_loop(
     if overlay:
         (prompt_dir / "project.md").write_text(
             "# Project\n\n```bash\nCODER=Ralph\nREVIEWER=Alice\n```\n\n"
-            f"```bash\nSHIP_MODE={ship_mode}\n```\n\n"
+            f"```bash\nSHIP_MODE={ship_mode}\nGITHUB_ACCOUNT=tester\n```\n\n"
             f"```bash\nPRIMARY={primary}\n```\n"
         )
 

@@ -11,6 +11,8 @@
 #   LOOP_HUMAN      — the bd assignee who approves merges (default: $USER)
 #   LOOP_SHIP_MODE  — pr (default) or local, for a repository with one user
 #   LOOP_REVIEWER_ENGINE — claude (default) or codex, the reviewer's CLI
+#   LOOP_GITHUB_ACCOUNT — the GitHub account that the agents use; required in
+#                         pr mode, written empty in local mode
 #
 # Safe to run twice: each step skips itself when its work is already done.
 # Commits nothing and creates no worktrees; worktrees.sh does that afterwards.
@@ -43,6 +45,7 @@ REVIEWER="${LOOP_REVIEWER:-Alice}"
 HUMAN="${LOOP_HUMAN:-$USER}"
 SHIP_MODE="${LOOP_SHIP_MODE:-pr}"
 REVIEWER_ENGINE="${LOOP_REVIEWER_ENGINE:-claude}"
+GITHUB_ACCOUNT="${LOOP_GITHUB_ACCOUNT:-}"
 # The agent names become bd assignees and, lowercased, worktree and log paths.
 for agent in "$CODER" "$REVIEWER"; do
     if ! [[ "$agent" =~ ^[A-Za-z]+$ ]]; then
@@ -68,6 +71,16 @@ case "$SHIP_MODE" in
         exit 1
         ;;
 esac
+# run.sh pins this account in pr mode. local mode has no remote, so no account.
+if [ "$SHIP_MODE" = local ]; then
+    GITHUB_ACCOUNT=""
+elif [ -z "$GITHUB_ACCOUNT" ]; then
+    echo "ERROR: pr mode needs LOOP_GITHUB_ACCOUNT, the GitHub account that the agents use"
+    exit 1
+elif ! [[ "$GITHUB_ACCOUNT" =~ ^[A-Za-z0-9-]+$ ]]; then
+    echo "ERROR: LOOP_GITHUB_ACCOUNT must be a GitHub user name: letters, digits and hyphens (got: $GITHUB_ACCOUNT)"
+    exit 1
+fi
 
 NAME="$(basename "$PROJECT")"
 PARENT="$(dirname "$PROJECT")"
@@ -258,9 +271,10 @@ else
         -e "s#{{REVIEWER_WORKTREE}}#$PARENT/$NAME-$(lower "$REVIEWER")#g" \
         "${NAMES[@]}" \
         -e "s#{{SHIP_MODE}}#$SHIP_MODE#g" \
+        -e "s#{{GITHUB_ACCOUNT}}#$GITHUB_ACCOUNT#g" \
         -e "s#{{REVIEWER_ENGINE}}#$REVIEWER_ENGINE#g" \
         "$HARNESS/project.template.md" >ralph/project.md
-    echo "wrote ralph/project.md for $NAME: $CODER codes, $REVIEWER reviews, $HUMAN merges, ship mode $SHIP_MODE, reviewer on $REVIEWER_ENGINE"
+    echo "wrote ralph/project.md for $NAME: $CODER codes, $REVIEWER reviews, $HUMAN merges, ship mode $SHIP_MODE${GITHUB_ACCOUNT:+ as $GITHUB_ACCOUNT}, reviewer on $REVIEWER_ENGINE"
 fi
 
 step "gate"

@@ -73,7 +73,7 @@ Additional tools depend on your setup:
 
 | Tool | When needed |
 | --- | --- |
-| [GitHub CLI](https://cli.github.com/) (`gh`), authenticated, and a GitHub `origin` remote | `pr` mode. The active account must be able to open PRs. |
+| [GitHub CLI](https://cli.github.com/) (`gh`), authenticated, and a GitHub `origin` remote | `pr` mode. `gh` must be logged in to the account in `GITHUB_ACCOUNT`, which must be able to open PRs. |
 | [Codex](https://github.com/openai/codex), authenticated | A Codex reviewer. Before its first headless run, open Codex in the primary checkout, trust the project and approve its hooks. |
 | [herdr](https://herdr.dev/) | The setup skill's automatic terminal layout. Without it, start the loops and watchers [manually](loop/README.md#running). |
 
@@ -150,7 +150,7 @@ bd close <id>
 
 Remove its `merge` label afterward. **Close the bead only after its code is on `main`**, so dependent work starts against merged code.
 
-The reviewer posts a PR comment rather than a GitHub approval. Agents often use the human's GitHub account, and an account cannot approve its own PR.
+The reviewer posts a PR comment rather than a GitHub approval. The agents act as the account in `GITHUB_ACCOUNT`, usually the human's own account, and an account cannot approve its own PR.
 
 ## Ship modes and human queues
 
