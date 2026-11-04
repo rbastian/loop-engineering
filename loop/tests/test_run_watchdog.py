@@ -13,6 +13,8 @@ import shutil
 import signal
 import subprocess
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -72,9 +74,12 @@ def setup_loop(tmp_path: Path, claude_body: str) -> dict[str, str]:
     }
 
 
+LOOP = ["bash", str(RUN_SH), "Ralph", "CODER.md"]
+
+
 def run_loop(tmp_path: Path, env: dict[str, str], timeout: float = 30):
     return subprocess.run(
-        ["bash", str(RUN_SH), "Ralph", "CODER.md"],
+        LOOP,
         check=False,
         cwd=tmp_path,
         env=env,
@@ -82,6 +87,20 @@ def run_loop(tmp_path: Path, env: dict[str, str], timeout: float = 30):
         text=True,
         timeout=timeout,
     )
+
+
+@contextmanager
+def start_loop(tmp_path: Path, env: dict[str, str], **kw) -> Iterator[subprocess.Popen]:
+    """Start run.sh in its own process group, and kill the group at the end."""
+    proc = subprocess.Popen(
+        LOOP, cwd=tmp_path, env=env, start_new_session=True, text=True, **kw
+    )
+    try:
+        yield proc
+    finally:
+        if proc.poll() is None:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait()
 
 
 def alive(pid: int) -> bool:
@@ -109,7 +128,9 @@ def test_the_watchdog_stops_a_session_that_runs_too_long(tmp_path):
     start = time.monotonic()
     result = run_loop(tmp_path, env)
     assert "claude session timed out after 2s" in result.stdout
-    assert time.monotonic() - start < 15, "the watchdog checks every 5 seconds"
+    assert time.monotonic() - start < 8, (
+        "the watchdog sleeps no longer than the time left"
+    )
     assert not alive(claude_pid(tmp_path))
 
 
@@ -117,25 +138,14 @@ def test_the_watchdog_counts_time_the_clock_jumped(tmp_path):
     """After a sleep, the first check sees the real elapsed time."""
     env = setup_loop(tmp_path, "exec /bin/sleep 300\n")
     env["RALPH_SESSION_TIMEOUT"] = "1h"
-    proc = subprocess.Popen(
-        ["bash", str(RUN_SH), "Ralph", "CODER.md"],
-        cwd=tmp_path,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        start_new_session=True,
-    )
-    try:
+    with start_loop(
+        tmp_path, env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+    ) as proc:
         wait_for(tmp_path / "claude.pid")
         (tmp_path / "offset").write_text("3700\n")
         jumped = time.monotonic()
         out, _ = proc.communicate(timeout=20)
         assert time.monotonic() - jumped < 10
-    finally:
-        if proc.poll() is None:
-            os.killpg(proc.pid, signal.SIGKILL)
-            proc.wait()
     assert "claude session timed out after 1h" in out
     assert not alive(claude_pid(tmp_path))
 
@@ -157,24 +167,14 @@ def test_a_failed_session_reports_its_exit_code(tmp_path):
 
 def test_ctrl_c_stops_the_session_and_the_watchdog(tmp_path):
     env = setup_loop(tmp_path, "exec /bin/sleep 300\n")
-    proc = subprocess.Popen(
-        ["bash", str(RUN_SH), "Ralph", "CODER.md"],
-        cwd=tmp_path,
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-    try:
+    with start_loop(
+        tmp_path, env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    ) as proc:
         wait_for(tmp_path / "claude.pid")
         # Ctrl+C sends SIGINT to the terminal's foreground process group,
         # which holds run.sh but not the session's own group.
         os.killpg(proc.pid, signal.SIGINT)
         proc.wait(timeout=15)
-    finally:
-        if proc.poll() is None:
-            os.killpg(proc.pid, signal.SIGKILL)
-            proc.wait()
     assert not alive(claude_pid(tmp_path))
     out = subprocess.run(
         ["ps", "-A", "-o", "command="], check=True, capture_output=True, text=True
@@ -237,3 +237,12 @@ def test_keep_awake_is_off_by_default(tmp_path):
     result = run_loop(tmp_path, env)
     assert "claude exited with 0" in result.stdout
     assert not (tmp_path / "caffeinate.args").exists()
+
+
+def test_a_session_that_ends_before_the_watchdog_fires_is_not_a_timeout(tmp_path):
+    """The clock passes the limit, but the session ends before the next check."""
+    env = setup_loop(tmp_path, 'echo 3700 >"$WORK/offset"\n/bin/sleep 1\nexit 0\n')
+    env["RALPH_SESSION_TIMEOUT"] = "1h"
+    result = run_loop(tmp_path, env)
+    assert "claude exited with 0" in result.stdout
+    assert "timed out" not in result.stdout

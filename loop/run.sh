@@ -130,15 +130,13 @@ pause() { sleep "$1" || true; }
 # slept ran 12h52m against a 2h limit (lpe-k08). The watchdog compares the
 # wall clock with the start instead, so its first check after a sleep sees the
 # real elapsed time.
-SESSION_PGID=""
-WATCHDOG_PGID=""
 
 # Send INT to a process group, then KILL if it still exists after $2 seconds.
 stop_group() {
     local pgid="$1" grace="$2" waited=0
     kill -INT -- "-$pgid" 2>/dev/null || return 0
     while [ "$waited" -lt "$grace" ] && kill -0 -- "-$pgid" 2>/dev/null; do
-        sleep 1
+        pause 1
         waited=$((waited + 1))
     done
     kill -KILL -- "-$pgid" 2>/dev/null || true
@@ -146,13 +144,18 @@ stop_group() {
 
 session_elapsed() { echo $(($(date +%s) - SESSION_START)); }
 
+# Runs as its own job. Exits 124 when it stopped the session. From that point
+# it ignores TERM, so run_session's TERM stops it only while it still waits.
 watchdog() {
+    local left
     while kill -0 -- "-$SESSION_PGID" 2>/dev/null; do
-        if [ "$(session_elapsed)" -ge "$SESSION_LIMIT" ]; then
+        left=$((SESSION_LIMIT - $(session_elapsed)))
+        if [ "$left" -le 0 ]; then
+            trap '' TERM
             stop_group "$SESSION_PGID" 60
-            return 0
+            exit 124
         fi
-        sleep 5
+        pause $((left < 5 ? left : 5))
     done
 }
 
@@ -187,14 +190,10 @@ run_session() {
     SESSION_EXIT=$?
     trap - INT TERM HUP
     [ -n "$WATCHDOG_PGID" ] || return 0
-    if [ "$(session_elapsed)" -ge "$SESSION_LIMIT" ]; then
-        # The watchdog sends the KILL to what is left of the group.
-        wait "$WATCHDOG_PGID" 2>/dev/null
-        SESSION_EXIT=124
-    else
-        kill -KILL -- "-$WATCHDOG_PGID" 2>/dev/null
-        wait "$WATCHDOG_PGID" 2>/dev/null
-    fi
+    # A watchdog that fired finishes its KILL grace period and exits 124.
+    kill -TERM -- "-$WATCHDOG_PGID" 2>/dev/null
+    wait "$WATCHDOG_PGID" 2>/dev/null
+    [ "$?" -ne 124 ] || SESSION_EXIT=124
 }
 
 # watch.py sits beside this script, in the primary checkout's ralph/ folder.
