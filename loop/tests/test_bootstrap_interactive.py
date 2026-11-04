@@ -53,7 +53,13 @@ def section(text: str) -> str:
     return text[start:end] + "\n"
 
 
-def run_bootstrap(tmp_path: Path, project: Path) -> subprocess.CompletedProcess:
+def run_bootstrap(
+    tmp_path: Path,
+    project: Path,
+    extra_env: dict[str, str] | None = None,
+    *,
+    check: bool = True,
+) -> subprocess.CompletedProcess:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     for name, body in STUBS.items():
@@ -68,11 +74,13 @@ def run_bootstrap(tmp_path: Path, project: Path) -> subprocess.CompletedProcess:
         "LOOP_CODER": "Bob",
         "LOOP_REVIEWER": "Carol",
         "LOOP_HUMAN": "Dana",
+        "LOOP_GITHUB_ACCOUNT": "dana-gh",
         "GIT_AUTHOR_NAME": "t",
         "GIT_AUTHOR_EMAIL": "t@example.com",
         "GIT_COMMITTER_NAME": "t",
         "GIT_COMMITTER_EMAIL": "t@example.com",
     }
+    env.update(extra_env or {})
     result = subprocess.run(
         ["bash", str(BOOTSTRAP), str(project), "demo"],
         env=env,
@@ -80,7 +88,8 @@ def run_bootstrap(tmp_path: Path, project: Path) -> subprocess.CompletedProcess:
         text=True,
         check=False,
     )
-    assert result.returncode == 0, result.stdout + result.stderr
+    if check:
+        assert result.returncode == 0, result.stdout + result.stderr
     return result
 
 
@@ -166,3 +175,33 @@ def test_this_repository_uses_the_filled_template():
         assert text.count(BEGIN) == 1
         assert section(text) == expected
         assert "## Interactive sessions: refine and assign" not in text
+
+
+def test_pr_mode_without_a_github_account_stops(tmp_path):
+    project = tmp_path / "proj"
+    result = run_bootstrap(tmp_path, project, {"LOOP_GITHUB_ACCOUNT": ""}, check=False)
+    assert result.returncode == 1
+    assert "LOOP_GITHUB_ACCOUNT" in result.stdout + result.stderr
+    assert not (project / "ralph" / "project.md").exists()
+
+
+def test_pr_mode_writes_the_github_account(tmp_path):
+    project = tmp_path / "proj"
+    run_bootstrap(tmp_path, project)
+    text = (project / "ralph" / "project.md").read_text()
+    assert "\nGITHUB_ACCOUNT=dana-gh\n" in text
+    assert "{{GITHUB_ACCOUNT}}" not in text
+
+
+def test_local_mode_writes_an_empty_github_account(tmp_path):
+    project = tmp_path / "proj"
+    run_bootstrap(tmp_path, project, {"LOOP_SHIP_MODE": "local"})
+    text = (project / "ralph" / "project.md").read_text()
+    assert "\nGITHUB_ACCOUNT=\n" in text
+    assert "{{GITHUB_ACCOUNT}}" not in text
+
+
+def test_interactive_section_has_the_remote_rule():
+    text = TEMPLATE.read_text()
+    assert "GITHUB_ACCOUNT" in text
+    assert "ralph/project.md" in text

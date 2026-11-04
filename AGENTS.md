@@ -38,6 +38,10 @@ Ralph implements beads. Alice reviews them. You and the person refine each bead 
 
 You can read any code, and you can change bead records, `CLAUDE.md` and `AGENTS.md`. Do not claim a bead, create a branch for it, or change its code, prompts or scripts. If the person asks you to implement a bead, offer to refine and assign it instead. The person can override this rule for one task.
 
+### The GitHub remote
+
+This session acts as the GitHub account in `GITHUB_ACCOUNT` in `ralph/project.md`. Run each `gh` command as that account, for example `GH_TOKEN=$(gh auth token --user <account>) gh pr view <number>`, and do not switch the active `gh` account. Do not push, open, comment on, merge or close pull requests, or change anything else on the remote, unless the person asks you to do that one task.
+
 ### After a merge
 
 In `pr` ship mode, beads with the label `merge` wait for Rob Bastian to approve and merge their pull requests. After Rob Bastian merges a pull request, you can do the next steps for them:

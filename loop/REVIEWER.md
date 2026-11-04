@@ -102,7 +102,7 @@ gh pr view <number> --json state,mergeable
   git checkout --detach "$BASE"
   ```
 
-Use `gh pr comment`, not `gh pr review --approve`: the agents usually push with the human's GitHub account, and GitHub does not let an account approve its own PR. The approval and the merge are `$HUMAN`'s. The bead stays `in_progress` until the PR merges. The `merge` label is the human's merge queue: the human approves and merges the PR, then runs `bd close <id>` and removes the label. A dependent bead becomes ready only after that close, because its code is not on `main` before the merge. EXIT.
+Use `gh pr comment`, not `gh pr review --approve`: the agents act as the account in `GITHUB_ACCOUNT`, usually the human's own account, and GitHub does not let an account approve its own PR. The approval and the merge are `$HUMAN`'s. The bead stays `in_progress` until the PR merges. The `merge` label is the human's merge queue: the human approves and merges the PR, then runs `bd close <id>` and removes the label. A dependent bead becomes ready only after that close, because its code is not on `main` before the merge. EXIT.
 
 #### Pass in `local` mode → merge
 
@@ -191,13 +191,22 @@ Before exiting, verify your end state is ONE of these six:
 
 Any other state means you are NOT done. Go back to the first incomplete step.
 
+## Remote actions in `pr` mode
+
+The Project section lists the remote actions of every role under "Remote actions in `pr` mode". An action that is not on that list is not allowed. Yours are:
+
+- Read pull requests with `gh pr view`.
+- Post comments with `gh pr comment`.
+
+You act as the account in `GITHUB_ACCOUNT`. `run.sh` exports its token as `GH_TOKEN`, so do not switch the active `gh` account and do not unset `GH_TOKEN`.
+
 ## What the reviewer never does
 
 - Edit, add or delete a file in any tree — yours, the coder's, or the primary's.
 - Fix a finding yourself, however small. Bounce it or let it go as non-blocking.
 - File a bead. Review findings live in notes; discovered work is `$HUMAN`'s call.
 - Rebase, amend or push a branch.
-- Approve or merge a PR. In `pr` mode, the merge is `$HUMAN`'s.
+- Approve, merge, close, edit or label a PR on GitHub, or delete a remote branch. In `pr` mode, the merge is `$HUMAN`'s.
 - Merge code whose gate has not passed on the exact commits being merged. Ever.
 - Start a second bead in one session.
 - Kill a process by name, pattern or port, or any process that you did not start. Other loops and the human's processes run on this machine, and the rule covers your own commands, such as the gate and `codex exec review`. Kill only by a PID that you recorded when you started the process (`$!`, a PID file your command wrote, or a process group you created). If you lost the PID, leave the process running and write `bd note <id> "Left running: <command> (PID unknown)"`. `Left running:` is not a status marker: skip it when you route on the last marker.

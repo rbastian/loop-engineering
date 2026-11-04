@@ -27,6 +27,14 @@
 #   RALPH_OVERLAY        Project overlay appended to the prompt (default:
 #                        project.md beside PROMPT_FILE; "none" disables it).
 #   RALPH_PRINT_PROMPT=1 Print the combined prompt and exit.
+#
+# GitHub account (pr mode only, when the overlay says SHIP_MODE=pr):
+#   The overlay must name GITHUB_ACCOUNT, the account that the agents use.
+#   At start, run.sh gets that account's token with gh auth token --user and
+#   exports it as GH_TOKEN for every session, whichever gh account is active.
+#   If origin is an SSH URL, it runs ssh -T git@<host> once and stops unless
+#   the reply greets the same account. An HTTPS origin needs no SSH check.
+#   Any failure stops the loop with exit 1 before the first session.
 set -euo pipefail
 
 AGENT_NAME="${1:-Ralph}"
@@ -270,6 +278,53 @@ primary_busy_reason() {
         return 1
     fi
 }
+
+# In pr mode the agents act as one GitHub account: GITHUB_ACCOUNT in the
+# overlay. The account that gh has active when the loop starts must not decide
+# it, so pin that account's token as GH_TOKEN for every session. gh uses it,
+# and so does git over HTTPS through gh's credential helper. An SSH push uses
+# the SSH key instead, so check once that the key belongs to the same account.
+# Every failure stops the loop before the first session. Never print the token.
+pin_github_account() {
+    local account url host reply who
+    local port=()
+    [ "$(overlay_value SHIP_MODE)" = "pr" ] || return 0
+    account=$(overlay_value GITHUB_ACCOUNT)
+    if [ -z "$account" ]; then
+        echo "ERROR: GITHUB_ACCOUNT is empty in $OVERLAY_FILE; pr mode needs the GitHub account that the agents use"
+        exit 1
+    fi
+    if ! GH_TOKEN=$(gh auth token --user "$account" 2>/dev/null) || [ -z "$GH_TOKEN" ]; then
+        echo "ERROR: gh has no token for the GitHub account $account"
+        echo "Hint: run 'gh auth login' and log in as $account, then restart the loop."
+        exit 1
+    fi
+    export GH_TOKEN
+    url=$(git remote get-url origin 2>/dev/null) || url=""
+    case "$url" in
+        http://* | https://* | '') return 0 ;;
+        ssh://*)
+            host="${url#ssh://}"
+            host="${host#*@}"
+            host="${host%%/*}"
+            ;;
+        *@*:*) host="${url#*@}"; host="${host%%:*}" ;;
+        *) return 0 ;;
+    esac
+    # Pass a port only when the URL names one: -p overrides ~/.ssh/config.
+    case "$host" in
+        *:*) port=(-p "${host##*:}"); host="${host%%:*}" ;;
+    esac
+    # ssh -T exits 1 even when GitHub greets the key, so read the reply.
+    reply=$(ssh -T ${port[@]+"${port[@]}"} -o BatchMode=yes -o ConnectTimeout=10 "git@$host" 2>&1 </dev/null) || true
+    who=$(sed -n 's/^Hi \([^!]*\)!.*/\1/p' <<<"$reply" | head -1)
+    if [ "$who" != "$account" ]; then
+        echo "ERROR: git pushes to origin over SSH as '${who:-unknown}', but GITHUB_ACCOUNT is '$account'"
+        echo "ssh -T git@$host replied: $reply"
+        exit 1
+    fi
+}
+pin_github_account
 
 # The busy reason printed last, so a wait prints its reason once, not every 30s.
 LAST_BUSY=""

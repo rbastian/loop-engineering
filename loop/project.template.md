@@ -23,11 +23,23 @@ REVIEWER_ENGINE={{REVIEWER_ENGINE}}
 
 ```bash
 SHIP_MODE={{SHIP_MODE}}
+GITHUB_ACCOUNT={{GITHUB_ACCOUNT}}
 ```
 
 `pr` is the default. `$CODER` pushes each branch to `origin` and opens a pull request against `main`. `$REVIEWER` reviews the branch and comments on the pull request. `$HUMAN` approves and merges it. `$BASE` is `origin/main`.
 
 `local` is only for a repository with one user and no shared remote. `$REVIEWER` merges the branch into `main` in the primary checkout, and no pull request exists. `$BASE` is `main`.
+
+`GITHUB_ACCOUNT` is the GitHub account that `$CODER` and `$REVIEWER` use in `pr` mode, for every `gh` command and every push. It is usually `$HUMAN`'s own account. The agents do not use separate bot accounts. `run.sh` pins this account at start: it exports the account's token as `GH_TOKEN`, and it checks that an SSH push uses the same account. In `local` mode the field is empty.
+
+### Remote actions in `pr` mode
+
+This list is the only place that says what each role can do on the GitHub remote. An action that is not on the list is not allowed.
+
+- `$CODER` can push its own `feat/` branches to `origin`. After a rebase, it pushes with `git push --force-with-lease`, never with a plain `--force`. It can open a pull request against `main` with `gh pr create`, and it can read pull requests with `gh pr view`.
+- `$REVIEWER` can read pull requests with `gh pr view`, and it can post comments with `gh pr comment`. It does not push, approve, merge, close, edit or label a pull request on GitHub, and it does not delete branches. A GitHub account cannot approve its own pull request, so the review result is a comment, not `gh pr review --approve`.
+- `$HUMAN` approves and merges pull requests, deletes remote branches, and changes anything else on the remote, for example the settings, the releases and the tags.
+- No agent pushes to `main`, creates or deletes tags or releases, changes the repository settings, or closes a pull request that another author opened.
 
 ## Paths
 

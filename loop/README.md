@@ -21,7 +21,9 @@ The ship mode is a setting in `ralph/project.md`. It has two values.
 3. If the review passes, the reviewer assigns the bead to the human and adds the label `merge`.
 4. The human approves and merges the pull request, then runs `bd close <id>` and removes the label.
 
-The reviewer comments but does not approve. The agents usually push with the human's GitHub account, and GitHub does not let an account approve its own pull request. Any CI on the pull request runs in addition to the gate.
+The reviewer comments but does not approve. The agents act as the GitHub account in `GITHUB_ACCOUNT` in `ralph/project.md`, usually the human's own account, and GitHub does not let an account approve its own pull request. Any CI on the pull request runs in addition to the gate.
+
+`ralph/project.md` also holds the one list of the remote actions that each role can do in `pr` mode, under "Remote actions in `pr` mode". An action that is not on the list is not allowed.
 
 `local` is only for a repository with one user. No remote is necessary. If the review passes, the reviewer merges the branch into `main` in the primary checkout with `git merge --no-ff`. Then the reviewer closes the bead and adds the label `accept` for the human.
 
@@ -43,7 +45,7 @@ The agent prompts hold only the loop protocol. They contain no facts about a pro
 
 - The agent names (`CODER`, `REVIEWER`) and the human's bd assignee name (`HUMAN`).
 - The reviewer's engine (`REVIEWER_ENGINE`): `claude` or `codex`.
-- The ship mode (`SHIP_MODE`).
+- The ship mode (`SHIP_MODE`) and, in `pr` mode, the GitHub account of the agents (`GITHUB_ACCOUNT`).
 - The paths, the tech stack, the gate, the external services and the review method.
 
 To rename an agent, change its name in `project.md` and restart its loop with the new name. Then assign each open bead of the old name to the new name. Worktree and log paths do not need to follow the name.
@@ -111,6 +113,17 @@ RALPH_LOG_DIR=/tmp/<name>-alice-sessions uv run ralph/watch.py --agent Alice --t
 | `RALPH_PRINT_PROMPT=1` | Print the combined prompt and exit. |
 
 The `RALPH_` prefix names the technique (the ralph loop), not an agent. Every agent uses the same variables.
+
+### GitHub account
+
+In `pr` mode, `run.sh` pins the GitHub account that the agents use. A wrong active `gh` account then cannot open a pull request or post a comment. At start, before the first session, `run.sh` does these steps:
+
+1. It reads `GITHUB_ACCOUNT` from `ralph/project.md`. If the value is empty, it stops with an error that names `project.md`.
+2. It gets the token of that account with `gh auth token --user <account>`. If that fails, it stops and tells you to run `gh auth login` for that account.
+3. It exports the token as `GH_TOKEN` for every session. `gh` uses it, and so does `git` over HTTPS through the credential helper of `gh`. `run.sh` does not print the token.
+4. If `origin` is an SSH URL (`git@<host>:...` or `ssh://git@<host>/...`), it runs `ssh -T git@<host>` once. If the reply does not greet `GITHUB_ACCOUNT`, it stops with an error that shows both account names. An HTTPS `origin` gets no SSH check.
+
+Each failure stops the loop with exit code 1. `run.sh` does not change the SSH or git configuration. In `local` mode, `run.sh` skips all of these steps and calls neither `gh` nor `ssh`.
 
 ### Session time limit
 
