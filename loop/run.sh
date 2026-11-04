@@ -214,17 +214,14 @@ HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # agent held when the session started. Every failure only warns: a missing
 # cost note must never stop the loop.
 record_cost() {
-    local log="$1" held="$2" summary bead note ids attempt prefix
+    local log="$1" held="$2" summary bead note ids attempt prefix watch_args
     if ! command -v uv >/dev/null 2>&1; then
         echo "WARNING: uv not found; no cost note for this session"
         return 0
     fi
     # Without a prefix, watch.py falls back to a pattern that matches any.
-    local watch_args=(--summary "$log" --agent "$AGENT_NAME")
     prefix=$(overlay_value BEAD_PREFIX)
-    if [ -n "$prefix" ]; then
-        watch_args+=(--prefix "$prefix")
-    fi
+    watch_args=(--summary "$log" --agent "$AGENT_NAME" ${prefix:+--prefix "$prefix"})
     if ! summary=$(uv run --quiet "$HARNESS_DIR/watch.py" "${watch_args[@]}" 2>/dev/null); then
         echo "WARNING: could not read $log; no cost note for this session"
         return 0

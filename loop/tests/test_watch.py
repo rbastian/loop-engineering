@@ -101,12 +101,12 @@ def isolated(monkeypatch):
     monkeypatch.setattr(watch, "CODEX_SESSIONS", set())
     monkeypatch.setattr(watch, "REPLAYING", False)
     monkeypatch.setattr(watch, "POLL_SECONDS", 0)
-    # main rebinds the bead patterns from --prefix, and a test may too.
-    for name in ("CLAIM_RE", "REVIEW_RE", "TAG_RE"):
-        monkeypatch.setattr(watch, name, getattr(watch, name))
     monkeypatch.setattr(
         watch.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="")
     )
+    yield
+    # main rebinds the bead patterns from --prefix, and a test may too.
+    watch.use_prefix(None)
 
 
 def init_line(model: str = MODEL) -> str:

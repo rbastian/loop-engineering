@@ -9,12 +9,8 @@ step calls the stub instead of watch.py.
 import subprocess
 from pathlib import Path
 
-RUN_SH = Path(__file__).parents[1] / "run.sh"
-
-
-def write_exe(path: Path, body: str) -> None:
-    path.write_text("#!/bin/bash\n" + body)
-    path.chmod(0o755)
+import pytest
+from test_run_github_account import RUN_SH, write_exe
 
 
 def summary_args(tmp_path: Path, overlay_lines: str) -> list[str]:
@@ -71,13 +67,8 @@ def test_a_set_prefix_is_passed_to_the_summary(tmp_path):
     assert args[args.index("--prefix") + 1] == "my-app"
 
 
-def test_an_empty_prefix_passes_nothing(tmp_path):
-    args = summary_args(tmp_path, "BEAD_PREFIX=\n")
-    assert "--summary" in args
-    assert "--prefix" not in args
-
-
-def test_a_missing_prefix_passes_nothing(tmp_path):
-    args = summary_args(tmp_path, "")
+@pytest.mark.parametrize("overlay_lines", ["BEAD_PREFIX=\n", ""])
+def test_an_empty_or_missing_prefix_passes_nothing(tmp_path, overlay_lines):
+    args = summary_args(tmp_path, overlay_lines)
     assert "--summary" in args
     assert "--prefix" not in args
