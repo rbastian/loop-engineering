@@ -20,3 +20,18 @@ def test_both_watchers_run_watch_py_as_a_uv_script():
     assert len(commands) == 2
     for command in commands:
         assert "uv run ralph/watch.py" in command
+
+
+def test_both_watchers_get_the_bead_prefix():
+    """watch.py matches bead IDs with the project's prefix only when it is
+    given one, so layout.sh passes BEAD_PREFIX from ralph/project.md (lpe-7fn)."""
+    text = LAYOUT.read_text()
+    assert "conf BEAD_PREFIX" in text
+    commands = [
+        line
+        for line in text.splitlines()
+        if line.startswith("herdr pane run") and "watch.py" in line
+    ]
+    assert len(commands) == 2
+    for command in commands:
+        assert "$PREFIX_ARG" in command

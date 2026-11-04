@@ -27,6 +27,7 @@ Usage:
     uv run ralph/watch.py --replay   # print a finished log and exit
     uv run ralph/watch.py --file X   # a specific session log
     uv run ralph/watch.py --summary X   # one finished log as JSON (run.sh)
+    uv run ralph/watch.py --prefix lpe  # match only this project's bead IDs
     RALPH_LOG_DIR=/tmp/alice-sessions uv run ralph/watch.py   # Alice
 """
 
@@ -53,22 +54,46 @@ REPAINT_SECONDS = 30
 RULE = "\u2500" * 74
 # The body line that opens a session, whichever engine wrote it.
 SESSION_MARK = "\u2500\u2500 session \u2500\u2500"
-# A bead ID: a prefix, a hash of 3 to 8 characters (bd makes hashes longer as
-# a database grows), and child numbers to any depth, as in lpe-3or.1.2.
-BEAD = r"[a-z]+-[a-z0-9]{3,8}(?:\.\d+)*"
-# Ralph's claim, read from the ID argument of `bd update`. A wide hash also
-# matches hyphenated words such as re-review, so a search over the whole
-# command can return a word that comes before the ID (lpe-708).
-CLAIM_RE = re.compile(rf"bd update\s+({BEAD})\b")
-# Alice's first write on every review (ralph/REVIEWER.md). Matched down to the
-# marker text and the bead's position as `bd note`'s argument: she also writes
-# notes that quote OTHER beads, and those must not move the header.
-REVIEW_RE = re.compile(rf"""bd note\s+({BEAD})\s+["']?Review round \d+ started""")
-# Ralph's commit tag, read from between the brackets rather than from anywhere
-# in the command. A commit subject carries ordinary hyphenated words — mid-log,
-# set-up, add-on — and BEAD matches those too, so a search over the whole
-# command returns the first one of them instead of the tag (agents-8vr).
-TAG_RE = re.compile(rf"\[({BEAD})\]")
+# The part of a bead ID after its prefix: a hash of 3 to 8 characters (bd
+# makes hashes longer as a database grows), and child numbers to any depth, as
+# in lpe-3or.1.2.
+HASH = r"-[a-z0-9]{3,8}(?:\.\d+)*"
+# The prefix when --prefix does not name it. bd accepts prefixes such as my-app,
+# my_app and app2, so the prefix takes as much as it can and the hash is the
+# last segment. A hyphenated word before an ID can still be read as part of
+# it, which is why the warning below asks for --prefix (lpe-7fn).
+ANY_PREFIX = r"[a-z][a-z0-9_-]*"
+PREFIX_WARNING = (
+    "watch: no --prefix given, so bead names can be wrong;"
+    " pass --prefix with the project's bead prefix"
+)
+
+
+def use_prefix(prefix: str | None) -> None:
+    """Build the three patterns that name a bead, for one prefix or for any.
+
+    main calls this once with --prefix. The import below sets the default, so
+    the patterns exist for a caller that never runs main.
+    """
+    global CLAIM_RE, REVIEW_RE, TAG_RE
+    bead = (re.escape(prefix) if prefix else ANY_PREFIX) + HASH
+    # Ralph's claim, read from the ID argument of `bd update`. A wide hash also
+    # matches hyphenated words such as re-review, so a search over the whole
+    # command can return a word that comes before the ID (lpe-708).
+    CLAIM_RE = re.compile(rf"bd update\s+({bead})\b")
+    # Alice's first write on every review (ralph/REVIEWER.md). Matched down to
+    # the marker text and the bead's position as `bd note`'s argument: she also
+    # writes notes that quote OTHER beads, and those must not move the header.
+    REVIEW_RE = re.compile(rf"""bd note\s+({bead})\s+["']?Review round \d+ started""")
+    # Ralph's commit tag, read from between the brackets rather than from
+    # anywhere in the command. A commit subject carries ordinary hyphenated
+    # words — mid-log, set-up, add-on — and a bead pattern matches those too,
+    # so a search over the whole command returns the first one of them
+    # instead of the tag (agents-8vr).
+    TAG_RE = re.compile(rf"\[({bead})\]")
+
+
+use_prefix(None)
 # A git commit that starts a command: at its start, or after `&&`, `;` or a
 # line break. One that follows a quote or a paren is text inside a string — a
 # heredoc edit of the watcher's own tests is full of them (agents-ejc).
@@ -1175,6 +1200,10 @@ def main(argv: list | None = None) -> int:
         help="when following, replay the log before tailing it",
     )
     parser.add_argument(
+        "--prefix",
+        help="the project's bead prefix, for example lpe; default: any prefix",
+    )
+    parser.add_argument(
         "--summary",
         type=Path,
         metavar="LOG",
@@ -1184,7 +1213,12 @@ def main(argv: list | None = None) -> int:
 
     global AGENT
     AGENT = args.agent or agent_name(LOG_DIR)
+    use_prefix(args.prefix)
     if args.summary:
+        # stdout carries the JSON that run.sh parses, so the warning goes to
+        # stderr.
+        if not args.prefix:
+            print(PREFIX_WARNING, file=sys.stderr)
         print(json.dumps(summarize(args.summary)))
         return 0
     # A replay or stdin run prints a whole log and exits, and a full-screen
@@ -1197,6 +1231,8 @@ def main(argv: list | None = None) -> int:
         )
         PINNED.enabled = False
     PINNED.start()
+    if not args.prefix:
+        PINNED.add(PREFIX_WARNING)
     try:
         return run(args)
     finally:

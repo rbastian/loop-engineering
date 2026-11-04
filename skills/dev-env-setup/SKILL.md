@@ -28,7 +28,7 @@ The harness source is `loop/` in the same repository. `bootstrap.sh` finds it fr
 
 1. Get the project directory. If the user gives none, use the current working directory.
 2. Ask the user these questions in one message:
-   - The bead prefix. It must be lowercase letters only, because a hyphen breaks the bead parser in `watch.py`. Suggest a short consonant abbreviation of the project name, four letters at most, for example `rsvc` for `resolution-service`.
+   - The bead prefix. It can have lowercase letters, digits, `-` and `_`, and it must start with a letter. It must not end with `-` or `_`, or have two of them in a row. Suggest a short consonant abbreviation of the project name, four letters at most, for example `rsvc` for `resolution-service`.
    - Does more than one person work in this repository? If yes, or if the user is not sure, use `pr`. Use `local` only for a repository with one user.
    - In `pr` mode, who approves and merges the pull requests? Get the bd assignee name for that person. The default is `$USER`. The same person gets the acceptance and escalation queues in both modes.
    - In `pr` mode, which GitHub account do the agents use? The agents use one account for every `gh` command and every push, usually the human's own account. If `gh` is logged in to the account that owns the `origin` repository, suggest that account. `gh auth status` lists the logged-in accounts. In `local` mode, do not ask, because `bootstrap.sh` writes an empty value.
@@ -47,10 +47,10 @@ The harness source is `loop/` in the same repository. `bootstrap.sh` finds it fr
 
 ## Facts the scripts depend on
 
-- `bd init` uses the directory name as the default prefix. For `resolution-service`, bead IDs are `resolution-service-abc`, and `watch.py` reads that as `service-abc`. This is why the prefix is an argument.
+- `bd init` uses the directory name as the default prefix. For `resolution-service`, bead IDs are `resolution-service-abc`. Short IDs are easier to read and type, so the prefix is an argument.
 - When `pytest` finds no tests, it exits with code 5, which fails the gate. If the project has no `test_*.py` or `*_test.py` file, `bootstrap.sh` writes `tests/test_smoke.py` and sets `testpaths = ["tests"]` for this reason. If the project has test files, `bootstrap.sh` writes no smoke test and no `testpaths`, and `pytest` finds the tests by its default rules.
 - On an existing repository without `pyproject.toml`, `bootstrap.sh` runs `uv init --bare`, which writes only `pyproject.toml`. On an empty folder, it runs `uv init --package`, which also adds a `src/<name>` package.
-- `watch.py` gets the agent name from the log directory name. The per-project directories do not match its pattern, so `layout.sh` passes `--agent`.
+- `watch.py` gets the agent name from the log directory name. The per-project directories do not match its pattern, so `layout.sh` passes `--agent`. `layout.sh` also passes `--prefix` from `BEAD_PREFIX` in `ralph/project.md`, so the watchers match only this project's bead IDs.
 - `run.sh` appends `ralph/project.md` to the prompt at each session. `RALPH_OVERLAY` points it at another file, and `RALPH_OVERLAY=none` runs the prompt alone.
 - The loops read `CODER.md`, `REVIEWER.md` and `project.md` from the primary checkout, not from the worktrees. Prompt changes merged to `main` take effect at the next session.
 - In `pr` mode, the reviewer comments on the pull request but does not approve it. The agents act as the account in `GITHUB_ACCOUNT`, usually the human's own account, and GitHub does not let an account approve its own pull request. `ralph/project.md` lists the remote actions of each role under "Remote actions in `pr` mode".

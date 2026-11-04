@@ -92,9 +92,11 @@ Each loop must have its own `RALPH_LOG_DIR`. `run.sh` points `$RALPH_LOG_DIR/cur
 Follow a session with the watcher:
 
 ```bash
-RALPH_LOG_DIR=/tmp/<name>-ralph-sessions uv run ralph/watch.py --agent Ralph --tui
-RALPH_LOG_DIR=/tmp/<name>-alice-sessions uv run ralph/watch.py --agent Alice --tui
+RALPH_LOG_DIR=/tmp/<name>-ralph-sessions uv run ralph/watch.py --agent Ralph --prefix <prefix> --tui
+RALPH_LOG_DIR=/tmp/<name>-alice-sessions uv run ralph/watch.py --agent Alice --prefix <prefix> --tui
 ```
+
+`--prefix` is the bead prefix from `BEAD_PREFIX` in `ralph/project.md`. With it, the watcher matches only that project's bead IDs. Without it, the watcher matches any prefix, can name the wrong bead, and prints a warning. `run.sh` passes `BEAD_PREFIX` to `watch.py --summary` when it is set.
 
 `RALPH_ENGINE` selects the agent CLI. It takes `claude` (the default) or `codex`. The coder always runs on `claude`, because its prompt uses the `/simplify` skill. The reviewer can run on `codex`, so that a different model family reads the diff. On `codex`, `RALPH_MODEL` has no default, and the review uses `codex exec review`. Before the first headless Codex session, open `codex` once in the primary checkout, trust the project and approve its hooks.
 
@@ -194,7 +196,7 @@ The setup layout writes logs to `/tmp/<project>-<coder>-sessions` and `/tmp/<pro
 Use the watcher commands under [Running](#running) for a live view. To read an older log, run:
 
 ```bash
-uv run ralph/watch.py --agent Ralph --file /path/to/session.jsonl --replay
+uv run ralph/watch.py --agent Ralph --prefix <prefix> --file /path/to/session.jsonl --replay
 ```
 
 Use your configured agent name in place of `Ralph`.

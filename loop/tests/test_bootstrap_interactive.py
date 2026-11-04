@@ -59,6 +59,7 @@ def run_bootstrap(
     extra_env: dict[str, str] | None = None,
     *,
     check: bool = True,
+    prefix: str = "demo",
 ) -> subprocess.CompletedProcess:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
@@ -82,7 +83,7 @@ def run_bootstrap(
     }
     env.update(extra_env or {})
     result = subprocess.run(
-        ["bash", str(BOOTSTRAP), str(project), "demo"],
+        ["bash", str(BOOTSTRAP), str(project), prefix],
         env=env,
         capture_output=True,
         text=True,

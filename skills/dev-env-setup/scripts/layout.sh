@@ -49,6 +49,12 @@ case "$REVIEWER_ENGINE" in
         ;;
 esac
 
+# The watchers match only this project's bead IDs. An overlay written before
+# BEAD_PREFIX existed has no such line, and watch.py then matches any prefix.
+BEAD_PREFIX="$(conf BEAD_PREFIX)"
+case "$BEAD_PREFIX" in *"{{"*) echo "ERROR: BEAD_PREFIX is not set in ralph/project.md"; exit 1 ;; esac
+PREFIX_ARG="${BEAD_PREFIX:+ --prefix $BEAD_PREFIX}"
+
 # Per-project log directories, so two projects never share a current.jsonl.
 # The names do not end in "<agent>-sessions", so the watchers get --agent.
 CODER_LOG="/tmp/$NAME-$(lower "$CODER")-sessions"
@@ -93,8 +99,8 @@ herdr pane rename "$REVIEWER_WATCH" "$REVIEWER watcher" >/dev/null
 herdr pane rename "$BEADS_PANE" "Beads" >/dev/null
 
 # Watchers first: they wait for current.jsonl, so nothing is missed.
-herdr pane run "$CODER_WATCH" "RALPH_LOG_DIR=$CODER_LOG uv run ralph/watch.py --agent $CODER --tui" >/dev/null
-herdr pane run "$REVIEWER_WATCH" "RALPH_LOG_DIR=$REVIEWER_LOG uv run ralph/watch.py --agent $REVIEWER --tui" >/dev/null
+herdr pane run "$CODER_WATCH" "RALPH_LOG_DIR=$CODER_LOG uv run ralph/watch.py --agent $CODER$PREFIX_ARG --tui" >/dev/null
+herdr pane run "$REVIEWER_WATCH" "RALPH_LOG_DIR=$REVIEWER_LOG uv run ralph/watch.py --agent $REVIEWER$PREFIX_ARG --tui" >/dev/null
 
 # The beads list redraws only when it changes. bd list takes about 0.6 s, so a
 # loop that clears first leaves the pane blank on every cycle. bd turns color
