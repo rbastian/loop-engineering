@@ -53,8 +53,13 @@ REPAINT_SECONDS = 30
 RULE = "\u2500" * 74
 # The body line that opens a session, whichever engine wrote it.
 SESSION_MARK = "\u2500\u2500 session \u2500\u2500"
-BEAD = r"[a-z]+-[a-z0-9]{3}(?:\.\d+)?"
-BEAD_RE = re.compile(rf"\b({BEAD})\b")
+# A bead ID: a prefix, a hash of 3 to 8 characters (bd makes hashes longer as
+# a database grows), and child numbers to any depth, as in lpe-3or.1.2.
+BEAD = r"[a-z]+-[a-z0-9]{3,8}(?:\.\d+)*"
+# Ralph's claim, read from the ID argument of `bd update`. A wide hash also
+# matches hyphenated words such as re-review, so a search over the whole
+# command can return a word that comes before the ID (lpe-708).
+CLAIM_RE = re.compile(rf"bd update\s+({BEAD})\b")
 # Alice's first write on every review (ralph/REVIEWER.md). Matched down to the
 # marker text and the bead's position as `bd note`'s argument: she also writes
 # notes that quote OTHER beads, and those must not move the header.
@@ -108,7 +113,7 @@ def bead_in(command: str) -> str | None:
     """
     if found := REVIEW_RE.search(command):
         return found.group(1)
-    if "--claim" in command and (found := BEAD_RE.search(command)):
+    if "--claim" in command and (found := CLAIM_RE.search(command)):
         return found.group(1)
     if (start := COMMIT_START_RE.search(command)) and (
         found := TAG_RE.search(command, start.start())
