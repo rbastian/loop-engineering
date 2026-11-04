@@ -125,6 +125,8 @@ def test_empty_folder_gets_the_section_before_the_beads_block(tmp_path):
         assert section(text) == fill("Bob", "Carol", "Dana")
         assert text.index("# Agent Instructions\n") < text.index(BEGIN)
         assert text.index(END) < text.index(BEADS)
+    project_md = (project / "ralph" / "project.md").read_text()
+    assert "\nGITHUB_ACCOUNT=dana-gh\n" in project_md
 
 
 def test_second_run_changes_nothing(tmp_path):
@@ -183,14 +185,6 @@ def test_pr_mode_without_a_github_account_stops(tmp_path):
     assert result.returncode == 1
     assert "LOOP_GITHUB_ACCOUNT" in result.stdout + result.stderr
     assert not (project / "ralph" / "project.md").exists()
-
-
-def test_pr_mode_writes_the_github_account(tmp_path):
-    project = tmp_path / "proj"
-    run_bootstrap(tmp_path, project)
-    text = (project / "ralph" / "project.md").read_text()
-    assert "\nGITHUB_ACCOUNT=dana-gh\n" in text
-    assert "{{GITHUB_ACCOUNT}}" not in text
 
 
 def test_local_mode_writes_an_empty_github_account(tmp_path):

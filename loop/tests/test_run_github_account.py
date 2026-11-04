@@ -33,10 +33,14 @@ def run_loop(
     """Run run.sh once. Returns the result, the session's GH_TOKEN and the stub calls."""
     repo = tmp_path / "repo"
     repo.mkdir()
-    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    subprocess.run(
+        ["git", "init", "-q", "-b", "main", str(repo)], check=True, capture_output=True
+    )
     if origin is not None:
         subprocess.run(
-            ["git", "-C", str(repo), "remote", "add", "origin", origin], check=True
+            ["git", "-C", str(repo), "remote", "add", "origin", origin],
+            check=True,
+            capture_output=True,
         )
 
     bin_dir = tmp_path / "bin"

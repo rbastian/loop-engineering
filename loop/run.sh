@@ -286,8 +286,7 @@ primary_busy_reason() {
 # the SSH key instead, so check once that the key belongs to the same account.
 # Every failure stops the loop before the first session. Never print the token.
 pin_github_account() {
-    local account url host reply who
-    local port=()
+    local account url host port="" reply who=""
     [ "$(overlay_value SHIP_MODE)" = "pr" ] || return 0
     account=$(overlay_value GITHUB_ACCOUNT)
     if [ -z "$account" ]; then
@@ -313,11 +312,11 @@ pin_github_account() {
     esac
     # Pass a port only when the URL names one: -p overrides ~/.ssh/config.
     case "$host" in
-        *:*) port=(-p "${host##*:}"); host="${host%%:*}" ;;
+        *:*) port="${host##*:}"; host="${host%%:*}" ;;
     esac
     # ssh -T exits 1 even when GitHub greets the key, so read the reply.
-    reply=$(ssh -T ${port[@]+"${port[@]}"} -o BatchMode=yes -o ConnectTimeout=10 "git@$host" 2>&1 </dev/null) || true
-    who=$(sed -n 's/^Hi \([^!]*\)!.*/\1/p' <<<"$reply" | head -1)
+    reply=$(ssh -T ${port:+-p "$port"} -o BatchMode=yes -o ConnectTimeout=10 "git@$host" 2>&1 </dev/null) || true
+    if [[ "$reply" =~ Hi\ ([^!]*)! ]]; then who="${BASH_REMATCH[1]}"; fi
     if [ "$who" != "$account" ]; then
         echo "ERROR: git pushes to origin over SSH as '${who:-unknown}', but GITHUB_ACCOUNT is '$account'"
         echo "ssh -T git@$host replied: $reply"

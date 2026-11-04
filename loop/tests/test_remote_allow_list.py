@@ -26,7 +26,7 @@ def test_the_template_has_the_list_once_with_the_account_field():
 
 def test_both_prompts_point_to_the_list():
     for prompt in (CODER, REVIEWER):
-        assert "Remote actions in `pr` mode" in prompt
+        assert HEADING.removeprefix("### ") in prompt
 
 
 def test_the_coder_uses_only_allowed_gh_commands():
@@ -35,8 +35,5 @@ def test_the_coder_uses_only_allowed_gh_commands():
 
 def test_the_reviewer_uses_only_allowed_gh_commands():
     # gh pr review appears only in the rule that forbids an approval.
-    allowed = {"gh pr view", "gh pr comment", "gh pr review"}
-    assert gh_commands(REVIEWER) <= allowed
-    assert "gh pr review --approve" not in REVIEWER.replace(
-        "not `gh pr review --approve`", ""
-    )
+    reviewer = REVIEWER.replace("not `gh pr review --approve`", "")
+    assert gh_commands(reviewer) <= {"gh pr view", "gh pr comment"}
