@@ -84,6 +84,13 @@ def run_bootstrap(tmp_path: Path, project: Path) -> subprocess.CompletedProcess:
     return result
 
 
+def existing_repo(tmp_path: Path) -> Path:
+    project = tmp_path / "proj"
+    project.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(project)], check=True)
+    return project
+
+
 def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -123,9 +130,7 @@ def test_second_run_changes_nothing(tmp_path):
 
 
 def test_existing_h1_keeps_the_other_text(tmp_path):
-    project = tmp_path / "proj"
-    project.mkdir()
-    subprocess.run(["git", "init", "-q", "-b", "main", str(project)], check=True)
+    project = existing_repo(tmp_path)
     original = "# My Project\n\nSome rules.\n\n```bash\n# not a heading\n```\n"
     (project / "CLAUDE.md").write_text(original)
     run_bootstrap(tmp_path, project)
@@ -137,9 +142,7 @@ def test_existing_h1_keeps_the_other_text(tmp_path):
 
 
 def test_file_without_h1_gets_the_section_at_the_top(tmp_path):
-    project = tmp_path / "proj"
-    project.mkdir()
-    subprocess.run(["git", "init", "-q", "-b", "main", str(project)], check=True)
+    project = existing_repo(tmp_path)
     (project / "AGENTS.md").write_text("Plain text.\n")
     run_bootstrap(tmp_path, project)
     text = (project / "AGENTS.md").read_text()
@@ -148,9 +151,7 @@ def test_file_without_h1_gets_the_section_at_the_top(tmp_path):
 
 
 def test_h1_after_the_beads_block_puts_the_section_at_the_top(tmp_path):
-    project = tmp_path / "proj"
-    project.mkdir()
-    subprocess.run(["git", "init", "-q", "-b", "main", str(project)], check=True)
+    project = existing_repo(tmp_path)
     original = BEADS + "\n## Beads\n<!-- END BEADS INTEGRATION -->\n\n# Later\n"
     (project / "CLAUDE.md").write_text(original)
     run_bootstrap(tmp_path, project)

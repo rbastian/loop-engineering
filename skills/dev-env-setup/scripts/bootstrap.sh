@@ -76,6 +76,8 @@ PKG="$(tr '[:upper:]-' '[:lower:]_' <<<"$NAME")"
 
 step() { printf '\n==> %s\n' "$*"; }
 lower() { tr '[:upper:]' '[:lower:]' <<<"$1"; }
+# The sed expressions that fill the name placeholders in both templates.
+NAMES=(-e "s#{{CODER}}#$CODER#g" -e "s#{{REVIEWER}}#$REVIEWER#g" -e "s#{{HUMAN}}#$HUMAN#g")
 
 missing=0
 TOOLS=(git uv bd jq claude)
@@ -201,18 +203,15 @@ step "interactive section"
 # It goes after the first H1, before the beads blocks that bd setup wrote.
 # A file that already holds the BEGIN marker keeps its section unchanged.
 SECTION="$(mktemp)"
-sed -e "s#{{CODER}}#$CODER#g" \
-    -e "s#{{REVIEWER}}#$REVIEWER#g" \
-    -e "s#{{HUMAN}}#$HUMAN#g" \
-    "$HARNESS/interactive.template.md" >"$SECTION"
+sed "${NAMES[@]}" "$HARNESS/interactive.template.md" >"$SECTION"
 for doc in CLAUDE.md AGENTS.md; do
-    if grep -qF '<!-- BEGIN LOOP INTERACTIVE -->' "$doc" 2>/dev/null; then
-        echo "$doc holds the interactive section; keeping it"
-        continue
-    fi
     if [ ! -f "$doc" ]; then
         cp "$SECTION" "$doc"
         echo "wrote $doc with the interactive section"
+        continue
+    fi
+    if grep -qF '<!-- BEGIN LOOP INTERACTIVE -->' "$doc"; then
+        echo "$doc holds the interactive section; keeping it"
         continue
     fi
     # Pass 1 finds the first H1 outside a code fence and before any beads
@@ -259,9 +258,7 @@ else
     sed -e "s#{{PRIMARY}}#$PROJECT#g" \
         -e "s#{{CODER_WORKTREE}}#$PARENT/$NAME-$(lower "$CODER")#g" \
         -e "s#{{REVIEWER_WORKTREE}}#$PARENT/$NAME-$(lower "$REVIEWER")#g" \
-        -e "s#{{CODER}}#$CODER#g" \
-        -e "s#{{REVIEWER}}#$REVIEWER#g" \
-        -e "s#{{HUMAN}}#$HUMAN#g" \
+        "${NAMES[@]}" \
         -e "s#{{SHIP_MODE}}#$SHIP_MODE#g" \
         -e "s#{{REVIEWER_ENGINE}}#$REVIEWER_ENGINE#g" \
         "$HARNESS/project.template.md" >ralph/project.md
