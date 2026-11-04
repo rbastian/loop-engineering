@@ -87,7 +87,7 @@ for tool in "${TOOLS[@]}"; do
 done
 command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1 \
     || echo "WARNING: no timeout/gtimeout; sessions will have no time limit (brew install coreutils)"
-for f in run.sh watch.py CODER.md REVIEWER.md project.template.md; do
+for f in run.sh watch.py CODER.md REVIEWER.md project.template.md interactive.template.md; do
     [ -f "$HARNESS/$f" ] || { echo "ERROR: $HARNESS/$f not found (set LOOP_HOME)"; missing=1; }
 done
 [ "$missing" -eq 0 ] || exit 1
@@ -195,6 +195,50 @@ bd init --prefix "$PREFIX" --non-interactive --init-if-missing
 # SessionStart hooks, so each headless session starts with bd context.
 bd setup claude
 bd setup codex
+
+step "interactive section"
+# The rule and the orientation for an interactive session, between markers.
+# It goes after the first H1, before the beads blocks that bd setup wrote.
+# A file that already holds the BEGIN marker keeps its section unchanged.
+SECTION="$(mktemp)"
+sed -e "s#{{CODER}}#$CODER#g" \
+    -e "s#{{REVIEWER}}#$REVIEWER#g" \
+    -e "s#{{HUMAN}}#$HUMAN#g" \
+    "$HARNESS/interactive.template.md" >"$SECTION"
+for doc in CLAUDE.md AGENTS.md; do
+    if grep -qF '<!-- BEGIN LOOP INTERACTIVE -->' "$doc" 2>/dev/null; then
+        echo "$doc holds the interactive section; keeping it"
+        continue
+    fi
+    if [ ! -f "$doc" ]; then
+        cp "$SECTION" "$doc"
+        echo "wrote $doc with the interactive section"
+        continue
+    fi
+    # Pass 1 finds the first H1 outside a code fence and before any beads
+    # block. Pass 2 puts the section after it, or at the top if there is none.
+    awk -v section="$SECTION" '
+        function emit(line) {
+            while ((getline line <section) > 0) print line
+            close(section)
+        }
+        NR == FNR {
+            if (stop) next
+            if ($0 ~ /^(```|~~~)/) fence = !fence
+            else if (!fence && $0 ~ /^<!-- BEGIN BEADS/) stop = 1
+            else if (!fence && $0 ~ /^# /) { h1 = FNR; stop = 1 }
+            next
+        }
+        FNR == 1 && !h1 { emit(); print "" }
+        skip && $0 == "" { next }
+        skip { print ""; skip = 0 }
+        { print }
+        FNR == h1 { print ""; emit(); skip = 1 }
+    ' "$doc" "$doc" >"$doc.tmp"
+    mv "$doc.tmp" "$doc"
+    echo "added the interactive section to $doc"
+done
+rm -f "$SECTION"
 
 step "harness"
 mkdir -p ralph

@@ -16,7 +16,7 @@ The three scripts in `scripts/` do the mechanical work. Each script is safe to r
 
 | Script | What it does |
 |---|---|
-| `bootstrap.sh PROJECT_DIR BEAD_PREFIX [DEV_PACKAGE ...]` | git, uv, ruff and pytest, beads, the `ralph/` harness, `ralph/project.md` with the names, the ship mode and the paths filled in, one gate run |
+| `bootstrap.sh PROJECT_DIR BEAD_PREFIX [DEV_PACKAGE ...]` | git, uv, ruff and pytest, beads, the `ralph/` harness, `ralph/project.md` with the names, the ship mode and the paths filled in, the interactive section in `CLAUDE.md` and `AGENTS.md`, one gate run |
 | `worktrees.sh PROJECT_DIR` | the first commit on `main`, then the push to `origin` in `pr` mode, then the two worktrees: the coder on branch `loop`, the reviewer on a detached HEAD |
 | `layout.sh PROJECT_DIR` | a `<name> loop` tab with both loops side by side, and the two watchers and a Beads pane in the top third of the calling tab (coder left, reviewer center, Beads right) |
 
@@ -42,7 +42,7 @@ The harness source is `loop/` in the same repository. `bootstrap.sh` finds it fr
 7. Run `worktrees.sh`. It commits all files, pushes `main` in `pr` mode, then creates both worktrees.
 8. If the reviewer runs on Codex, ask the user to open `codex` once in the primary checkout, trust the project and approve its hooks. A headless Codex session cannot do this step. Wait until the user confirms.
 9. Run `layout.sh`. It needs `HERDR_ENV=1`. If the skill does not run inside herdr, stop and give the user the command to run from a herdr pane.
-10. Report the result: the ship mode, the reviewer's engine, the loop tab name, the five pane IDs, and the log directories `/tmp/<name>-<coder>-sessions` and `/tmp/<name>-<reviewer>-sessions`, with the agent names in lowercase. Remind the user that the loops find no work until a bead gets the spec ritual and an assignment to the coder. Point the user to "From specification to beads" in the loop-engineering README for the breakdown of a specification into beads. In `pr` mode, also tell the user that beads with the label `merge` wait for them: approve and merge the pull request, then run `bd close <id>` and remove the label.
+10. Report the result: the ship mode, the reviewer's engine, the loop tab name, the five pane IDs, and the log directories `/tmp/<name>-<coder>-sessions` and `/tmp/<name>-<reviewer>-sessions`, with the agent names in lowercase. Remind the user that the loops find no work until a bead gets the spec ritual and an assignment to the coder. Tell the user that an interactive Claude Code or Codex session in the project explains the loop and helps with the jobs of the human. Point the user to "From specification to beads" in the loop-engineering README for the breakdown of a specification into beads. In `pr` mode, also tell the user that beads with the label `merge` wait for them: approve and merge the pull request, then run `bd close <id>` and remove the label.
 
 ## Facts the scripts depend on
 
