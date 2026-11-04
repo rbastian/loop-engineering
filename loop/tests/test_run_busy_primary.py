@@ -4,9 +4,9 @@ In local mode the reviewer merges into the primary checkout, and REVIEWER.md
 exits without a merge when the primary is busy. run.sh restarted the reviewer
 every 30 seconds into the same busy primary (lpe-47h). These tests run run.sh
 against a scratch git repository with a fake bd, a fake agent and a fake sleep.
-The fake sleep stops run.sh with SIGTERM after a set number of iterations, and
-it can run a shell command on each call to change the primary between
-iterations.
+The fake sleep counts the loop's 30-second pauses. It stops run.sh with
+SIGTERM after a set number of iterations, and it can run a shell command on
+each call to change the primary between iterations.
 """
 
 import subprocess
@@ -74,6 +74,9 @@ def run_loop(
     hooks = "".join(f"  {n}) {cmd} ;;\n" for n, cmd in (on_sleep or {}).items())
     write_exe(
         bin_dir / "sleep",
+        # Only the loop's 30-second pause counts. The session watchdog's
+        # short sleeps go to the real sleep.
+        '[ "$1" = 30 ] || exec /bin/sleep "$@"\n'
         'n=$(( $(cat "$SLEEP_COUNT" 2>/dev/null || echo 0) + 1 ))\n'
         'echo "$n" >"$SLEEP_COUNT"\n'
         f'case "$n" in\n{hooks}esac\n'

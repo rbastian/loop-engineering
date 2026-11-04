@@ -13,8 +13,12 @@
 #                        bead (needs uv, which runs watch.py --summary).
 #   RALPH_SHOW_BEAD=1    For each in-progress bead, also run `bd show <id>` so
 #                        notes/checkpoint/gate-output are visible between sessions.
-#   RALPH_SESSION_TIMEOUT  Max wall-clock time per session (default: 2h).
-#                        Needs GNU timeout; on macOS: brew install coreutils.
+#   RALPH_KEEP_AWAKE=1   Run each session under `caffeinate -i`, so the Mac does
+#                        not idle-sleep during a session. Without caffeinate on
+#                        PATH, the loop warns once and runs without it.
+#   RALPH_SESSION_TIMEOUT  Max wall-clock time per session (default: 2h): a whole
+#                        number with an optional suffix s, m, h or d. 0 means no
+#                        limit. Time while the Mac sleeps counts too.
 #   RALPH_ENGINE         Which agent CLI runs each session: claude (default)
 #                        or codex. Any other value stops the loop at startup.
 #   RALPH_MODEL          Model for each session. Defaults to claude-opus-5-5 on
@@ -41,6 +45,24 @@ case "$ENGINE" in
         exit 1
         ;;
 esac
+
+# Seconds in a duration such as 90, 90s, 30m, 2h or 1d: the forms GNU timeout
+# accepted, apart from fractions. Fails on anything else.
+duration_seconds() {
+    local num="${1%[smhd]}" mult=1
+    case "$num" in '' | *[!0-9]*) return 1 ;; esac
+    case "$1" in
+        *m) mult=60 ;;
+        *h) mult=3600 ;;
+        *d) mult=86400 ;;
+    esac
+    echo $((10#$num * mult))
+}
+
+if ! SESSION_LIMIT=$(duration_seconds "$SESSION_TIMEOUT"); then
+    echo "ERROR: RALPH_SESSION_TIMEOUT must be a whole number with an optional suffix s, m, h or d (got: $SESSION_TIMEOUT)"
+    exit 1
+fi
 
 # The agent reads this to choose its engine-specific steps: on codex, the reviewer
 # reviews with `codex exec review` instead of the /code-review skill.
@@ -80,15 +102,13 @@ if ! command -v jq >/dev/null 2>&1; then
     exit 1
 fi
 
-# Guard each session with a wall-clock timeout so a wedged session
-# (hung tool call, endless poll) can't stall the loop forever.
-TIMEOUT_CMD=""
-if command -v timeout >/dev/null 2>&1; then
-    TIMEOUT_CMD="timeout --signal=INT --kill-after=60 $SESSION_TIMEOUT"
-elif command -v gtimeout >/dev/null 2>&1; then
-    TIMEOUT_CMD="gtimeout --signal=INT --kill-after=60 $SESSION_TIMEOUT"
-else
-    echo "WARNING: timeout/gtimeout not found — sessions have no time limit (brew install coreutils)"
+KEEP_AWAKE=""
+if [ -n "${RALPH_KEEP_AWAKE:-}" ]; then
+    if command -v caffeinate >/dev/null 2>&1; then
+        KEEP_AWAKE=1
+    else
+        echo "WARNING: caffeinate not found; RALPH_KEEP_AWAKE has no effect"
+    fi
 fi
 
 # Count beads via JSON rather than scraping human-readable output, which
@@ -103,6 +123,78 @@ bead_count() {
 
 # A killed or failed sleep must not end the loop under set -e (lpe-qi4).
 pause() { sleep "$1" || true; }
+
+# Each session runs in its own process group, so that the watchdog and Ctrl-C
+# stop the agent and every child it started, and nothing else. GNU timeout
+# counted only awake time on macOS, and a session that started before the Mac
+# slept ran 12h52m against a 2h limit (lpe-k08). The watchdog compares the
+# wall clock with the start instead, so its first check after a sleep sees the
+# real elapsed time.
+
+# Send INT to a process group, then KILL if it still exists after $2 seconds.
+stop_group() {
+    local pgid="$1" grace="$2" waited=0
+    kill -INT -- "-$pgid" 2>/dev/null || return 0
+    while [ "$waited" -lt "$grace" ] && kill -0 -- "-$pgid" 2>/dev/null; do
+        pause 1
+        waited=$((waited + 1))
+    done
+    kill -KILL -- "-$pgid" 2>/dev/null || true
+}
+
+session_elapsed() { echo $(($(date +%s) - SESSION_START)); }
+
+# Runs as its own job. Exits 124 when it stopped the session. From that point
+# it ignores TERM, so run_session's TERM stops it only while it still waits.
+watchdog() {
+    local left
+    while kill -0 -- "-$SESSION_PGID" 2>/dev/null; do
+        left=$((SESSION_LIMIT - $(session_elapsed)))
+        if [ "$left" -le 0 ]; then
+            trap '' TERM
+            stop_group "$SESSION_PGID" 60
+            exit 124
+        fi
+        pause $((left < 5 ? left : 5))
+    done
+}
+
+# Ctrl-C reaches run.sh but not the session's own process group, so pass it on.
+interrupt_session() {
+    trap - INT TERM HUP
+    kill -KILL -- "-$WATCHDOG_PGID" 2>/dev/null || true
+    stop_group "$SESSION_PGID" 10
+    exit 130
+}
+
+# Runs AGENT_CMD under the watchdog, teeing to $SESSION_LOG when it is set.
+# Sets SESSION_EXIT: the agent's exit code, or 124 when the limit passed.
+run_session() {
+    SESSION_START=$(date +%s)
+    # set -m gives each background job its own process group, led by $!.
+    set -m
+    if [ -n "$SESSION_LOG" ]; then
+        ("${AGENT_CMD[@]}" </dev/null | tee -a "$SESSION_LOG"; exit "${PIPESTATUS[0]}") &
+    else
+        "${AGENT_CMD[@]}" </dev/null &
+    fi
+    SESSION_PGID=$!
+    WATCHDOG_PGID=""
+    if [ "$SESSION_LIMIT" -gt 0 ]; then
+        watchdog &
+        WATCHDOG_PGID=$!
+    fi
+    set +m
+    trap interrupt_session INT TERM HUP
+    wait "$SESSION_PGID" 2>/dev/null
+    SESSION_EXIT=$?
+    trap - INT TERM HUP
+    [ -n "$WATCHDOG_PGID" ] || return 0
+    # A watchdog that fired finishes its KILL grace period and exits 124.
+    kill -TERM -- "-$WATCHDOG_PGID" 2>/dev/null
+    wait "$WATCHDOG_PGID" 2>/dev/null
+    [ "$?" -ne 124 ] || SESSION_EXIT=124
+}
 
 # watch.py sits beside this script, in the primary checkout's ralph/ folder.
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -266,6 +358,9 @@ while true; do
             AGENT_CMD+=(--verbose --output-format stream-json)
         fi
     fi
+    if [ -n "$KEEP_AWAKE" ]; then
+        AGENT_CMD=(caffeinate -i "${AGENT_CMD[@]}")
+    fi
 
     # Capture the session's exit code explicitly: under set -e a bare failing
     # command would kill the whole loop, turning one bad session (API blip,
@@ -287,12 +382,8 @@ while true; do
             --arg started "$(date +%Y-%m-%dT%H:%M:%S%z)" \
             '{type:"ralph.session",engine:$engine,model:$model,started:$started}' \
             >"$SESSION_LOG"
-        ${TIMEOUT_CMD} "${AGENT_CMD[@]}" </dev/null | tee -a "$SESSION_LOG"
-        SESSION_EXIT=${PIPESTATUS[0]}
-    else
-        ${TIMEOUT_CMD} "${AGENT_CMD[@]}" </dev/null
-        SESSION_EXIT=$?
     fi
+    run_session
     set -e
 
     if [ "$SESSION_EXIT" -eq 124 ]; then

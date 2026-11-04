@@ -1048,7 +1048,7 @@ def test_a_finished_claude_session_gets_a_cost_note(tmp_path, capsys):
     assert summary["cost"] == 5.38
     assert summary["closed"] is True
     assert summary["note"] == (
-        f"Session cost: Ralph, {MODEL}, $5.38 est., 7m00s, 3 turns,"
+        f"Session cost: Ralph, {MODEL}, $5.38 est., 7m00s wall, 3 turns,"
         " 58.9k out, 0.0k think, 0k ctx"
     )
 

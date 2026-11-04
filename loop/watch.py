@@ -1065,7 +1065,7 @@ def cost_note(summary: dict) -> str:
         ctx += f" ({summary['cached'] / 1000:.0f}k cached)"
     parts = [summary["agent"], summary["model"], cost]
     if summary["elapsed"] != "?":
-        parts.append(summary["elapsed"])
+        parts.append(f"{summary['elapsed']} wall")
     parts += [
         f"{summary['turns']} turns",
         f"{summary['output'] / 1000:.1f}k out",
