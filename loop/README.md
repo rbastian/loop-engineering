@@ -103,7 +103,8 @@ RALPH_LOG_DIR=/tmp/<name>-alice-sessions uv run ralph/watch.py --agent Alice --t
 | `RALPH_STREAM_LOG=1` | Write each session as JSONL to `$RALPH_LOG_DIR`, with a `current.jsonl` link to the newest log. After each session, also append a cost note to the bead. |
 | `RALPH_LOG_DIR` | The log directory. The default is `/tmp/ralph-sessions`. Give each agent its own. |
 | `RALPH_SHOW_BEAD=1` | Print `bd show` for each in-progress bead between sessions. |
-| `RALPH_SESSION_TIMEOUT` | The wall-clock limit per session. The default is `2h`. It needs GNU `timeout` (on macOS, `brew install coreutils`). |
+| `RALPH_SESSION_TIMEOUT` | The wall-clock limit per session. The default is `2h`. The value is a whole number with an optional suffix `s`, `m`, `h` or `d`. `0` means no limit. Any other value stops the loop at startup. See [Session time limit](#session-time-limit). |
+| `RALPH_KEEP_AWAKE=1` | Run each session under `caffeinate -i`, so that the Mac does not idle-sleep during a session. It is off by default. Without `caffeinate` on `PATH`, the loop prints one warning and runs without it. |
 | `RALPH_ENGINE` | `claude` (the default) or `codex`. |
 | `RALPH_MODEL` | The model for each session. The default is `claude-opus-5-5` on `claude` and none on `codex`. |
 | `RALPH_OVERLAY` | The overlay file. The default is `project.md` beside the prompt file. `none` turns it off. |
@@ -111,12 +112,18 @@ RALPH_LOG_DIR=/tmp/<name>-alice-sessions uv run ralph/watch.py --agent Alice --t
 
 The `RALPH_` prefix names the technique (the ralph loop), not an agent. Every agent uses the same variables.
 
+### Session time limit
+
+`run.sh` starts each session in its own process group (the agent and every process it starts). A watchdog compares the clock with the start time every 5 seconds. When the limit passes, it sends INT to the process group, and KILL 60 seconds later if the group still exists. The loop then prints `<engine> session timed out after <limit>` and starts the next iteration.
+
+The limit counts wall-clock time, including time while the Mac sleeps. If the Mac sleeps during a session, the first check after it wakes stops the session. Set `RALPH_KEEP_AWAKE=1` to keep the Mac awake while a session runs.
+
 ### Cost notes
 
 An agent cannot record what its own session cost. The cost arrives in the session's closing event, after the agent has exited. So `run.sh` records it. When `RALPH_STREAM_LOG=1` is set, `run.sh` reads the finished log with `watch.py --summary` and appends one note to the bead:
 
 ```text
-Session cost: Ralph, claude-opus-5-5, $1.84 est., 12m30s, 41 turns, 18.2k out, 3.1k think, 412k ctx
+Session cost: Ralph, claude-opus-5-5, $1.84 est., 12m30s wall, 41 turns, 18.2k out, 3.1k think, 412k ctx
 ```
 
 The dollar figure is Claude Code's API-equivalent estimate, not a bill. Codex on a ChatGPT plan reports tokens and no dollar figure, and the note says so. Each session of a bead adds one note: the coder's rounds, the reviewer's rounds and any rebase. The sum of the notes is what the bead cost.
@@ -133,7 +140,7 @@ A missing cost note never stops the loop. The note needs `uv` to run `watch.py`.
 
 ### Stop and restart
 
-Stop both the shell loop and its headless session before restarting. A session runs under GNU `timeout` when available and can outlive Ctrl-C or a closed terminal tab. Checkpoint commits, saved files and bead notes provide recovery state for the next session.
+Stop both the shell loop and its headless session before restarting. Ctrl-C on a loop sends INT to its session's process group, and KILL 10 seconds later. A session runs in its own process group, so it can outlive a closed terminal tab or a killed `run.sh`. Checkpoint commits, saved files and bead notes provide recovery state for the next session.
 
 1. Press Ctrl-C in each loop pane to stop the shell loop. Make sure that the loop stops instead of starting another session.
 2. From another terminal, list candidate agent processes:
