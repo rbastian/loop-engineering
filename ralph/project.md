@@ -15,6 +15,7 @@ CODER=Ralph
 REVIEWER=Alice
 HUMAN=Rob Bastian
 REVIEWER_ENGINE=claude
+BEAD_PREFIX=lpe
 ```
 
 `$CODER` is the agent that implements beads. `$REVIEWER` is the agent that reviews them. Each name is the bead assignee that the agent's loop polls for. `$HUMAN` is the bd assignee for the human's queues: merge approval, acceptance and escalation. `REVIEWER_ENGINE` is the CLI that the reviewer's loop runs on: `claude` or `codex`. The coder always runs on `claude`.
