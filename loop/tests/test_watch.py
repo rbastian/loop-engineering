@@ -249,6 +249,24 @@ def test_the_header_names_the_agent(tmp_path, capsys, monkeypatch, extra, expect
         (PLAIN_NOTE, None),
         ("bd show agents-ype", None),
         ("bd ready --assignee=Ralph", None),
+        # bd makes hashes longer as a database grows: 3 to 8 characters, and
+        # child IDs nest to any depth (lpe-708).
+        ("bd update agents-a1b2 --claim", "agents-a1b2"),
+        ("bd update agents-a1b2c3d4 --claim", "agents-a1b2c3d4"),
+        ("bd update agents-bqz.3.1 --claim", "agents-bqz.3.1"),
+        ('git commit -m "feat: x [agents-a1b2]"', "agents-a1b2"),
+        ('git commit -m "feat: x [agents-a1b2c3d4]"', "agents-a1b2c3d4"),
+        ('git commit -m "feat: x [agents-bqz.3.1]"', "agents-bqz.3.1"),
+        ('bd note agents-a1b2 "Review round 1 started"', "agents-a1b2"),
+        ('bd note agents-a1b2c3d4 "Review round 1 started"', "agents-a1b2c3d4"),
+        ('bd note agents-bqz.3.1 "Review round 2 started"', "agents-bqz.3.1"),
+        # Nine characters is past bd's longest hash.
+        ("bd update agents-a1b2c3d4e --claim", None),
+        ('git commit -m "feat: x [agents-a1b2c3d4e]"', None),
+        ('bd note agents-a1b2c3d4e "Review round 1 started"', None),
+        # The claim is the ID argument of bd update, not the first bead-shaped
+        # word in the command.
+        ("echo 're-review read-only' && bd update agents-a1b2 --claim", "agents-a1b2"),
     ],
 )
 def test_only_an_unambiguous_command_names_the_bead(command, expected):
