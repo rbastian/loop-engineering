@@ -179,11 +179,75 @@ UNPRICED = {
     },
 }
 
+# The UNPRICED engines that watch.py prices itself from prices.json: the
+# provider of their entries, and its name in the cost note. A session of one
+# of these whose every model has a price goes into COSTS like a Claude one.
+ESTIMATED = {"fw": ("fireworks", "Fireworks")}
+
+# Per-million-token prices by model ID, for the engines whose own figure is
+# wrong or missing. It sits beside watch.py, so update.sh installs both.
+PRICES_PATH = Path(__file__).with_name("prices.json")
+# prices.json once read, or None before the first lookup. A file that is
+# missing or unreadable reads as {}, so it warns once and prices nothing.
+PRICES: dict | None = None
+# One trailing bracketed suffix on a model ID, such as [1m] for a long context.
+MODEL_SUFFIX = re.compile(r"\[[^\[\]]*\]$")
+
+
+def load_prices() -> dict:
+    global PRICES
+    if PRICES is None:
+        try:
+            prices = json.loads(PRICES_PATH.read_text(encoding="utf-8"))
+            if not isinstance(prices, dict):
+                raise TypeError("not a JSON object")
+        except (OSError, ValueError, TypeError) as error:
+            print(
+                f"watch: cannot read {PRICES_PATH} ({error}); every estimated"
+                " cost is unknown",
+                file=sys.stderr,
+            )
+            prices = {}
+        PRICES = prices
+    return PRICES
+
+
+def estimate(
+    provider: str, model: str, *, inputs=0, cached=0, written=0, output=0
+) -> tuple[float, str] | None:
+    """What one model's tokens cost at `provider`'s prices, and the price date.
+
+    The counts are separate: `inputs` holds no cache reads, as Anthropic and
+    Fireworks' Anthropic endpoint count it, so each token is billed once at
+    its own rate. A cache write bills at cache_write, or at the input rate
+    when the entry has none. None when the model, or its base ID without a
+    bracketed suffix, has no entry for the provider, or the entry is
+    malformed.
+    """
+    prices = load_prices()
+    entry = prices.get(model)
+    if entry is None:
+        entry = prices.get(MODEL_SUFFIX.sub("", model))
+    if not isinstance(entry, dict) or entry.get("provider") != provider:
+        return None
+    try:
+        rates = [
+            (inputs, entry["input"]),
+            (cached, entry["cached_input"]),
+            (written, entry.get("cache_write", entry["input"])),
+            (output, entry["output"]),
+        ]
+        dollars = sum(count * rate for count, rate in rates) / 1_000_000
+    except (KeyError, TypeError):
+        return None
+    return dollars, str(entry.get("checked", "?"))
+
+
 # The sessions of an UNPRICED engine this watcher has followed: log name to
-# engine. They are counted apart from COSTS rather than stored there at 0, as
-# a zero would divide the dollar total over sessions that never contributed to
-# it. A mapping for the same reason COSTS is one: one log must count once
-# however many times its lines are read.
+# engine. Those without a figure in COSTS are counted apart rather than stored
+# there at 0, as a zero would divide the dollar total over sessions that never
+# contributed to it. A mapping for the same reason COSTS is one: one log must
+# count once however many times its lines are read.
 UNPRICED_SESSIONS: dict = {}
 
 
@@ -193,10 +257,13 @@ def watcher_cost() -> str:
     The account signs in through claude.ai rather than with an API key, so
     total_cost_usd is Claude Code's API-equivalent estimate and not a bill.
     Everything built on it is labelled `est.` for that reason. The sessions of
-    an UNPRICED engine are counted beside the figure, not inside it.
+    an UNPRICED engine with no estimate are counted beside the figure, not
+    inside it.
     """
     total = f"watcher ${sum(COSTS.values()):.2f} est. over {len(COSTS)} sessions"
-    counts = Counter(UNPRICED_SESSIONS.values())
+    counts = Counter(
+        engine for name, engine in UNPRICED_SESSIONS.items() if name not in COSTS
+    )
     for engine, labels in UNPRICED.items():
         if counts[engine]:
             total += f" · {counts[engine]} {labels['total']}"
@@ -246,6 +313,9 @@ class Session:
         self.title = ""
         self.looked_up = None
         self.model = ""
+        # The date of the prices behind an estimated cost, for an engine that
+        # watch.py prices itself (ESTIMATED).
+        self.prices_of = None
         # Which agent CLI wrote this log, from its `loop.session` line. A log
         # without one was written before run.sh had engines, so it is Claude's.
         self.engine = "claude"
@@ -330,12 +400,12 @@ class Session:
         """The counters line. Cost comes last on purpose: the pinned footer is
         cut to the pane's columns, and a narrow pane should lose the cost
         rather than the elapsed time and the turns."""
-        if self.engine in UNPRICED:
-            cost = UNPRICED[self.engine]["footer"]
-        elif self.cost is None:
-            cost = "session cost at end"
-        else:
+        if self.cost is not None:
             cost = f"session ${self.cost:.2f} est."
+        elif self.engine in UNPRICED:
+            cost = UNPRICED[self.engine]["footer"]
+        else:
+            cost = "session cost at end"
         ctx = f"{self.context / 1000:.0f}k ctx"
         # Codex reports its cached input beside the rest; the Claude path
         # sums cache reads into `context` instead, so it has no share to
@@ -771,16 +841,47 @@ def close(event: dict) -> None:
     The finish time is not read here: `track` takes it from the last
     timestamped event for both engines' closing events.
     """
-    cost = event.get("total_cost_usd")
-    # An fw session runs Claude Code, but its figure is wrong: see UNPRICED.
-    if isinstance(cost, (int, float)) and SESSION.engine not in UNPRICED:
-        COSTS[SESSION.name] = float(cost)
-    models = (event.get("modelUsage") or {}).values()
-    output = sum(
-        model.get("outputTokens") or 0 for model in models if isinstance(model, dict)
-    )
+    usage = {
+        model: tokens
+        for model, tokens in (event.get("modelUsage") or {}).items()
+        if isinstance(tokens, dict)
+    }
+    if SESSION.engine in ESTIMATED:
+        # An fw session runs Claude Code, but its figure is wrong: see UNPRICED.
+        estimate_session(ESTIMATED[SESSION.engine][0], usage)
+    elif SESSION.engine not in UNPRICED:
+        cost = event.get("total_cost_usd")
+        if isinstance(cost, (int, float)):
+            COSTS[SESSION.name] = float(cost)
+    output = sum(tokens.get("outputTokens") or 0 for tokens in usage.values())
     if output:
         SESSION.output = output
+
+
+def estimate_session(provider: str, usage: dict) -> None:
+    """Price the session from its modelUsage, or leave it without a figure.
+
+    Every model in it must have a price: a figure that leaves out a subagent's
+    model would read as the whole session's. The note gives the oldest price
+    date of the models it used. A later closing event replaces the figure, as
+    it does in COSTS for Claude.
+    """
+    priced = [
+        estimate(
+            provider,
+            model,
+            inputs=tokens.get("inputTokens") or 0,
+            cached=tokens.get("cacheReadInputTokens") or 0,
+            written=tokens.get("cacheCreationInputTokens") or 0,
+            output=tokens.get("outputTokens") or 0,
+        )
+        for model, tokens in usage.items()
+    ]
+    if priced and None not in priced:
+        COSTS[SESSION.name] = sum(dollars for dollars, _ in priced)
+        SESSION.prices_of = min(checked for _, checked in priced)
+    else:
+        COSTS.pop(SESSION.name, None)
 
 
 def start_line(event: dict) -> None:
@@ -1113,8 +1214,16 @@ def cost_note(summary: dict) -> str:
     and says so rather than printing $0.00. Claude Code has no price for the
     Fireworks model of an fw session, so its figure is left out (UNPRICED).
     """
-    if summary["engine"] in UNPRICED:
-        cost = UNPRICED[summary["engine"]]["note"]
+    engine = summary["engine"]
+    if engine in ESTIMATED and summary["cost"] is not None:
+        cost = (
+            f"${summary['cost']:.2f} est."
+            f" ({ESTIMATED[engine][1]} prices of {summary['prices_of']})"
+        )
+    elif engine in UNPRICED:
+        cost = UNPRICED[engine]["note"]
+        if engine in ESTIMATED:
+            cost += ", model not in prices.json"
     elif summary["cost"] is None:
         cost = "no cost reported"
     else:
@@ -1162,6 +1271,7 @@ def summarize(path: Path) -> dict:
         "engine": SESSION.engine,
         "model": SESSION.model_label,
         "cost": SESSION.cost,
+        "prices_of": SESSION.prices_of,
         "elapsed": SESSION.elapsed(),
         "turns": SESSION.turns,
         "output": SESSION.output,

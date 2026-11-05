@@ -8,7 +8,14 @@ import tomllib
 
 from test_bootstrap_interactive import existing_repo, run_bootstrap
 
-FILES = ("run.sh", "watch.py", "CODER.md", "REVIEWER.md", "project.md")
+FILES = (
+    "run.sh",
+    "watch.py",
+    "prices.json",
+    "CODER.md",
+    "REVIEWER.md",
+    "project.md",
+)
 
 
 def ruff_table(project) -> dict:

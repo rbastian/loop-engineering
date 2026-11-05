@@ -14,7 +14,7 @@ from test_bootstrap_interactive import BEGIN, END
 
 ROOT = Path(__file__).parents[2]
 UPDATE = ROOT / "skills/dev-env-setup/scripts/update.sh"
-FILES = ("run.sh", "watch.py", "CODER.md", "REVIEWER.md")
+FILES = ("run.sh", "watch.py", "CODER.md", "REVIEWER.md", "prices.json")
 CLONE_FILES = FILES + (
     "project.template.md",
     "interactive.template.md",
@@ -179,6 +179,20 @@ def test_update_one_commit_behind(tmp_path):
 
 
 # Case 7: a file without a section gets one; a file with one gets it replaced.
+
+
+def test_update_installs_prices_json_into_an_older_install(tmp_path):
+    """An install from before lpe-6v6.2 has no prices.json, and gets one."""
+    clone = make_clone(tmp_path)
+    project = make_project(tmp_path, clone)
+    (project / ".loop/prices.json").unlink()
+    commit_all(project, "an install from before prices.json")
+
+    result = run_update(tmp_path, clone, project)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    installed = project / ".loop/prices.json"
+    assert installed.read_bytes() == (clone / "loop/prices.json").read_bytes()
 
 
 def test_file_without_a_section_gets_one(tmp_path):

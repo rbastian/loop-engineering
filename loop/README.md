@@ -102,7 +102,7 @@ The `dev-env-setup` skill in `../skills/dev-env-setup` does the setup. See the r
 
 To set up a project by hand, follow these steps:
 
-1. Copy `run.sh`, `watch.py`, `CODER.md` and `REVIEWER.md` into the project as `.loop/`.
+1. Copy `run.sh`, `watch.py`, `prices.json`, `CODER.md` and `REVIEWER.md` into the project as `.loop/`.
 2. Copy `project.template.md` to `.loop/project.md` and fill every `{{...}}` placeholder.
 3. Add `extend-exclude = [".loop"]` under `[tool.ruff]` in `pyproject.toml`, so that the gate does not lint the harness. pytest skips folders that start with a dot.
 4. Fill the placeholders in `interactive.template.md` and put the result into `CLAUDE.md` and `AGENTS.md`, after the first H1 heading and before the beads blocks.
@@ -260,7 +260,7 @@ Use your configured agent name in place of `Ralph`.
 
 ### Update an installed harness
 
-`bootstrap.sh` keeps the files that `.loop/` already holds, so a rerun does not install newer copies of the runner, the watcher or the prompts. `update.sh` in the setup skill does the update. It copies `run.sh`, `watch.py`, `CODER.md` and `REVIEWER.md` from `loop/` in your loop-engineering clone into `.loop/`. It never changes `.loop/project.md`, and it commits nothing.
+`bootstrap.sh` keeps the files that `.loop/` already holds, so a rerun does not install newer copies of the runner, the watcher or the prompts. `update.sh` in the setup skill does the update. It copies `run.sh`, `watch.py`, `prices.json`, `CODER.md` and `REVIEWER.md` from `loop/` in your loop-engineering clone into `.loop/`. It never changes `.loop/project.md`, and it commits nothing.
 
 The version stamp `.loop/HARNESS_VERSION` tells `update.sh` which version is installed. The stamp has two lines: `commit=`, the full SHA of the clone's HEAD, and `clone=`, the absolute path of the clone. `bootstrap.sh` and `update.sh` write it. If `loop/` in the clone has uncommitted changes, `bootstrap.sh` adds the line `dirty=1` and prints a warning.
 
