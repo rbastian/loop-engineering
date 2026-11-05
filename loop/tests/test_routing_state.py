@@ -82,7 +82,16 @@ def test_the_coder_and_the_reviewer_each_set_their_own_values():
         "merge",
         "accept",
         "escalated",
+        "parked",
     } <= reviewer
+
+
+def test_the_table_says_both_agents_park():
+    (row,) = [
+        line for line in LOOP_README.splitlines() if line.startswith("| `parked`")
+    ]
+    assert "| coder or reviewer |" in row
+    assert "Review not run" in row
 
 
 def test_the_round_is_a_state_dimension():

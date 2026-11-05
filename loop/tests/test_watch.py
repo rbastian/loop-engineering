@@ -264,6 +264,7 @@ def test_the_header_names_the_agent(tmp_path, capsys, monkeypatch, extra, expect
         ('bd note agents-a1b2 "Review round 1 started"', "agents-a1b2"),
         ('bd note agents-a1b2c3d4 "Review round 1 started"', "agents-a1b2c3d4"),
         ('bd note agents-bqz.3.1 "Review round 2 started"', "agents-bqz.3.1"),
+        ('bd note agents-a1b2 "Review round 1 restarted"', "agents-a1b2"),
         # Nine characters is past bd's longest hash.
         ("bd update agents-a1b2c3d4e --claim", None),
         ('git commit -m "feat: x [agents-a1b2c3d4e]"', None),
@@ -433,16 +434,21 @@ def test_a_malformed_line_in_the_catch_up_does_not_raise(tmp_path):
     assert watch.SESSION.bead == "agents-ype"
 
 
-def test_the_review_marker_matches_the_one_alice_is_told_to_write():
+@pytest.mark.parametrize("marker", ["started", "restarted"])
+def test_the_review_marker_matches_the_one_alice_is_told_to_write(marker):
     """REVIEW_RE quotes prose out of .loop/REVIEWER.md, and nothing else binds the
     two: reword the marker there and the header silently loses Alice's bead.
-    So build the command out of the document rather than out of a literal."""
+    So build the command out of the document rather than out of a literal. A
+    round that the human resumes after `Review not run` is `restarted`
+    (lpe-cd2)."""
     alice = (ROOT / "REVIEWER.md").read_text()
     (quoted,) = [
         found[1]
         for line in alice.splitlines()
         if (
-            found := re.search(r'(bd note <id> "Review round <n> started:[^"]*")', line)
+            found := re.search(
+                rf'(bd note <id> "Review round <n> {marker}:[^"]*")', line
+            )
         )
     ]
     command = (

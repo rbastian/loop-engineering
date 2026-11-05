@@ -51,7 +51,7 @@ This table is the one source for the `loop` values. `CODER.md` and `REVIEWER.md`
 | `merge` | reviewer | `pr` mode, review passed | human | `in_progress` |
 | `accept` | reviewer | `local` mode, merged and closed | human | `closed` |
 | `escalated` | reviewer | Round 2 or later failed | human | `in_progress` |
-| `parked` | coder | Gate fails twice at step 12, push or `gh` fails at step 13, no code written at step 10, or design unclear | human | `in_progress` when a branch with work exists. `open` with the branch deleted for no code written and design unclear. |
+| `parked` | coder or reviewer | The coder: gate fails twice at step 12, push or `gh` fails at step 13, no code written at step 10, or design unclear. The reviewer: Review not run, because its default review method cannot run. | human | `in_progress` when a branch with work exists. `open` with the branch deleted for no code written and design unclear. |
 | `blocked` | coder | Gate fails on `main` (broken main), beside the dependency on the `broken-main` bug bead | coder | `open` |
 | `done` | human | After the merge and `bd close` in `pr` mode, or after acceptance in `local` mode | unchanged | `closed` |
 
@@ -61,8 +61,11 @@ The `round` dimension follows these rules:
 2. When the reviewer takes a bead in state `rebased`, it keeps the round. It makes sure that the diff still shows what it reviewed, runs the gate again and goes to the outcome. It writes no new "started" note.
 3. A failed round 1 sets `loop=returned`. A failed round 2 or later sets `loop=escalated`.
 4. When the coder resumes a bead from `escalated`, it sets `round=0`, so that the next review is round 1 with one bounce available. No other resume resets the round.
+5. When the reviewer resumes a bead from `parked`, it keeps the round, because the round did not run. It writes a "Review round <n> restarted" note instead of a new "started" note.
 
 A parked or escalated bead goes to the human, so `run.sh` does not wake the coder for it. To resume it, add a note that tells the coder what to do, then run `bd update <id> --assignee=<coder>`. The coder reads your newest note, sets `loop=coding` and continues. A parked bead with status `open` becomes ready and goes through Phase 1, which reuses an existing `feat/` branch.
+
+The reviewer parks a bead with a "Review not run: <error>" note when its default review method cannot run. Fix the cause, then run `bd update <id> --assignee=<reviewer>`. The reviewer runs the same round again.
 
 ## Files
 
@@ -83,7 +86,7 @@ The agent prompts hold only the loop protocol. They contain no facts about a pro
 - The agent names (`CODER`, `REVIEWER`) and the human's bd assignee name (`HUMAN`).
 - The reviewer's engine (`REVIEWER_ENGINE`): `claude` or `codex`.
 - The ship mode (`SHIP_MODE`) and, in `pr` mode, the GitHub account of the agents (`GITHUB_ACCOUNT`).
-- The paths, the tech stack, the gate, the external services and the review method.
+- The paths, the tech stack, the gate, the external services and the extra review checks.
 
 To rename an agent, change its name in `project.md` and restart its loop with the new name. Then assign each open bead of the old name to the new name. Worktree and log paths do not need to follow the name.
 
@@ -327,12 +330,13 @@ Then exclude `.loop` from ruff, as in step 3 of [Install in a project](#install-
 ## Rules of engagement
 
 - The coder implements and the reviewer reviews. In `pr` mode the human approves and merges. In `local` mode the reviewer merges and the human accepts.
+- The reviewer's default method always runs on every branch: the `/code-review` skill at high effort on `claude`, or `codex exec review` on `codex`. The Project section only adds checks to it. The `Review summary:` note gives the number of findings that the default method returned.
 - If the reviewer finds a blocking problem, it returns the bead to the coder once. After a second failed round, it escalates the bead to the human.
 - The human has these queues. Each queue is a `loop` state label, and `bd list --label <label>` lists it. The `loop:accept` beads are closed, so list that queue with `bd list --label loop:accept --status=closed`:
   - `loop:merge` (`pr` mode): reviewed pull requests that wait for approval and merge. After the merge, run `bd close <id>` and `bd set-state <id> loop=done`.
   - `loop:accept` (`local` mode): merged work that waits for acceptance. Run `bd set-state <id> loop=done` when satisfied, or reopen the bead.
   - `loop:escalated`: unmerged work where the coder and the reviewer disagree. Read the findings and disputes, add a note with your decision, and assign the bead back to the coder.
-  - `loop:parked`: work that the coder cannot continue, for example a gate that fails twice, a failed push or an unclear design. Read the coder's note, fix the cause or add a note, and assign the bead back to the coder.
+  - `loop:parked`: work that the coder cannot continue, for example a gate that fails twice, a failed push or an unclear design. Read the coder's note, fix the cause or add a note, and assign the bead back to the coder. The reviewer also parks a bead when its default review method cannot run. For a `Review not run:` note, fix the cause and assign the bead back to the reviewer.
   - `broken-main`: a bug bead that says `main` fails the gate. The coder files it (or reuses an open one), assigns it to the human, makes its own bead depend on it, sets `loop=blocked` and puts its bead back to `open`. A bead with an open dependency is not ready, so the coder sleeps. When the human fixes `main` and closes the bug bead, each blocked bead becomes ready again.
 - The rule for closing a bead is that its code must be on `main`. A dependent bead becomes ready only after its blocker closes. In `pr` mode, the human closes the bead after the merge. In `local` mode, the reviewer closes it at the merge.
 - The primary checkout belongs to the human. In `pr` mode no agent runs commands in it. In `local` mode, the reviewer first makes sure that it is on `main` with no modified or staged tracked files. Then the reviewer merges there. If it is not, the reviewer sets `loop=merge-wait` and keeps the bead. `run.sh` waits for a clean primary before it starts the next reviewer session, and prints "primary checkout busy: <reason>; waiting to start <reviewer>".

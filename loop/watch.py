@@ -86,7 +86,10 @@ def use_prefix(prefix: str | None) -> None:
     # Alice's first write on every review (.loop/REVIEWER.md). Matched down to
     # the marker text and the bead's position as `bd note`'s argument: she also
     # writes notes that quote OTHER beads, and those must not move the header.
-    REVIEW_RE = re.compile(rf"""bd note\s+({bead})\s+["']?Review round \d+ started""")
+    # A round that the human resumes after `Review not run` is `restarted`.
+    REVIEW_RE = re.compile(
+        rf"""bd note\s+({bead})\s+["']?Review round \d+ (?:re)?started"""
+    )
     # Ralph's commit tag, read from between the brackets rather than from
     # anywhere in the command. A commit subject carries ordinary hyphenated
     # words — mid-log, set-up, add-on — and a bead pattern matches those too,
