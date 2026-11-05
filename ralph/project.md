@@ -76,4 +76,6 @@ GitHub, through `gh` as the account `rbastian` and `git` over the `origin` remot
 
 ## Review method (for the reviewer)
 
-Use the default method for your engine. If the branch changes `loop/run.sh` or a script in `skills/dev-env-setup/scripts/`, no test covers it, so read the diff line by line for bash 3.2 and BSD portability, quoting and `set -euo pipefail` traps. Run the changed path by hand in a scratch git repository when you can do so without the network. If the branch changes a prompt, check that `loop/README.md` and the top-level `README.md` still agree with it.
+Always run the default method for your engine on every branch: the `/code-review` skill at high effort on `claude`, or `codex exec review` on `codex`. The checks below add to that method. They never replace it. In the `Review summary:` note, give the number of findings that the default method returned.
+
+If the branch changes `loop/run.sh` or a script in `skills/dev-env-setup/scripts/`, no test covers it, so read the diff line by line for bash 3.2 and BSD portability, quoting and `set -euo pipefail` traps. Run the changed path by hand in a scratch git repository when you can do so without the network. If the branch changes a prompt, check that `loop/README.md` and the top-level `README.md` still agree with it.
