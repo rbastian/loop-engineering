@@ -19,12 +19,16 @@ if [ "${HERDR_ENV:-}" != 1 ]; then
     exit 1
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=lib.sh
+. "$SCRIPT_DIR/lib.sh"
+
 PROJECT="$(cd "${1:?Usage: layout.sh PROJECT_DIR}" && pwd)"
 NAME="$(basename "$PROJECT")"
 LABEL="$NAME loop"
 
 # One KEY=value line from the overlay; bootstrap.sh wrote them.
-conf() { sed -n "s/^$1=//p" "$PROJECT/.loop/project.md" | head -1; }
+conf() { key_value "$PROJECT/.loop/project.md" "$1"; }
 lower() { tr '[:upper:]' '[:lower:]' <<<"$1"; }
 
 CODER="$(conf CODER)"
@@ -63,6 +67,10 @@ REVIEWER_LOG="/tmp/$NAME-$(lower "$REVIEWER")-sessions"
 for tree in "$CODER_TREE" "$REVIEWER_TREE"; do
     [ -e "$tree/.git" ] || { echo "ERROR: $tree missing; run worktrees.sh first"; exit 1; }
 done
+
+# One line when the clone has newer commits on loop/ than the installed harness.
+# The check never stops the layout.
+drift_line "$PROJECT/.loop/HARNESS_VERSION" || true
 
 if herdr tab list --workspace "$HERDR_WORKSPACE_ID" \
     | jq -e --arg l "$LABEL" '.result.tabs[] | select(.label == $l)' >/dev/null; then

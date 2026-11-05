@@ -184,7 +184,7 @@ The [operating guide](loop/README.md) covers:
 - [Starting loops and watchers](loop/README.md#running), including engine, model, log and timeout settings.
 - [Session cost notes](loop/README.md#cost-notes). With stream logging enabled, the runner appends available cost and token information to the bead after a completed session. Claude's dollar figure is an API-equivalent estimate, not a bill.
 - [Stopping, restarting and recovering sessions](loop/README.md#stop-and-restart).
-- [Updating an installed harness](loop/README.md#update-an-installed-harness). Bootstrap preserves existing harness files and does not upgrade them; rerunning it can still change project dependencies.
+- [Updating an installed harness](loop/README.md#update-an-installed-harness) with `update.sh`. Bootstrap keeps existing harness files and does not upgrade them. `layout.sh` and `run.sh` print a warning when the installed harness is behind the clone.
 - [Adding another agent role](loop/README.md#add-an-agent).
 
 ## Safety
