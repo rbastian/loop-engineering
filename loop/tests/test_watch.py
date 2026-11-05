@@ -99,6 +99,7 @@ def isolated(monkeypatch):
     monkeypatch.setattr(watch, "_last", [None, 0, ""])
     monkeypatch.setattr(watch, "COSTS", {})
     monkeypatch.setattr(watch, "CODEX_SESSIONS", set())
+    monkeypatch.setattr(watch, "FW_SESSIONS", set())
     monkeypatch.setattr(watch, "REPLAYING", False)
     monkeypatch.setattr(watch, "POLL_SECONDS", 0)
     monkeypatch.setattr(
@@ -1236,6 +1237,71 @@ def test_a_codex_session_reports_tokens_and_no_cost(tmp_path, capsys):
         f"Session cost: Alice, {CODEX_MODEL}, no cost reported (ChatGPT plan),"
         " 1 turns, 4.2k out, 1.3k think, 33k ctx (25k cached)"
     )
+
+
+# --- the fw engine (lpe-6v6.1) -------------------------------------------------
+# fw runs Claude Code against a Fireworks model, so its log is a Claude log
+# after the session line. Claude Code has no price for a Fireworks model, so
+# its dollar figure is wrong, and the watcher must not report or total it.
+
+FW_MODEL = "deepseek-flash-latest[1m]"
+
+
+def fw_log(path: Path, *results: str) -> Path:
+    """A Claude stream-json log that run.sh started with an fw session line."""
+    session_log(path, *results, model=FW_MODEL)
+    path.write_text(
+        session_line(engine="fw", model=FW_MODEL, started=EARLY)
+        + "\n"
+        + path.read_text()
+    )
+    return path
+
+
+def test_an_fw_log_replays_as_a_claude_log(tmp_path, capsys):
+    log = fw_log(tmp_path / "20261105-101500.jsonl", result_line(cost=3.10))
+
+    assert watch.main(["--file", str(log), "--replay"]) == 0
+
+    out = capsys.readouterr().out
+    assert " Ralph · agents-ype" in out
+    assert f"model {FW_MODEL}" in out
+    assert "bd ready --assignee=Ralph" in out, "the Claude events never printed"
+    assert watch.SESSION.engine == "fw"
+    assert watch.SESSION.turns == 3
+
+
+def test_an_fw_session_note_says_cost_unknown_and_keeps_the_tokens(tmp_path, capsys):
+    log = fw_log(tmp_path / "20261105-101500.jsonl", result_line(cost=3.10))
+
+    summary = summary_of(log, capsys=capsys)
+
+    assert summary["bead"] == "agents-ype"
+    assert summary["cost"] is None
+    assert summary["note"] == (
+        f"Session cost: Ralph, {FW_MODEL}, cost unknown (fw), 12m00s wall,"
+        " 3 turns, 58.9k out, 0.0k think, 0k ctx"
+    )
+
+
+def test_the_fw_footer_shows_no_dollar_figure(tmp_path):
+    feed_log(fw_log(tmp_path / "20261105-101500.jsonl", result_line(cost=3.10)))
+
+    totals = watch.SESSION.totals()
+    assert "cost unknown (fw)" in totals
+    assert "session $" not in totals, "an fw session was given a dollar figure"
+
+
+def test_the_totals_count_fw_sessions_apart_from_the_dollar_total(tmp_path):
+    claude = session_log(tmp_path / "20261002-114315.jsonl", result_line(cost=1.20))
+    fw = fw_log(tmp_path / "20261105-101500.jsonl", result_line(cost=3.10))
+
+    with pytest.raises(Stop):
+        watch.follow(paths(claude, fw))
+
+    totals = watch.SESSION.totals()
+    assert "watcher $1.20 est. over 1 sessions" in totals
+    assert "1 fw sessions (cost unknown)" in totals
 
 
 def test_the_cost_note_is_not_a_status_marker():

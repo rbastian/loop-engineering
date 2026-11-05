@@ -168,6 +168,12 @@ COSTS: dict = {}
 # one log must count once however many times its lines are read.
 CODEX_SESSIONS: set = set()
 
+# The fw sessions this watcher has followed, by log name. fw runs Claude Code
+# on a Fireworks model, and Claude Code has no price for one (it warns
+# unrecognized_model), so its total_cost_usd is wrong. They are counted apart
+# from COSTS for the same reason as the Codex sessions.
+FW_SESSIONS: set = set()
+
 
 def watcher_cost() -> str:
     """What the watcher has spent since it started, for the totals line.
@@ -180,6 +186,8 @@ def watcher_cost() -> str:
     total = f"watcher ${sum(COSTS.values()):.2f} est. over {len(COSTS)} sessions"
     if CODEX_SESSIONS:
         total += f" · {len(CODEX_SESSIONS)} Codex sessions (no cost)"
+    if FW_SESSIONS:
+        total += f" · {len(FW_SESSIONS)} fw sessions (cost unknown)"
     return total
 
 
@@ -312,6 +320,8 @@ class Session:
         rather than the elapsed time and the turns."""
         if self.engine == "codex":
             cost = "no cost (ChatGPT plan)"
+        elif self.engine == "fw":
+            cost = "cost unknown (fw)"
         elif self.cost is None:
             cost = "session cost at end"
         else:
@@ -752,7 +762,8 @@ def close(event: dict) -> None:
     timestamped event for both engines' closing events.
     """
     cost = event.get("total_cost_usd")
-    if isinstance(cost, (int, float)):
+    # Claude Code prices an fw session's Fireworks model wrongly: see FW_SESSIONS.
+    if isinstance(cost, (int, float)) and SESSION.engine != "fw":
         COSTS[SESSION.name] = float(cost)
     models = (event.get("modelUsage") or {}).values()
     output = sum(
@@ -776,6 +787,8 @@ def start_line(event: dict) -> None:
     SESSION.model = event.get("model") or ""
     if SESSION.engine == "codex":
         CODEX_SESSIONS.add(SESSION.name)
+    elif SESSION.engine == "fw":
+        FW_SESSIONS.add(SESSION.name)
     raw = event.get("started")
     if not raw:
         return
@@ -1089,10 +1102,13 @@ def cost_note(summary: dict) -> str:
     Worded so it can never be read as a status marker: CODER.md and REVIEWER.md
     route on the last marker in a bead's notes, and this note lands after the
     agent's own. Codex on a ChatGPT plan reports tokens and no dollar figure,
-    and says so rather than printing $0.00.
+    and says so rather than printing $0.00. Claude Code has no price for the
+    Fireworks model of an fw session, so its figure is left out.
     """
     if summary["engine"] == "codex":
         cost = "no cost reported (ChatGPT plan)"
+    elif summary["engine"] == "fw":
+        cost = "cost unknown (fw)"
     elif summary["cost"] is None:
         cost = "no cost reported"
     else:
