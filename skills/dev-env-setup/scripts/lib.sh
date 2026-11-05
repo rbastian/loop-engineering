@@ -131,3 +131,11 @@ drift_line() {
     case "$count" in 0) return 0 ;; 1) count="1 commit" ;; *) count="$count commits" ;; esac
     echo "harness is $count behind loop-engineering; run update.sh"
 }
+
+# Succeeds when MODEL is safe to write into .loop/project.md and into a pane
+# command: letters, digits and . _ : / @ - [ ], for example
+# deepseek-flash-latest[1m]. An empty MODEL passes. Usage: valid_model MODEL
+valid_model() {
+    local re='^[][A-Za-z0-9._:/@-]*$'
+    [[ "$1" =~ $re ]]
+}

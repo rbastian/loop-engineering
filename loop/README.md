@@ -84,7 +84,7 @@ The reviewer parks a bead with a "Review not run: <error>" note when its default
 The agent prompts hold only the loop protocol. They contain no facts about a project. `run.sh` appends `project.md` to each prompt at the start of every session. The overlay gives these facts:
 
 - The agent names (`CODER`, `REVIEWER`) and the human's bd assignee name (`HUMAN`).
-- The reviewer's engine (`REVIEWER_ENGINE`): `claude` or `codex`.
+- The engine and the model of each agent (`CODER_ENGINE`, `CODER_MODEL`, `REVIEWER_ENGINE`, `REVIEWER_MODEL`). The coder runs on `claude` or `fw`. The reviewer runs on `claude`, `codex` or `fw`.
 - The ship mode (`SHIP_MODE`) and, in `pr` mode, the GitHub account of the agents (`GITHUB_ACCOUNT`).
 - The paths, the tech stack, the gate, the external services and the extra review checks.
 
@@ -155,7 +155,7 @@ LOOP_LOG_DIR=/tmp/<name>-alice-sessions uv run .loop/watch.py --agent Alice --pr
 | `LOOP_OVERLAY` | The overlay file. The default is `project.md` beside the prompt file. `none` turns it off. |
 | `LOOP_PRINT_PROMPT=1` | Print the combined prompt and exit. |
 
-Every agent uses the same variables. `LOOP_ENGINE` and `LOOP_REVIEWER_ENGINE` are different settings. `LOOP_ENGINE` is the engine of one `run.sh` process, and `layout.sh` sets it for each loop. `LOOP_REVIEWER_ENGINE` is an input to `bootstrap.sh`, which writes it into `.loop/project.md` as `REVIEWER_ENGINE`.
+Every agent uses the same variables. `LOOP_ENGINE` and `LOOP_REVIEWER_ENGINE` are different settings. `LOOP_ENGINE` is the engine of one `run.sh` process, and `layout.sh` sets it for each loop. `LOOP_CODER_ENGINE` and `LOOP_REVIEWER_ENGINE` are inputs to `bootstrap.sh`, which writes them into `.loop/project.md` as `CODER_ENGINE` and `REVIEWER_ENGINE`. `layout.sh` reads them and the two model fields back, and passes each agent's values to its `run.sh` as `LOOP_ENGINE` and `LOOP_MODEL`.
 
 Before lpe-wh5, these variables started with `RALPH_`. `run.sh` and `watch.py` read only the `LOOP_` names. If you set an old name, the loop uses the default value and does not warn you. Rename each old variable that you set:
 
@@ -244,7 +244,7 @@ For a Herdr restart, then close the project's loop tab, both watcher panes and t
 /path/to/loop-engineering/skills/dev-env-setup/scripts/layout.sh /path/to/project
 ```
 
-The script reads names, paths and the reviewer's engine from `.loop/project.md`. For a manual restart, use the commands under [Running](#running) from each agent's worktree. In-progress beads take priority over new work.
+The script reads names, paths, engines and models from `.loop/project.md`. The environment variables `CODER_ENGINE`, `CODER_MODEL`, `REVIEWER_ENGINE` and `REVIEWER_MODEL` override them for one start. For a manual restart, use the commands under [Running](#running) from each agent's worktree. In-progress beads take priority over new work.
 
 ### Session logs
 
