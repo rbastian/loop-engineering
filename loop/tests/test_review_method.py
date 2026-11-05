@@ -9,7 +9,6 @@ import re
 from pathlib import Path
 
 LOOP = Path(__file__).parents[1]
-ROOT = LOOP.parent
 REVIEWER = (LOOP / "REVIEWER.md").read_text()
 TEMPLATE = (LOOP / "project.template.md").read_text()
 LOOP_README = (LOOP / "README.md").read_text()
@@ -26,7 +25,9 @@ LOOPHOLES = re.compile(
 
 def section(text: str, heading: str) -> str:
     """The text under a markdown heading, up to the next heading of any level."""
-    found = re.search(rf"^#+ {re.escape(heading)}\n(.*?)(?=^#+ |\Z)", text, re.DOTALL | re.MULTILINE)
+    found = re.search(
+        rf"^#+ {re.escape(heading)}\n(.*?)(?=^#+ |\Z)", text, re.DOTALL | re.MULTILINE
+    )
     assert found, heading
     return found[1]
 
@@ -34,7 +35,9 @@ def section(text: str, heading: str) -> str:
 def step(number: int) -> str:
     """One numbered step of REVIEWER.md Phase 1, with its indented lines."""
     phase1 = section(REVIEWER, "Phase 1 — Review round")
-    found = re.search(rf"^{number}\. (.*?)(?=^\d+\. |^\S)", phase1, re.DOTALL | re.MULTILINE)
+    found = re.search(
+        rf"^{number}\. (.*?)(?=^\d+\. |^\S)", phase1, re.DOTALL | re.MULTILINE
+    )
     assert found, number
     return found[1]
 

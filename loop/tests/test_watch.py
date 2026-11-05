@@ -434,37 +434,20 @@ def test_a_malformed_line_in_the_catch_up_does_not_raise(tmp_path):
     assert watch.SESSION.bead == "agents-ype"
 
 
-def test_the_review_marker_matches_the_one_alice_is_told_to_write():
+@pytest.mark.parametrize("marker", ["started", "restarted"])
+def test_the_review_marker_matches_the_one_alice_is_told_to_write(marker):
     """REVIEW_RE quotes prose out of .loop/REVIEWER.md, and nothing else binds the
     two: reword the marker there and the header silently loses Alice's bead.
-    So build the command out of the document rather than out of a literal."""
-    alice = (ROOT / "REVIEWER.md").read_text()
-    (quoted,) = [
-        found[1]
-        for line in alice.splitlines()
-        if (
-            found := re.search(r'(bd note <id> "Review round <n> started:[^"]*")', line)
-        )
-    ]
-    command = (
-        quoted.replace("<id>", "agents-ype")
-        .replace("<n>", "1")
-        .replace("<branch>", "f")
-    )
-    assert watch.bead_in(command) == "agents-ype"
-
-
-def test_the_restart_marker_matches_the_one_alice_is_told_to_write():
-    """A round that the human resumes after `Review not run` writes a
-    `restarted` note instead of `started` (lpe-cd2). The header must still find
-    the bead from it."""
+    So build the command out of the document rather than out of a literal. A
+    round that the human resumes after `Review not run` is `restarted`
+    (lpe-cd2)."""
     alice = (ROOT / "REVIEWER.md").read_text()
     (quoted,) = [
         found[1]
         for line in alice.splitlines()
         if (
             found := re.search(
-                r'(bd note <id> "Review round <n> restarted:[^"]*")', line
+                rf'(bd note <id> "Review round <n> {marker}:[^"]*")', line
             )
         )
     ]
