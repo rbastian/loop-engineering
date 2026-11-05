@@ -1349,6 +1349,7 @@ def fw_prices(tmp_path, monkeypatch):
 
 
 def usage(inputs=0, cached=0, written=0, output=0) -> dict:
+    """One modelUsage entry, as Claude Code writes it in the result event."""
     return {
         "inputTokens": inputs,
         "outputTokens": output,
@@ -1393,7 +1394,7 @@ def test_every_price_entry_is_complete():
 
 
 def test_the_real_table_prices_the_default_fw_model():
-    assert watch.estimate("fireworks", FW_MODEL, usage(inputs=1)) is not None
+    assert watch.estimate("fireworks", FW_MODEL, inputs=1) is not None
 
 
 def test_an_fw_note_estimates_from_the_token_counts(tmp_path, capsys, fw_prices):
@@ -1417,13 +1418,13 @@ def test_an_fw_note_estimates_from_the_token_counts(tmp_path, capsys, fw_prices)
 def test_cache_writes_bill_at_their_own_rate_or_as_input(fw_prices):
     # The second model has a cache_write rate: 1M writes at $1.50.
     # The first has none, so its 1M writes bill as input at $1.00.
-    tokens = usage(inputs=1_000_000, written=1_000_000)
+    tokens = {"inputs": 1_000_000, "written": 1_000_000}
 
-    assert watch.estimate("fireworks", "deepseek-flash-latest", tokens) == (
+    assert watch.estimate("fireworks", "deepseek-flash-latest", **tokens) == (
         pytest.approx(2.00),
         "2026-11-05",
     )
-    assert watch.estimate("fireworks", "priced-with-writes", tokens) == (
+    assert watch.estimate("fireworks", "priced-with-writes", **tokens) == (
         pytest.approx(2.50),
         "2026-11-01",
     )
@@ -1444,17 +1445,15 @@ def test_a_subagent_model_adds_to_the_session_estimate(tmp_path, fw_prices):
 
 
 def test_a_bracketed_suffix_finds_the_base_entry(fw_prices):
-    tokens = usage(output=1_000_000)
-
-    assert watch.estimate("fireworks", "deepseek-flash-latest[1m]", tokens) == (
-        pytest.approx(2.00),
+    assert watch.estimate("fireworks", "deepseek-flash-latest[1m]", output=1) == (
+        pytest.approx(2.00 / 1_000_000),
         "2026-11-05",
     )
-    assert watch.estimate("fireworks", "deepseek-flash-latest[1m][x]", tokens) is None
+    assert watch.estimate("fireworks", "deepseek-flash-latest[1m][x]", output=1) is None
 
 
 def test_another_providers_entry_does_not_price_the_model(fw_prices):
-    assert watch.estimate("fireworks", "gpt-5", usage(inputs=1)) is None
+    assert watch.estimate("fireworks", "gpt-5", inputs=1) is None
 
 
 def test_a_model_missing_from_the_table_leaves_the_cost_unknown(
@@ -1501,8 +1500,8 @@ def test_an_unreadable_prices_json_warns_once(tmp_path, capsys, monkeypatch):
     bad.write_text("{ not json")
     monkeypatch.setattr(watch, "PRICES_PATH", bad)
 
-    assert watch.estimate("fireworks", FW_MODEL, usage(inputs=1)) is None
-    assert watch.estimate("fireworks", FW_MODEL, usage(inputs=1)) is None
+    assert watch.estimate("fireworks", FW_MODEL, inputs=1) is None
+    assert watch.estimate("fireworks", FW_MODEL, inputs=1) is None
 
     assert capsys.readouterr().err.count("every estimated cost is unknown") == 1
 
@@ -1512,7 +1511,7 @@ def test_a_malformed_entry_is_no_price(tmp_path, monkeypatch):
     bad.write_text(json.dumps({FW_MODEL: {"provider": "fireworks", "input": "x"}}))
     monkeypatch.setattr(watch, "PRICES_PATH", bad)
 
-    assert watch.estimate("fireworks", FW_MODEL, usage(inputs=1)) is None
+    assert watch.estimate("fireworks", FW_MODEL, inputs=1) is None
 
 
 def test_the_watcher_total_includes_a_priced_fw_session(tmp_path, fw_prices):
