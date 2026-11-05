@@ -74,7 +74,10 @@ def project_md(clone: Path, project: Path) -> str:
         REVIEWER_WORKTREE=f"{project}-carol",
         SHIP_MODE="pr",
         GITHUB_ACCOUNT="dana-gh",
+        CODER_ENGINE="claude",
+        CODER_MODEL="",
         REVIEWER_ENGINE="claude",
+        REVIEWER_MODEL="",
         BEAD_PREFIX="demo",
         **NAMES,
     )
@@ -332,7 +335,7 @@ def test_every_template_key_has_a_meaning(tmp_path):
     assert result.returncode == 1
     template = (clone / "loop/project.template.md").read_text()
     keys = re.findall(r"^([A-Z][A-Z0-9_]*)=", template, re.MULTILINE)
-    assert len(keys) == 10
+    assert len(keys) == 13
     for key in keys:
         lines = [line for line in result.stdout.splitlines() if f"{key}:" in line]
         assert lines, key

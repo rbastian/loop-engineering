@@ -23,7 +23,7 @@ BEAD_PREFIX={{BEAD_PREFIX}}
 
 `$CODER` is the agent that implements beads. `$REVIEWER` is the agent that reviews them. Each name is the bead assignee that the agent's loop polls for. `$HUMAN` is the bd assignee for the human's queues: merge approval, acceptance and escalation. `BEAD_PREFIX` is the prefix of every bead ID in this project, and the watchers match bead IDs with it.
 
-`CODER_ENGINE` and `REVIEWER_ENGINE` name the CLI that each agent's loop runs on. The coder runs on `claude` or `fw`, because its prompt uses the `/simplify` skill of Claude Code. The reviewer runs on `claude`, `codex` or `fw`. `fw` is a launcher that runs Claude Code on a Fireworks model. `CODER_MODEL` and `REVIEWER_MODEL` hold the model for the engine of that agent. An empty model gives the default of the engine: `claude-opus-5-5` for the coder on `claude`, `claude-sonnet-5-5` for the reviewer on `claude`, and the plan's default model on `codex`. `fw` has no default, so an agent on `fw` must have a model, for example `deepseek-flash-latest[1m]`.
+`CODER_ENGINE` is the CLI that the coder's loop runs on: `claude` or `fw`. The coder needs Claude Code, because its prompt uses the `/simplify` skill, and `fw` is a launcher that runs Claude Code on a Fireworks model. `CODER_MODEL` is the coder's model for its engine. `REVIEWER_ENGINE` is the CLI that the reviewer's loop runs on: `claude`, `codex` or `fw`. `REVIEWER_MODEL` is the reviewer's model for its engine. An empty model gives the default of the engine: `claude-opus-5-5` for the coder on `claude`, `claude-sonnet-5-5` for the reviewer on `claude`, and the plan's default model on `codex`. `fw` has no default, so an agent on `fw` must have a model, for example `deepseek-flash-latest[1m]`.
 
 ## Ship mode
 
