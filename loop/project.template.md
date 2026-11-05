@@ -86,4 +86,6 @@ uv run ruff format --check . && uv run ruff check . && uv run pytest -q
 
 ## Review method (for the reviewer)
 
-Use the default method for your engine. {{If some kinds of change need a different method, describe it here, chosen by the files that the branch changes}}.
+The reviewer always runs the default method for its engine. List here only the checks that add to it, chosen by the files that the branch changes.
+
+{{List the extra review checks for each kind of change, or write "None"}}.
