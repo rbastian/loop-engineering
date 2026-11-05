@@ -22,6 +22,7 @@ DOCS = {
         ROOT / "skills" / "dev-env-setup" / "SKILL.md"
     ).read_text(),
 }
+ALL_TEXTS = {"CODER.md": CODER, "REVIEWER.md": REVIEWER, **DOCS}
 
 TABLE_HEADER = "| `loop` value | Set by | When | Assignee after | Status |"
 SET_LOOP = re.compile(r"\bloop=([a-z][a-z-]*)")
@@ -104,7 +105,7 @@ def test_no_prompt_routes_on_note_text():
 def test_the_old_queue_labels_are_gone():
     old = re.compile(r"bd label (?:add|remove) <id> (?:merge|accept|escalated)\b")
     label_word = re.compile(r"label(?:led)? `(?:merge|accept|escalated)`")
-    for name, text in {"CODER.md": CODER, "REVIEWER.md": REVIEWER, **DOCS}.items():
+    for name, text in ALL_TEXTS.items():
         assert not old.search(text), name
         assert not label_word.search(text), name
 
@@ -119,9 +120,8 @@ def test_the_human_queues_use_the_state_labels():
 def test_the_accept_queue_lists_closed_beads():
     # The reviewer closes the bead before it sets loop=accept, and bd list
     # hides closed beads, so the queue command must ask for them.
-    texts = {"CODER.md": CODER, "REVIEWER.md": REVIEWER, **DOCS}
     seen = 0
-    for name, text in texts.items():
+    for name, text in ALL_TEXTS.items():
         for line in text.splitlines():
             if re.search(r"bd list[^`\n]*loop:accept", line):
                 seen += 1
@@ -150,13 +150,13 @@ def test_returned_and_rebase_stay_set_until_the_handoff():
     ]
     assert len(coding_rows) == 2
     for row in coding_rows:
-        resumes = row.split("resume", 1)[1].split(".", 1)[0].split("|", 1)[0]
+        (resumes,) = re.findall(r"resumes? ([^.|]*)", row)
         assert "`returned`" not in resumes and "`rebase`" not in resumes, row
 
 
 def test_code_fences_are_well_formed():
     # A closing fence with text after it is not a closing fence in CommonMark.
-    for name, text in {"CODER.md": CODER, "REVIEWER.md": REVIEWER, **DOCS}.items():
+    for name, text in ALL_TEXTS.items():
         inside = False
         for number, line in enumerate(text.splitlines(), 1):
             stripped = line.strip()
@@ -172,9 +172,10 @@ def test_code_fences_are_well_formed():
 
 
 def test_the_round_start_note_is_in_the_code_block():
-    block = REVIEWER.split("1. Record the round in the state", 1)[1].split("\n2. ", 1)[
-        0
-    ]
-    fenced = block.split("```bash", 1)[1].split("```", 1)[0]
+    found = re.search(
+        r"1\. Record the round in the state.*?```bash\n(.*?)```", REVIEWER, re.DOTALL
+    )
+    assert found, "no code block under Phase 1 step 1"
+    fenced = found[1]
     assert 'bd note <id> "Review round <n> started:' in fenced
     assert "git checkout --detach <branch>" in fenced
