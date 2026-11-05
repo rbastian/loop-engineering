@@ -65,7 +65,7 @@ bd list --assignee="$REVIEWER" --status=in_progress
 - **Nothing in progress** → EXIT. There is nothing to review.
 - Otherwise take the bead and run `bd show <id>`. Read the routing state with `bd state <id> loop` and `bd state <id> round`, then route, checking these in order:
   - **`local` mode, branch already merged to `main`** (check `git branch --merged main`) → the merge landed but the bookkeeping did not. Finish it: the record-and-close steps of Phase 2, then EXIT.
-  - **`merge-wait`** (`local` mode) → the review passed and only the merge is outstanding. Run `git checkout --detach <branch>` and run the gate (Phase 1 step 6) again on the branch HEAD. Then go to the pass path of Phase 2.
+  - **`merge-wait`** (`local` mode) → the review passed and only the merge is outstanding. Run `git checkout --detach <branch>` and run the gate (Phase 1 step 6) again on the branch HEAD. Then go to the pass path of Phase 2. Do not write a second `Acceptance evidence:` note, because the session that reviewed the branch wrote it.
   - **`rebased`** → the coder rebased the branch after a `Rebase needed:` note. Keep the round number as it is, and write no new `Review round <n> started` note. Run `git checkout --detach <branch>`. Make sure that `git diff "$BASE"...<branch>` still shows what you already reviewed, run the gate again (Phase 1 step 6), and go straight to Phase 2. A rebase is not a new review and never costs the coder a bounce.
   - **`parked`** → you parked this bead with a `Review not run:` note, and `$HUMAN` assigned it back to you. The round in `bd state <id> round` is the round that did not run, because Phase 1 step 1 set it. Run that round again with the same number. Do not run `bd set-state <id> round`. Write `bd note <id> "Review round <n> restarted: <branch> @ $(git rev-parse --short <branch>)"` instead of a new started note, run `git checkout --detach <branch>`, and do Phase 1 steps 2 to 6. Never set `loop=review` for this resume, because Phase 1 adds one to the round for `review`.
   - **`review`, no value, or any other value** → start a review round at Phase 1.
@@ -85,6 +85,13 @@ The round number `<n>` is the value of `bd state <id> round` plus one. No value 
 2. Read `bd show <id>` in full: description, **design**, acceptance criteria, and every one of the coder's notes — including any `Declined /simplify findings:` and, in round 2, the `Disputed finding:` notes. In `pr` mode, find the PR number in the `PR opened:` note and read the PR with `gh pr view <number> --comments`.
 3. Read the change: `git diff "$BASE"...<branch>` and `git log "$BASE"..<branch> --oneline`. In `pr` mode, also confirm that `gh pr view <number> --json headRefOid` names the same commit as `git rev-parse <branch>`. If it does not, the coder did not push the reviewed code: treat it as a blocking finding.
 4. **Check the spec yourself.** Walk every item in the design field — especially its trap list: what had to move with the change, which tests deliberately encode old intent, what must NOT change — and confirm the diff honours each one. Confirm new behaviour got tests, and that no test was deleted, skipped or weakened to make the gate pass.
+
+   Then go through the acceptance criteria one by one, and find the evidence for each yourself: a test that covers the case and passes in your gate run (step 6), a command that you run, or a line of the diff that you read. The coder's note alone is not evidence that a criterion is verified. Give each criterion one of three outcomes:
+   - **verified**: you checked it. Name how: a test name, a command, or a file and line.
+   - **trusted**: you cannot repeat the check in your session, for example a manual run that needs herdr, caffeinate or the real network, and a coder's note reports the result. Name that note.
+   - **not verified**: neither of the above. This is a blocking finding. Write it as `Review round <n> failed: acceptance <k> not verified: <why>`.
+
+   Use the criterion numbers from the bead. If the bead has no numbered criteria, number them in the order that they appear, and say so in the evidence note. Phase 2 writes the outcomes in one `Acceptance evidence:` note, one entry per criterion, for example `Acceptance evidence: 1 verified by test_x; 2 verified by running <command>; 3 trusted: coder's note 'Acceptance 3: ...'`. In `pr` mode, each Phase 2 `gh pr comment` carries the same entries after its pass or fail line, under the heading `Acceptance evidence:`, one line per criterion, for example `3 trusted: coder's note 'Acceptance 3: ...'`.
 5. Review the change against `$BASE` with the default method for your engine. You always run it, on every branch. `run.sh` exports the engine as `$LOOP_ENGINE`:
    - `codex` → run `codex exec review --base "$BASE"` on the branch HEAD. It runs for minutes, so give the command a long tool timeout, and read its whole output before you decide anything.
    - anything else → run the `/code-review` skill at **high** effort on the branch against `$BASE`.
@@ -98,7 +105,7 @@ The round number `<n>` is the value of `bd state <id> round` plus one. No value 
 
 The gate is cheap and runs last on purpose: a failing gate is blocking on its own, but you get one bounce, so you want every finding in it. Read the code even when you already know the gate will fail.
 
-**Blocking** — any one of these bounces the bead: a correctness bug, a departure from the description, design or acceptance criteria, a violated trap-list item, a deleted/skipped/weakened test, new behaviour with no test, a failing gate, code in the diff that kills processes by name, pattern or port (in tests, fixtures and scripts too, because the gate runs on the same machine as the loops), or in `pr` mode a PR head that is not the reviewed commit.
+**Blocking** — any one of these bounces the bead: a correctness bug, a departure from the description, design or acceptance criteria, an acceptance criterion that is not verified (step 4), a violated trap-list item, a deleted/skipped/weakened test, new behaviour with no test, a failing gate, code in the diff that kills processes by name, pattern or port (in tests, fixtures and scripts too, because the gate runs on the same machine as the loops), or in `pr` mode a PR head that is not the reviewed commit.
 
 **Everything else is non-blocking**: style, naming, a tidier shape, work the bead did not ask for. It goes in one note for `$HUMAN` to triage — `bd note <id> "Non-blocking review findings: ..."` — whatever the outcome below. Findings are never filed as beads, the same rule that governs the coder's declined `/simplify` findings.
 
@@ -119,7 +126,10 @@ gh pr view <number> --json state,mergeable
 - `mergeable` is `CONFLICTING` → `$BASE` moved under the branch. Go to "Rebase needed" below.
 - Otherwise → post the review on the PR, record it, and hand the bead to the human:
   ```bash
-  gh pr comment <number> --body "Review by $REVIEWER passed (round <n>). <method>: <k> findings (<b> blocking). <review summary>. Non-blocking: <findings, or none>."
+  gh pr comment <number> --body "Review by $REVIEWER passed (round <n>). <method>: <k> findings (<b> blocking). <review summary>. Non-blocking: <findings, or none>.
+  Acceptance evidence:
+  <one line per criterion, as in Phase 1 step 4>"
+  bd note <id> "Acceptance evidence: <one entry per criterion, as in Phase 1 step 4>"
   bd note <id> "Review summary: <method>: <k> findings (<b> blocking). <what changed, which design/trap-list items you checked, anything $HUMAN should look at>"
   bd note <id> "Review passed, PR #<number> awaiting merge approval"
   bd set-state <id> loop=merge --reason "Review passed, PR #<number>"
@@ -131,7 +141,13 @@ Use `gh pr comment`, not `gh pr review --approve`: the agents act as the account
 
 #### Pass in `local` mode → merge
 
-Gate first: if you have not already run the gate **in this session** on the exact HEAD you are about to merge, run it now. **Merge — this happens in the PRIMARY checkout** (where `main` is checked out). Preconditions, checked in order:
+Gate first: if you have not already run the gate **in this session** on the exact HEAD you are about to merge, run it now. Then write the evidence note before the merge preconditions, so that a `merge-wait` session finds it:
+
+```bash
+bd note <id> "Acceptance evidence: <one entry per criterion, as in Phase 1 step 4>"
+```
+
+**Merge — this happens in the PRIMARY checkout** (where `main` is checked out). Preconditions, checked in order:
 
 ```bash
 git -C "$PRIMARY" rev-parse --abbrev-ref HEAD    # must print: main
@@ -184,31 +200,45 @@ EXIT.
 
 #### Fail in round 1 → back to the coder
 
-Use this path when `bd state <id> round` prints `1`. Write one note per blocking finding, each naming the file and what is wrong, then the marker note and the state:
+Use this path when `bd state <id> round` prints `1`. Write the evidence note, then one note per blocking finding, each naming the file and what is wrong, then the marker note and the state:
 
 ```bash
+bd note <id> "Acceptance evidence: <one entry per criterion, as in Phase 1 step 4>"
 bd note <id> "Review round 1 failed: <finding>"
 bd note <id> "Returned to $CODER after review round 1"
 bd set-state <id> loop=returned --reason "Review round 1 failed"
 bd update <id> --assignee="$CODER"
 ```
 
-In `pr` mode, also post the blocking findings on the PR: `gh pr comment <number> --body "Review by $REVIEWER, round 1: changes needed. <findings>"`.
+In `pr` mode, also post the blocking findings and the evidence list on the PR. The list shows which criteria passed:
+
+```bash
+gh pr comment <number> --body "Review by $REVIEWER, round 1: changes needed. <findings>
+Acceptance evidence:
+<one line per criterion, as in Phase 1 step 4>"
+```
 
 Status stays `in_progress`, `main` is untouched, the branch stays where it is. EXIT.
 
 #### Fail in round 2 → escalate to the human
 
-Use this path when `bd state <id> round` prints `2` or more. One bounce is the budget. Write the blocking findings the same way, with `<n>` as the round, then:
+Use this path when `bd state <id> round` prints `2` or more. One bounce is the budget. Write the evidence note and the blocking findings the same way, with `<n>` as the round, then:
 
 ```bash
+bd note <id> "Acceptance evidence: <one entry per criterion, as in Phase 1 step 4>"
 bd note <id> "Review round <n> failed: <finding>"
 bd note <id> "Escalated to $HUMAN after review round <n>: <summary of the disagreement>"
 bd set-state <id> loop=escalated --reason "Review round <n> failed"
 bd update <id> --assignee="$HUMAN"
 ```
 
-In `pr` mode, also post the findings and the escalation on the PR with `gh pr comment`.
+In `pr` mode, also post the findings, the escalation and the evidence list on the PR:
+
+```bash
+gh pr comment <number> --body "Review by $REVIEWER, round <n>: escalated to $HUMAN. <findings>
+Acceptance evidence:
+<one line per criterion, as in Phase 1 step 4>"
+```
 
 Status stays `in_progress`, the bead is unmerged, `main` is untouched. EXIT.
 
@@ -229,12 +259,12 @@ Do not change the round. It stays at the round that did not run. `$HUMAN` fixes 
 
 Before exiting, verify your end state is ONE of these seven:
 
-- **Ready to merge (`pr` mode):** gate passed on the PR head, PR comment posted, `Review summary:` and `Review passed, PR #<number> awaiting merge approval` notes written, bead `in_progress` with `loop=merge` and assigned to `$HUMAN`, your worktree detached at `$BASE`.
-- **Merged (`local` mode):** gate passed, branch merged in the primary, `Merged to main:` and `Review summary:` notes written, bead closed with `loop=accept` and assigned to `$HUMAN`, branch deleted, your worktree detached at `main`.
-- **Awaiting merge (`local` mode):** review passed, because the primary checkout was busy. The bead is `in_progress` with `loop=merge-wait`, still assigned to you, with a "Review passed, awaiting merge" note. `run.sh` holds the next reviewer session until the primary is clean.
+- **Ready to merge (`pr` mode):** gate passed on the PR head, PR comment posted with the evidence list, `Acceptance evidence:`, `Review summary:` and `Review passed, PR #<number> awaiting merge approval` notes written, bead `in_progress` with `loop=merge` and assigned to `$HUMAN`, your worktree detached at `$BASE`.
+- **Merged (`local` mode):** gate passed, `Acceptance evidence:` note written, branch merged in the primary, `Merged to main:` and `Review summary:` notes written, bead closed with `loop=accept` and assigned to `$HUMAN`, branch deleted, your worktree detached at `main`.
+- **Awaiting merge (`local` mode):** review passed, because the primary checkout was busy. The `Acceptance evidence:` note is written. The bead is `in_progress` with `loop=merge-wait`, still assigned to you, with a "Review passed, awaiting merge" note. `run.sh` holds the next reviewer session until the primary is clean.
 - **Rebase needed:** merge aborted or PR conflicting, `Rebase needed:` note written, bead `in_progress` with `loop=rebase` and assigned to `$CODER`, round unchanged.
-- **Bounced:** round 1, one note per blocking finding, `Returned to $CODER after review round 1`, bead `in_progress` with `loop=returned` and assigned to `$CODER`.
-- **Escalated:** round 2 or later, findings noted, `Escalated to $HUMAN after review round <n>`, bead `in_progress` with `loop=escalated` and assigned to `$HUMAN`.
+- **Bounced:** round 1, `Acceptance evidence:` note written, one note per blocking finding, `Returned to $CODER after review round 1`, bead `in_progress` with `loop=returned` and assigned to `$CODER`.
+- **Escalated:** round 2 or later, `Acceptance evidence:` note written, findings noted, `Escalated to $HUMAN after review round <n>`, bead `in_progress` with `loop=escalated` and assigned to `$HUMAN`.
 - **Parked:** the default method could not run, `Review not run: <error>` note written, bead `in_progress` with `loop=parked` and assigned to `$HUMAN`, round unchanged, your worktree detached at `$BASE`.
 
 Any other state means you are NOT done. Go back to the first incomplete step.
