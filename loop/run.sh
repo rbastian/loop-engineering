@@ -19,11 +19,14 @@
 #   LOOP_SESSION_TIMEOUT Max wall-clock time per session (default: 2h): a whole
 #                        number with an optional suffix s, m, h or d. 0 means no
 #                        limit. Time while the Mac sleeps counts too.
-#   LOOP_ENGINE          Which agent CLI runs each session: claude (default)
-#                        or codex. Any other value stops the loop at startup.
+#   LOOP_ENGINE          Which agent CLI runs each session: claude (default),
+#                        codex, or fw (Claude Code on a Fireworks model, through
+#                        the fw launcher). Any other value stops the loop at
+#                        startup.
 #   LOOP_MODEL           Model for each session. Defaults to claude-opus-5-5 on
 #                        the claude engine; on codex it has no default, and an
 #                        unset one means the default model of the ChatGPT plan.
+#                        fw needs it, for example deepseek-flash-latest[1m].
 #   LOOP_OVERLAY         Project overlay appended to the prompt (default:
 #                        project.md beside PROMPT_FILE; "none" disables it).
 #   LOOP_PRINT_PROMPT=1  Print the combined prompt and exit.
@@ -48,8 +51,12 @@ ENGINE="${LOOP_ENGINE:-claude}"
 case "$ENGINE" in
     claude) MODEL="${LOOP_MODEL:-claude-opus-5-5}" ;;
     codex) MODEL="${LOOP_MODEL:-}" ;;
+    fw)
+        MODEL="${LOOP_MODEL:-}"
+        [ -n "$MODEL" ] || { echo "ERROR: LOOP_ENGINE=fw needs LOOP_MODEL, for example deepseek-flash-latest[1m]"; exit 1; }
+        ;;
     *)
-        echo "ERROR: LOOP_ENGINE must be claude or codex (got: $ENGINE)"
+        echo "ERROR: LOOP_ENGINE must be claude, codex or fw (got: $ENGINE)"
         exit 1
         ;;
 esac
@@ -108,6 +115,21 @@ fi
 if ! command -v jq >/dev/null 2>&1; then
     echo "ERROR: jq is required (brew install jq)"
     exit 1
+fi
+
+# fw starts Claude Code against the Fireworks endpoint. Its --check makes
+# sure that the key and the model are set up, calls no model and costs no
+# tokens. Its output is discarded when it passes.
+if [ "$ENGINE" = "fw" ]; then
+    if ! command -v fw >/dev/null 2>&1; then
+        echo "ERROR: LOOP_ENGINE=fw needs fw on PATH (usually ~/.local/bin/fw)"
+        exit 1
+    fi
+    if ! FW_ERROR=$(fw --model "$MODEL" --check 2>&1 >/dev/null); then
+        echo "ERROR: fw --model $MODEL --check failed:"
+        echo "$FW_ERROR"
+        exit 1
+    fi
 fi
 
 KEEP_AWAKE=""
@@ -418,7 +440,8 @@ while true; do
     # Built here rather than at startup: $PROMPT is re-read each iteration.
     # One array for both call sites below. claude needs two flags to emit the
     # JSONL that codex exec --json emits on its own, so only it reads
-    # $LOOP_STREAM_LOG here.
+    # $LOOP_STREAM_LOG here. fw runs Claude Code and passes everything after
+    # -- to it, but it sets the model itself and rejects --model there.
     if [ "$ENGINE" = "codex" ]; then
         AGENT_CMD=(codex exec --json --dangerously-bypass-approvals-and-sandbox)
         if [ -n "$MODEL" ]; then
@@ -426,7 +449,12 @@ while true; do
         fi
         AGENT_CMD+=("$PROMPT")
     else
-        AGENT_CMD=(claude -p "$PROMPT" --model "$MODEL" --dangerously-skip-permissions)
+        if [ "$ENGINE" = "fw" ]; then
+            AGENT_CMD=(fw --model "$MODEL" -- -p "$PROMPT")
+        else
+            AGENT_CMD=(claude -p "$PROMPT" --model "$MODEL")
+        fi
+        AGENT_CMD+=(--dangerously-skip-permissions)
         if [ -n "${LOOP_STREAM_LOG:-}" ]; then
             AGENT_CMD+=(--verbose --output-format stream-json)
         fi
