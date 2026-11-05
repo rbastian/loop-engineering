@@ -195,8 +195,10 @@ The limit counts wall-clock time, including time while the Mac sleeps. If the Ma
 An agent cannot record what its own session cost. The cost arrives in the session's closing event, after the agent has exited. So `run.sh` records it. When `LOOP_STREAM_LOG=1` is set, `run.sh` reads the finished log with `watch.py --summary` and appends one note to the bead:
 
 ```text
-Session cost: Ralph, claude-opus-5-5, $1.84 est., 12m30s wall, 41 turns, 18.2k out, 3.1k think, 412k ctx
+Session cost: Ralph, cc/claude-opus-5-5, $1.84 est., 12m30s wall, 41 turns, 18.2k out, 3.1k think, 412k ctx
 ```
+
+The second field is the harness label, `<harness>[@<provider>]/<model>`. The harness is the agent CLI: `cc` for Claude Code and `codex` for Codex. The `@<provider>` part shows only when the requests go to a provider that is not the CLI's own, for example `cc@fw/deepseek-flash-latest[1m]` for the `fw` engine on Fireworks. The watcher shows the same label in its header and on the `── session ──` line. Notes written before lpe-6v6.6 show the model alone, for example `claude-opus-5-5`. A tool that reads cost notes must accept both forms.
 
 The dollar figure is Claude Code's API-equivalent estimate, not a bill. Codex on a ChatGPT plan reports tokens and no dollar figure, and the note says so. Each session of a bead adds one note: the coder's rounds, the reviewer's rounds and any rebase. The sum of the notes is what the bead cost.
 

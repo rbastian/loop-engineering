@@ -122,7 +122,7 @@ def test_header_and_footer_stay_put_around_the_newest_lines(screen):
     assert set(screen_rows[0]) == {"─"}
     assert screen_rows[1] == " Ralph · agents-abc"
     assert screen_rows[2].startswith(" session s.jsonl · started ")
-    assert "model claude-opus-5" in screen_rows[2]
+    assert screen_rows[2].endswith(" · cc/claude-opus-5")
     assert set(screen_rows[3]) == {"─"}
     assert set(screen_rows[-3]) == {"─"}
     assert screen_rows[-2] == f" {watch.SESSION.totals()}"
@@ -286,3 +286,51 @@ def test_waiting_for_the_first_log_still_paints_the_screen(
 
     assert painted and not screen.dirty
     assert any("following current.jsonl" in r for r in rows(screen))
+
+
+# --- the harness label (lpe-6v6.6) -------------------------------------------
+
+
+def fw_session(name: str = "20261105-101500.jsonl") -> None:
+    watch.SESSION.name = name
+    watch.handle(
+        {
+            "type": "loop.session",
+            "engine": "fw",
+            "model": "deepseek-flash-latest[1m]",
+            "started": STARTED,
+        }
+    )
+
+
+def test_the_provider_part_of_the_label_has_its_own_style():
+    fw_session()
+
+    row = watch.header_rows(120)[1]
+
+    styled = [(row.plain[span.start : span.end], str(span.style)) for span in row.spans]
+    assert styled == [("@fw", watch.PROVIDER_STYLE)]
+    assert row.plain.endswith(" · cc@fw/deepseek-flash-latest[1m]")
+
+
+def test_a_label_without_a_provider_is_left_plain():
+    watch.SESSION.name = "s.jsonl"
+    watch.handle({"type": "system", "subtype": "init", "model": "claude-opus-5"})
+
+    assert watch.header_rows(120)[1].spans == []
+
+
+def test_a_narrow_pane_keeps_the_whole_label(monkeypatch):
+    pinned = watch.Pinned(enabled=True)
+    pinned.enabled = True
+    monkeypatch.setattr(watch, "PINNED", pinned)
+    pinned.start(console(width=60, height=12))
+    try:
+        fw_session()
+        row = rows(pinned)[2]
+    finally:
+        pinned.stop()
+
+    assert row.endswith(" · cc@fw/deepseek-flash-latest[1m]"), row
+    assert "20261105-101500.jsonl" not in row
+    assert "…" in row

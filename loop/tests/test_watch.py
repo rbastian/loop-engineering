@@ -351,7 +351,7 @@ def test_the_header_after_a_mid_session_attach(tmp_path, capsys):
     out = capsys.readouterr().out
     assert " Ralph · agents-ype" in out
     assert f"started {BEGAN}" in out, "the header still times the attach"
-    assert f"model {MODEL}" in out
+    assert f" · cc/{MODEL}" in out
 
 
 def test_follow_catches_up_before_it_tails(tmp_path, capsys):
@@ -364,7 +364,7 @@ def test_follow_catches_up_before_it_tails(tmp_path, capsys):
 
     out = capsys.readouterr().out
     assert f"── watching {log.name} ──" in out
-    assert f"session {log.name} · started {BEGAN} · model {MODEL}" in out
+    assert f"session {log.name} · started {BEGAN} · cc/{MODEL}" in out
     assert "find work" not in out, "the catch-up printed the lines it only counted"
 
 
@@ -398,8 +398,7 @@ def test_a_new_log_replaces_the_header(tmp_path, capsys):
     out = capsys.readouterr().out
     assert " Ralph · agents-zzz" in out, "the header kept the first log's bead"
     assert (
-        f"session {second.name} · started {local(RESTARTED)} · model {NEXT_MODEL}"
-        in out
+        f"session {second.name} · started {local(RESTARTED)} · cc/{NEXT_MODEL}" in out
     ), "the header still describes the session before this one"
     # The one thing the header does not print, so it needs its own assertion.
     session = watch.SESSION
@@ -949,7 +948,7 @@ def test_the_session_line_gives_the_header_its_model_and_start(tmp_path, capsys)
     out = capsys.readouterr().out
     assert " Ralph · agents-ype" in out
     assert f"started {local(CODEX_STARTED)}" in out
-    assert f"model {CODEX_MODEL}" in out
+    assert f" · codex/{CODEX_MODEL}" in out
 
 
 @pytest.mark.parametrize("kind", ["loop.session", "ralph.session"])
@@ -973,7 +972,7 @@ def test_a_codex_session_with_no_model_says_so(tmp_path, capsys):
 
     watch.SESSION.header()
 
-    assert "model codex default" in capsys.readouterr().out
+    assert " · codex/codex default" in capsys.readouterr().out
 
 
 def test_a_claude_log_takes_its_start_from_the_session_line_too(tmp_path):
@@ -1168,7 +1167,7 @@ def test_a_finished_claude_session_gets_a_cost_note(tmp_path, capsys):
     assert summary["cost"] == 5.38
     assert summary["closed"] is True
     assert summary["note"] == (
-        f"Session cost: Ralph, {MODEL}, $5.38 est., 7m00s wall, 3 turns,"
+        f"Session cost: Ralph, cc/{MODEL}, $5.38 est., 7m00s wall, 3 turns,"
         " 58.9k out, 0.0k think, 0k ctx"
     )
 
@@ -1237,7 +1236,7 @@ def test_a_codex_session_reports_tokens_and_no_cost(tmp_path, capsys):
     assert summary["bead"] == "agents-ype"
     assert summary["cost"] is None
     assert summary["note"] == (
-        f"Session cost: Alice, {CODEX_MODEL}, no cost reported (ChatGPT plan),"
+        f"Session cost: Alice, codex/{CODEX_MODEL}, no cost reported (ChatGPT plan),"
         " 1 turns, 4.2k out, 1.3k think, 33k ctx (25k cached)"
     )
 
@@ -1267,7 +1266,7 @@ def test_an_fw_log_replays_as_a_claude_log(tmp_path, capsys):
 
     out = capsys.readouterr().out
     assert " Ralph · agents-ype" in out
-    assert f"model {FW_MODEL}" in out
+    assert f" · cc@fw/{FW_MODEL}" in out
     assert "bd ready --assignee=Ralph" in out, "the Claude events never printed"
     assert watch.SESSION.engine == "fw"
     assert watch.SESSION.turns == 3
@@ -1281,7 +1280,7 @@ def test_an_fw_session_note_says_cost_unknown_and_keeps_the_tokens(tmp_path, cap
     assert summary["bead"] == "agents-ype"
     assert summary["cost"] is None
     assert summary["note"] == (
-        f"Session cost: Ralph, {FW_MODEL}, cost unknown (fw),"
+        f"Session cost: Ralph, cc@fw/{FW_MODEL}, cost unknown (fw),"
         " model not in prices.json, 12m00s wall,"
         " 3 turns, 58.9k out, 0.0k think, 0k ctx"
     )
@@ -1409,7 +1408,7 @@ def test_an_fw_note_estimates_from_the_token_counts(tmp_path, capsys, fw_prices)
 
     assert summary["cost"] == pytest.approx(2.40)
     assert summary["note"] == (
-        f"Session cost: Ralph, {FW_MODEL}, $2.40 est."
+        f"Session cost: Ralph, cc@fw/{FW_MODEL}, $2.40 est."
         " (Fireworks prices of 2026-11-05), 12m00s wall,"
         " 3 turns, 500.0k out, 0.0k think, 0k ctx"
     )
@@ -1466,7 +1465,7 @@ def test_a_model_missing_from_the_table_leaves_the_cost_unknown(
 
     assert summary["cost"] is None
     assert summary["note"].startswith(
-        f"Session cost: Ralph, {FW_MODEL}, cost unknown (fw),"
+        f"Session cost: Ralph, cc@fw/{FW_MODEL}, cost unknown (fw),"
         " model not in prices.json, 12m00s wall,"
     )
 
@@ -1540,3 +1539,114 @@ def test_the_cost_note_is_not_a_status_marker():
     assert markers, "found no markers to compare against"
     assert not any("Session cost:".startswith(marker) for marker in markers)
     assert "Session cost" not in markers
+
+
+# --- the harness label (lpe-6v6.6) -------------------------------------------
+# One label, <harness>[@<provider>]/<model>, names where a session runs: the
+# agent CLI, the provider when it is not the CLI's own, and the model. It shows
+# in the header, on the ── session ── body line and in the cost note.
+
+LABELLED_LOGS = {
+    "claude": (
+        lambda path: session_log(
+            path,
+            result_line(),
+            first=(session_line(engine="claude", model=MODEL, started=EARLY),),
+        ),
+        f"cc/{MODEL}",
+    ),
+    "codex": (
+        lambda path: codex_log(path, codex_usage(), model=CODEX_MODEL),
+        f"codex/{CODEX_MODEL}",
+    ),
+    "codex default": (
+        lambda path: codex_log(path, codex_usage()),
+        "codex/codex default",
+    ),
+    "fw": (lambda path: fw_log(path, result_line(cost=3.10)), f"cc@fw/{FW_MODEL}"),
+}
+
+
+@pytest.mark.parametrize("engine", LABELLED_LOGS)
+def test_the_header_shows_the_harness_label(tmp_path, capsys, engine):
+    make, label = LABELLED_LOGS[engine]
+    feed_log(make(tmp_path / "20261105-101500.jsonl"))
+
+    watch.SESSION.header()
+
+    out = capsys.readouterr().out
+    assert f"session 20261105-101500.jsonl · started " in out
+    assert out.count(f" · {label}\n") == 1, out
+    assert " · model " not in out
+
+
+@pytest.mark.parametrize("engine", LABELLED_LOGS)
+def test_the_session_body_line_shows_the_harness_label(tmp_path, capsys, engine):
+    make, label = LABELLED_LOGS[engine]
+    log = make(tmp_path / "20261105-101500.jsonl")
+
+    assert watch.main(["--file", str(log), "--replay"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    marks = [line for line in lines if watch.SESSION_MARK in line]
+    assert marks, "no ── session ── line"
+    assert [line.split(watch.SESSION_MARK, 1)[1].strip() for line in marks] == [
+        label
+    ] * len(marks)
+
+
+@pytest.mark.parametrize("engine", LABELLED_LOGS)
+def test_the_cost_note_shows_the_harness_label(tmp_path, capsys, engine):
+    make, label = LABELLED_LOGS[engine]
+    log = make(tmp_path / "20261105-101500.jsonl")
+
+    summary = summary_of(log, capsys=capsys)
+
+    assert summary["label"] == label
+    assert summary["note"].startswith(f"Session cost: Ralph, {label}, ")
+
+
+def test_a_log_without_a_session_line_is_labelled_claude_code(tmp_path, capsys):
+    log = session_log(tmp_path / "20261002-114315.jsonl", result_line())
+
+    feed_log(log)
+    assert watch.SESSION.label == f"cc/{MODEL}"
+    watch.SESSION.header()
+    assert f" · cc/{MODEL}\n" in capsys.readouterr().out
+    assert summary_of(log, capsys=capsys)["note"].startswith(
+        f"Session cost: Ralph, cc/{MODEL}, "
+    )
+
+
+def test_a_claude_session_with_no_model_yet_is_labelled_with_a_question_mark():
+    assert watch.Session().label == "cc/?"
+
+
+def test_an_engine_missing_from_the_map_is_labelled_by_its_own_name():
+    """A later engine still shows where it runs before it gets its entry."""
+    session = watch.Session()
+    session.engine, session.model = "pi", "deepseek-v4"
+
+    assert session.label == "pi/deepseek-v4"
+
+
+def test_a_narrow_header_shortens_the_session_name_and_keeps_the_label():
+    session = watch.Session("20261105-101500.jsonl")
+    session.engine, session.model = "fw", FW_MODEL
+    wide = session.header_lines()[1]
+    width = len(wide) - 8
+
+    narrow = session.header_lines(width)[1]
+
+    assert len(narrow) <= width
+    assert narrow.endswith(f" · cc@fw/{FW_MODEL}")
+    assert "20261105-101500.jsonl" not in narrow
+    assert " session 2026" in narrow and "…" in narrow
+
+
+def test_a_wide_header_keeps_the_whole_session_name():
+    session = watch.Session("20261105-101500.jsonl")
+    row = session.header_lines(200)[1]
+
+    assert row == session.header_lines()[1]
+    assert "20261105-101500.jsonl" in row

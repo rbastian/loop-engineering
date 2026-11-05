@@ -334,6 +334,21 @@ class Session:
         self.result_at = None
         self.last_kind = ""
 
+    # The harness of each engine, for `label`: the agent CLI that wrote the
+    # log, then @<provider> when the requests go to a provider that is not the
+    # CLI's own. cc is Claude Code and fw is Fireworks, short for the
+    # half-width watcher panes. A later engine adds one entry here.
+    HARNESS = {"claude": "cc", "codex": "codex", "fw": "cc@fw"}
+
+    @property
+    def label(self) -> str:
+        """Where the session runs, <harness>[@<provider>]/<model>.
+
+        For example cc/claude-opus-5-5 or cc@fw/deepseek-flash-latest[1m]. An
+        engine missing from HARNESS shows its own name as the harness.
+        """
+        return f"{self.HARNESS.get(self.engine, self.engine)}/{self.model_label}"
+
     @property
     def model_label(self) -> str:
         """The model for the header.
@@ -464,19 +479,27 @@ class Session:
         if shown:
             self.title = shown[0].split("\u00b7", 1)[-1].split("[")[0].strip()
 
-    def header_lines(self) -> list[str]:
-        """The two header rows, shared by the plain header and the --tui pane."""
+    def header_lines(self, width: int | None = None) -> list[str]:
+        """The two header rows, shared by the plain header and the --tui pane.
+
+        The label ends the second row and stays whole: in a pane narrower
+        than the row, the session name is shortened first.
+        """
         title = f" {AGENT} \u00b7 {self.bead or 'no bead yet'}"
         if self.title:
             title += f" \u00b7 {self.title}"
         started = self.first.astimezone().strftime("%H:%M:%S") if self.first else "?"
-        return [
-            title,
-            (
-                f" session {self.name} \u00b7 started {started}"
-                f" \u00b7 model {self.model_label}"
-            ),
-        ]
+        tail = f" \u00b7 started {started} \u00b7 {self.label}"
+        row = f" session {self.name}{tail}"
+        if width is not None and len(row) > width:
+            # The part of the name that fits beside an ellipsis. When none of
+            # it fits, the row loses its start instead of its label.
+            room = len(self.name) - (len(row) - width) - 1
+            if room >= 0:
+                row = f" session {self.name[:room]}\u2026{tail}"
+            else:
+                row = "\u2026" + row[len(row) - width + 1 :]
+        return [title, row]
 
     def header(self) -> None:
         """The one-shot plain-stream header (non-TUI mode)."""
@@ -500,6 +523,29 @@ class Session:
 
 
 SESSION = Session()
+
+# The --tui style of the @<provider> part of the label, so that a session
+# routed to another provider stands out.
+PROVIDER_STYLE = "bold magenta"
+
+
+def header_rows(width: int | None = None) -> list:
+    """The header rows as Rich Text for --tui, with the provider styled."""
+    from rich.text import Text
+
+    rows = [
+        Text(row, no_wrap=True, overflow="ellipsis")
+        for row in SESSION.header_lines(width)
+    ]
+    label = SESSION.label
+    harness = label.split("/", 1)[0]
+    if "@" in harness:
+        # The label ends the row whole, so its place is counted from the end.
+        start = len(rows[1].plain) - len(label) + harness.index("@")
+        rows[1].stylize(
+            PROVIDER_STYLE, start, len(rows[1].plain) - len(label) + len(harness)
+        )
+    return rows
 
 
 class Pinned:
@@ -549,7 +595,7 @@ class Pinned:
             return styled
 
         def header(console, options):
-            yield Group(Rule(), *map(line, SESSION.header_lines()), Rule())
+            yield Group(Rule(), *header_rows(options.max_width), Rule())
 
         def footer(console, options):
             yield Group(
@@ -1072,7 +1118,7 @@ def handle(event: dict) -> None:
         # A Claude log announces itself with its init event, as it always has.
         # A Codex log has no such event, so its session line is the marker.
         if SESSION.engine == "codex":
-            emit(stamp, "-", SESSION_MARK, SESSION.model_label)
+            emit(stamp, "-", SESSION_MARK, SESSION.label)
         return
     if kind in ("item.started", "item.completed"):
         codex_item(stamp, kind, event.get("item") or {})
@@ -1092,7 +1138,7 @@ def handle(event: dict) -> None:
         emit(stamp, "-", "rate limit", f"{info.get('status', '?')} — {used}")
         return
     if kind == "system" and event.get("subtype") == "init":
-        emit(stamp, "-", SESSION_MARK, SESSION.model_label)
+        emit(stamp, "-", SESSION_MARK, SESSION.label)
         return
     if kind != "assistant":
         return
@@ -1231,7 +1277,7 @@ def cost_note(summary: dict) -> str:
     ctx = f"{summary['context'] / 1000:.0f}k ctx"
     if summary["cached"]:
         ctx += f" ({summary['cached'] / 1000:.0f}k cached)"
-    parts = [summary["agent"], summary["model"], cost]
+    parts = [summary["agent"], summary["label"], cost]
     if summary["elapsed"] != "?":
         parts.append(f"{summary['elapsed']} wall")
     parts += [
@@ -1270,6 +1316,7 @@ def summarize(path: Path) -> dict:
         "agent": AGENT,
         "engine": SESSION.engine,
         "model": SESSION.model_label,
+        "label": SESSION.label,
         "cost": SESSION.cost,
         "prices_of": SESSION.prices_of,
         "elapsed": SESSION.elapsed(),
