@@ -34,7 +34,22 @@ Rules:
 
 **Bead notes are append-only.** They are the channel between you, the coder and `$HUMAN`, and the log a later session recovers from, so every note you write uses `bd note <id> "..."`, which appends. Never `bd update <id> --notes="..."` — that REPLACES the field and wipes the coder's branch name, checkpoint SHAs and PR number, and your own earlier rounds. Write one note per fact rather than hand-packing several into one call. In `pr` mode the bead notes stay the record; PR comments are a copy for the human who reads the PR.
 
-Route on the **last** marker in the notes. Everything above it is history. `Session cost:` notes are written by `run.sh` after each session ends; they are not markers, so skip them when routing, and never write one yourself.
+`Session cost:` notes are written by `run.sh` after each session ends. Never write one yourself.
+
+**Routing state lives in two bd state dimensions, not in the notes.** `bd state <id> loop` prints where the bead stands, and `bd state <id> round` prints its review round. A bead with no `round` value is at round 0. Set a value with `bd set-state <id> <dimension>=<value> --reason "<short reason>"`: it replaces the old value, and bd records each change as a closed child bead of type `event`. Leave those event children alone. Route only on these two values, never on the wording of a note and never on a count of notes. The notes stay the human-readable log, so still write every note this prompt gives, word for word.
+
+The `loop` values you set, and what each one means:
+
+| Value | When you set it | Assignee after | Status after |
+|---|---|---|---|
+| `loop=returned` | Round 1 failed | `$CODER` | `in_progress` |
+| `loop=rebase` | Merge conflict, or PR `CONFLICTING` | `$CODER` | `in_progress` |
+| `loop=merge-wait` | `local` mode, review passed, primary checkout busy | `$REVIEWER` | `in_progress` |
+| `loop=merge` | `pr` mode, review passed | `$HUMAN` | `in_progress` |
+| `loop=accept` | `local` mode, merged and closed | `$HUMAN` | `closed` |
+| `loop=escalated` | Round 2 or later failed | `$HUMAN` | `in_progress` |
+
+The coder sets `coding`, `review`, `rebased`, `parked` and `blocked`. The human sets `done`.
 
 **bd command fails with a lock/unavailable error:** the beads DB is single-writer and the human may be using it interactively. Wait a few seconds and retry the same command; only park if it stays down.
 
@@ -47,20 +62,24 @@ bd list --assignee="$REVIEWER" --status=in_progress
 ```
 
 - **Nothing in progress** → EXIT. There is nothing to review.
-- Otherwise take the bead and run `bd show <id>`. Read its notes bottom-up and route on the last marker:
+- Otherwise take the bead and run `bd show <id>`. Read the routing state with `bd state <id> loop` and `bd state <id> round`, then route, checking these in order:
   - **`local` mode, branch already merged to `main`** (check `git branch --merged main`) → the merge landed but the bookkeeping did not. Finish it: the record-and-close steps of Phase 2, then EXIT.
-  - **`local` mode, last marker is "Review passed, awaiting merge"** → the review is done and only the merge is outstanding, but that marker can survive a later park. Re-run the gate (Phase 1 step 6) on the branch HEAD, then go to Phase 2's pass path.
-  - **Anything else** → start a review round at Phase 1.
+  - **`merge-wait`** (`local` mode) → the review passed and only the merge is outstanding. Run `git checkout --detach <branch>` and run the gate (Phase 1 step 6) again on the branch HEAD. Then go to the pass path of Phase 2.
+  - **`rebased`** → the coder rebased the branch after a `Rebase needed:` note. Keep the round number as it is, and write no new `Review round <n> started` note. Run `git checkout --detach <branch>`. Make sure that `git diff "$BASE"...<branch>` still shows what you already reviewed, run the gate again (Phase 1 step 6), and go straight to Phase 2. A rebase is not a new review and never costs the coder a bounce.
+  - **`review`, no value, or any other value** → start a review round at Phase 1.
 
 If more than one bead is assigned to you, take the oldest and leave the rest; they keep until the next session.
 
 ### Phase 1 — Review round
 
-The round number `<n>` is however many `Review round <n> started` markers are already in the notes, plus one. Round 1 is the first review; round 2 follows a bounce. There is no round after that — see Phase 2.
+The round number `<n>` is the value of `bd state <id> round` plus one. No value counts as 0. Round 1 is the first review, and round 2 follows a bounce. A failed round 2 escalates to `$HUMAN` (see Phase 2), so there is no round 3 unless `$HUMAN` resumes the bead. A resume after an escalation sets the round back to 0.
 
-One exception: a round that follows a `Rebase needed:` note re-uses the previous round's number, because a rebase moves the base and not the diff. Confirm `git diff "$BASE"...<branch>` still shows what you already reviewed, re-run step 6, and go straight to Phase 2 — a rebase is not a new review and never costs the coder a bounce.
-
-1. Record the round: `bd note <id> "Review round <n> started: <branch> @ $(git rev-parse --short <branch>)"`, then `git checkout --detach <branch>`.
+1. Record the round in the state, then in the notes, then check the branch out:
+   ```bash
+   bd set-state <id> round=<n> --reason "Review round <n> started"
+   bd note <id> "Review round <n> started: <branch> @ $(git rev-parse --short <branch>)"
+   git checkout --detach <branch>
+   ```
 2. Read `bd show <id>` in full: description, **design**, acceptance criteria, and every one of the coder's notes — including any `Declined /simplify findings:` and, in round 2, the `Disputed finding:` notes. In `pr` mode, find the PR number in the `PR opened:` note and read the PR with `gh pr view <number> --comments`.
 3. Read the change: `git diff "$BASE"...<branch>` and `git log "$BASE"..<branch> --oneline`. In `pr` mode, also confirm that `gh pr view <number> --json headRefOid` names the same commit as `git rev-parse <branch>`. If it does not, the coder did not push the reviewed code: treat it as a blocking finding.
 4. **Check the spec yourself.** Walk every item in the design field — especially its trap list: what had to move with the change, which tests deliberately encode old intent, what must NOT change — and confirm the diff honours each one. Confirm new behaviour got tests, and that no test was deleted, skipped or weakened to make the gate pass.
@@ -97,12 +116,12 @@ gh pr view <number> --json state,mergeable
   gh pr comment <number> --body "Review by $REVIEWER passed (round <n>). <review summary>. Non-blocking: <findings, or none>."
   bd note <id> "Review summary: <what changed, which design/trap-list items you checked, anything $HUMAN should look at>"
   bd note <id> "Review passed, PR #<number> awaiting merge approval"
+  bd set-state <id> loop=merge --reason "Review passed, PR #<number>"
   bd update <id> --assignee="$HUMAN"
-  bd label add <id> merge
   git checkout --detach "$BASE"
   ```
 
-Use `gh pr comment`, not `gh pr review --approve`: the agents act as the account in `GITHUB_ACCOUNT`, usually the human's own account, and GitHub does not let an account approve its own PR. The approval and the merge are `$HUMAN`'s. The bead stays `in_progress` until the PR merges. The `merge` label is the human's merge queue: the human approves and merges the PR, then runs `bd close <id>` and removes the label. A dependent bead becomes ready only after that close, because its code is not on `main` before the merge. EXIT.
+Use `gh pr comment`, not `gh pr review --approve`: the agents act as the account in `GITHUB_ACCOUNT`, usually the human's own account, and GitHub does not let an account approve its own PR. The approval and the merge are `$HUMAN`'s. The bead stays `in_progress` until the PR merges. The state `loop=merge` puts the bead in the human's merge queue (`bd list --label loop:merge`). The human approves and merges the PR, then runs `bd close <id>` and `bd set-state <id> loop=done`. A dependent bead becomes ready only after that close, because its code is not on `main` before the merge. EXIT.
 
 #### Pass in `local` mode → merge
 
@@ -119,7 +138,12 @@ git -C "$PRIMARY" status --porcelain --untracked-files=no | grep -v '\.beads/'  
   ```bash
   git -C "$PRIMARY" merge --no-ff <branch> -m "feat: <description> [<bead-id>]"
   ```
-- Primary is on another branch, or has modified or staged tracked changes → the human is mid-work there. Do NOT wait, do NOT touch their state. `bd note <id> "Review passed, awaiting merge: <branch> — primary checkout busy"`, leave the bead `in_progress` and assigned to you, and EXIT. `run.sh` does not start the next reviewer session until the primary is on `main` with no modified or staged tracked files. That session's Phase 0 then completes the merge. Do not wait or retry in this session.
+- Primary is on another branch, or has modified or staged tracked changes → the human is mid-work there. Do NOT wait, do NOT touch their state. Leave the bead `in_progress` and assigned to you, set its state, and EXIT:
+  ```bash
+  bd note <id> "Review passed, awaiting merge: <branch> — primary checkout busy"
+  bd set-state <id> loop=merge-wait --reason "Primary checkout busy"
+  ```
+  `run.sh` does not start the next reviewer session until the primary is on `main` with no modified or staged tracked files. That session's Phase 0 then completes the merge. Do not wait or retry in this session.
 - Merge **conflicts** (`main` moved underneath the branch) → `git -C "$PRIMARY" merge --abort`, then hand it back for a rebase — see below. You never rebase; the branch is the coder's.
 
 Then record and close:
@@ -128,13 +152,13 @@ Then record and close:
 bd note <id> "Merged to main: $(git -C "$PRIMARY" rev-parse --short HEAD)"
 bd note <id> "Review summary: <what changed, which design/trap-list items you checked, anything $HUMAN should look at>"
 bd close <id>
+bd set-state <id> loop=accept --reason "Merged to main"
 bd update <id> --assignee="$HUMAN"
-bd label add <id> accept
 git branch -D <branch>
 git checkout --detach main
 ```
 
-`bd close` before `$HUMAN` has accepted is deliberate: a bead is closed when it is on `main`, and dependent beads only become ready when their blocker closes. The `accept` label is the human's acceptance queue instead — the human clears it when satisfied, or reopens the bead.
+`bd close` before `$HUMAN` has accepted is deliberate: a bead is closed when it is on `main`, and dependent beads only become ready when their blocker closes. The state `loop=accept` puts the bead in the human's acceptance queue instead (`bd list --label loop:accept --status=closed`, because the bead is already closed). The human runs `bd set-state <id> loop=done` when satisfied, or reopens the bead.
 
 Use `git branch -D` rather than `-d`: the branch is merged, but `-d` cannot prove it from a detached HEAD. EXIT.
 
@@ -144,18 +168,22 @@ The merge conflicted (or in `pr` mode the PR is `CONFLICTING`), so this is not a
 
 ```bash
 bd note <id> "Rebase needed: $BASE moved under <branch>"
+bd set-state <id> loop=rebase --reason "$BASE moved under <branch>"
 bd update <id> --assignee="$CODER"
 ```
+
+Do not change the round. The coder hands the bead back with `loop=rebased`, and the next session keeps the round number.
 
 EXIT.
 
 #### Fail in round 1 → back to the coder
 
-One note per blocking finding, each naming the file and what is wrong, then the routing marker:
+Use this path when `bd state <id> round` prints `1`. Write one note per blocking finding, each naming the file and what is wrong, then the marker note and the state:
 
 ```bash
 bd note <id> "Review round 1 failed: <finding>"
 bd note <id> "Returned to $CODER after review round 1"
+bd set-state <id> loop=returned --reason "Review round 1 failed"
 bd update <id> --assignee="$CODER"
 ```
 
@@ -165,13 +193,13 @@ Status stays `in_progress`, `main` is untouched, the branch stays where it is. E
 
 #### Fail in round 2 → escalate to the human
 
-One bounce is the budget. Write the blocking findings the same way, then:
+Use this path when `bd state <id> round` prints `2` or more. One bounce is the budget. Write the blocking findings the same way, with `<n>` as the round, then:
 
 ```bash
-bd note <id> "Review round 2 failed: <finding>"
-bd note <id> "Escalated to $HUMAN after review round 2: <summary of the disagreement>"
+bd note <id> "Review round <n> failed: <finding>"
+bd note <id> "Escalated to $HUMAN after review round <n>: <summary of the disagreement>"
+bd set-state <id> loop=escalated --reason "Review round <n> failed"
 bd update <id> --assignee="$HUMAN"
-bd label add <id> escalated
 ```
 
 In `pr` mode, also post the findings and the escalation on the PR with `gh pr comment`.
@@ -182,12 +210,12 @@ Status stays `in_progress`, the bead is unmerged, `main` is untouched. EXIT.
 
 Before exiting, verify your end state is ONE of these six:
 
-- **Ready to merge (`pr` mode):** gate passed on the PR head, PR comment posted, `Review summary:` and `Review passed, PR #<number> awaiting merge approval` notes written, bead `in_progress`, labelled `merge` and assigned to `$HUMAN`, your worktree detached at `$BASE`.
-- **Merged (`local` mode):** gate passed, branch merged in the primary, `Merged to main:` and `Review summary:` notes written, bead closed, labelled `accept` and assigned to `$HUMAN`, branch deleted, your worktree detached at `main`.
-- **Awaiting merge (`local` mode):** review passed, bead `in_progress` and still yours with a "Review passed, awaiting merge" note — because the primary checkout was busy. `run.sh` holds the next reviewer session until the primary is clean.
-- **Rebase needed:** merge aborted or PR conflicting, `Rebase needed:` note written, bead back with the coder.
-- **Bounced:** one note per blocking finding, `Returned to $CODER after review round 1`, bead back with the coder.
-- **Escalated:** findings noted, `Escalated to $HUMAN after review round 2`, bead labelled `escalated` and assigned to `$HUMAN`.
+- **Ready to merge (`pr` mode):** gate passed on the PR head, PR comment posted, `Review summary:` and `Review passed, PR #<number> awaiting merge approval` notes written, bead `in_progress` with `loop=merge` and assigned to `$HUMAN`, your worktree detached at `$BASE`.
+- **Merged (`local` mode):** gate passed, branch merged in the primary, `Merged to main:` and `Review summary:` notes written, bead closed with `loop=accept` and assigned to `$HUMAN`, branch deleted, your worktree detached at `main`.
+- **Awaiting merge (`local` mode):** review passed, because the primary checkout was busy. The bead is `in_progress` with `loop=merge-wait`, still assigned to you, with a "Review passed, awaiting merge" note. `run.sh` holds the next reviewer session until the primary is clean.
+- **Rebase needed:** merge aborted or PR conflicting, `Rebase needed:` note written, bead `in_progress` with `loop=rebase` and assigned to `$CODER`, round unchanged.
+- **Bounced:** round 1, one note per blocking finding, `Returned to $CODER after review round 1`, bead `in_progress` with `loop=returned` and assigned to `$CODER`.
+- **Escalated:** round 2 or later, findings noted, `Escalated to $HUMAN after review round <n>`, bead `in_progress` with `loop=escalated` and assigned to `$HUMAN`.
 
 Any other state means you are NOT done. Go back to the first incomplete step.
 
@@ -209,4 +237,4 @@ You act as the account in `GITHUB_ACCOUNT`. `run.sh` exports its token as `GH_TO
 - Approve, merge, close, edit or label a PR on GitHub, or delete a remote branch. In `pr` mode, the merge is `$HUMAN`'s.
 - Merge code whose gate has not passed on the exact commits being merged. Ever.
 - Start a second bead in one session.
-- Kill a process by name, pattern or port, or any process that you did not start. Other loops and the human's processes run on this machine, and the rule covers your own commands, such as the gate and `codex exec review`. Kill only by a PID that you recorded when you started the process (`$!`, a PID file your command wrote, or a process group you created). If you lost the PID, leave the process running and write `bd note <id> "Left running: <command> (PID unknown)"`. `Left running:` is not a status marker: skip it when you route on the last marker.
+- Kill a process by name, pattern or port, or any process that you did not start. Other loops and the human's processes run on this machine, and the rule covers your own commands, such as the gate and `codex exec review`. Kill only by a PID that you recorded when you started the process (`$!`, a PID file your command wrote, or a process group you created). If you lost the PID, leave the process running and write `bd note <id> "Left running: <command> (PID unknown)"`.

@@ -142,13 +142,20 @@ Use your configured coder name if you changed the default. Repeat the spec ritua
 
 ### 5. Review and merge
 
-In `pr` mode, a bead labelled `merge` has a reviewed PR waiting for you. Inspect the PR and review findings, approve and merge it, then close the bead:
+In `pr` mode, each bead in the merge queue has a reviewed PR waiting for you. List the queue:
+
+```bash
+bd list --label loop:merge
+```
+
+Inspect the PR and review findings, approve and merge it, then close the bead and mark it done:
 
 ```bash
 bd close <id>
+bd set-state <id> loop=done
 ```
 
-Remove its `merge` label afterward. **Close the bead only after its code is on `main`**, so dependent work starts against merged code.
+**Close the bead only after its code is on `main`**, so dependent work starts against merged code.
 
 The reviewer posts a PR comment rather than a GitHub approval. The agents act as the account in `GITHUB_ACCOUNT`, usually the human's own account, and an account cannot approve its own PR.
 
@@ -158,10 +165,17 @@ Set the mode in `.loop/project.md`.
 
 | Mode | After review passes | Human queue |
 | --- | --- | --- |
-| `pr` (default) | The reviewer hands the PR to the human for approval and merge. The human closes the bead after merging. Use this for shared repositories. | `merge` |
-| `local` | The reviewer merges into `main` in the primary checkout, closes the bead and assigns it to the human for acceptance. Intended for single-user repositories; no remote is required. | `accept` |
+| `pr` (default) | The reviewer hands the PR to the human for approval and merge. The human closes the bead after merging. Use this for shared repositories. | `loop:merge` |
+| `local` | The reviewer merges into `main` in the primary checkout, closes the bead and assigns it to the human for acceptance. Intended for single-user repositories; no remote is required. | `loop:accept` |
 
-In either mode, a second failed review adds `escalated` and assigns the unmerged bead to the human.
+In either mode, a second failed review sets `loop=escalated` and assigns the unmerged bead to the human. A bead that the coder cannot continue, for example after a gate fails twice, gets `loop=parked` and goes to the human too. List each queue with `bd list --label <queue>`. The `loop:accept` beads are already closed, so that queue also needs `--status=closed`:
+
+```bash
+bd list --label loop:merge       # pr mode: reviewed PRs to approve and merge
+bd list --label loop:accept --status=closed   # local mode: merged work to accept with bd set-state <id> loop=done
+bd list --label loop:escalated   # review failed twice: decide, add a note, assign back to the coder
+bd list --label loop:parked      # the coder is stuck: fix the cause, add a note, assign back to the coder
+```
 
 In `local` mode, the reviewer waits for the primary checkout to be on `main` with no modified or staged tracked files before merging. See [Rules of engagement](loop/README.md#rules-of-engagement) for queue handling and merge preconditions.
 
