@@ -77,7 +77,7 @@ Additional tools depend on your setup:
 | [Codex](https://github.com/openai/codex), authenticated | A Codex reviewer. Before its first headless run, open Codex in the primary checkout, trust the project and approve its hooks. |
 | [herdr](https://herdr.dev/) | The setup skill's automatic terminal layout. Without it, start the loops and watchers [manually](loop/README.md#running). |
 
-The watcher requires Python 3.13 or later and Rich. Running `uv run ralph/watch.py` supplies its script dependencies.
+The watcher requires Python 3.13 or later and Rich. Running `uv run .loop/watch.py` supplies its script dependencies.
 
 ## Get started
 
@@ -102,7 +102,7 @@ In an interactive Claude Code session in your target project, inside herdr, run:
 /dev-env-setup
 ```
 
-The skill asks for the bead prefix, ship mode, human assignee, agent names and reviewer engine. It configures Git, uv and Beads, installs the harness as `ralph/`, creates the agent worktrees and starts the loops and watchers. The loops wait until you assign work.
+The skill asks for the bead prefix, ship mode, human assignee, agent names and reviewer engine. It configures Git, uv and Beads, installs the harness as `.loop/`, creates the agent worktrees and starts the loops and watchers. The loops wait until you assign work.
 
 **Before running setup:** bootstrap adds Python development dependencies and runs formatting and lint fixes. The worktree script stages and commits all current changes; in `pr` mode, it also pushes `main` to `origin`. Run it only with changes you intend to include.
 
@@ -154,7 +154,7 @@ The reviewer posts a PR comment rather than a GitHub approval. The agents act as
 
 ## Ship modes and human queues
 
-Set the mode in `ralph/project.md`.
+Set the mode in `.loop/project.md`.
 
 | Mode | After review passes | Human queue |
 | --- | --- | --- |
@@ -173,9 +173,9 @@ In `local` mode, the reviewer waits for the primary checkout to be on `main` wit
 | [`skills/dev-env-setup/`](skills/dev-env-setup/) | Claude Code setup skill and scripts that install the harness into a target project. |
 | [`ralph/`](ralph/) | This repository's installed harness. The repository runs its own loop; reusable harness changes belong in `loop/` or `skills/`. |
 
-An installed project's `ralph/project.md` holds its agent names, paths, ship mode, reviewer engine, stack and **gate**—the required validation command. The default gate checks Ruff formatting, Ruff lint and pytest. The runner appends this configuration to each role prompt at the start of every session.
+An installed project's `.loop/project.md` holds its agent names, paths, ship mode, reviewer engine, stack and **gate**—the required validation command. The default gate checks Ruff formatting, Ruff lint and pytest. The runner appends this configuration to each role prompt at the start of every session.
 
-Agent names are configurable. `RALPH_ENGINE` selects the CLI for a loop; `RALPH_MODEL` selects its model. The coder stays on Claude Code because its prompt uses `/simplify`.
+Agent names are configurable. `LOOP_ENGINE` selects the CLI for a loop; `LOOP_MODEL` selects its model. The coder stays on Claude Code because its prompt uses `/simplify`.
 
 ## Operating the loop
 

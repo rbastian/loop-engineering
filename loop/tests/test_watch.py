@@ -95,7 +95,7 @@ def isolated(monkeypatch):
     """
     monkeypatch.setattr(watch, "SESSION", watch.Session())
     monkeypatch.setattr(watch, "AGENT", "Ralph")
-    monkeypatch.setattr(watch, "LOG_DIR", Path("/tmp/ralph-sessions"))
+    monkeypatch.setattr(watch, "LOG_DIR", Path("/tmp/loop-sessions"))
     monkeypatch.setattr(watch, "_last", [None, 0, ""])
     monkeypatch.setattr(watch, "COSTS", {})
     monkeypatch.setattr(watch, "CODEX_SESSIONS", set())
