@@ -245,7 +245,7 @@ Before lpe-wh5, `bootstrap.sh` installed the harness into `ralph/`. It now insta
 
 1. Stop both loops and their sessions with the procedure under [Stop and restart](#stop-and-restart).
 2. Move the folder: `git mv ralph .loop`.
-3. Add `extend-exclude = [".loop"]` under `[tool.ruff]` in `pyproject.toml`, so that the gate does not lint the harness. pytest skips folders that start with a dot.
+3. Exclude `.loop` from ruff, as in step 3 of [Install in a project](#install-in-a-project).
 4. Rename each `RALPH_` variable that you set. The table under [run.sh variables](#runsh-variables) gives the new names.
 5. Change each `ralph/` path in `.loop/project.md` and in the interactive section of `CLAUDE.md` and `AGENTS.md` to `.loop/`.
 6. Commit the change on `main`, then restart the loops and the watchers.
