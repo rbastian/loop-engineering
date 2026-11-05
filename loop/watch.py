@@ -41,6 +41,7 @@ import time
 from collections import Counter, deque
 from datetime import datetime
 from pathlib import Path
+from typing import ClassVar
 
 LOG_DIR = Path(os.environ.get("LOOP_LOG_DIR", "/tmp/loop-sessions"))
 # The loop being watched. Resolved once, by main, from --agent or LOG_DIR.
@@ -338,7 +339,11 @@ class Session:
     # log, then @<provider> when the requests go to a provider that is not the
     # CLI's own. cc is Claude Code and fw is Fireworks, short for the
     # half-width watcher panes. A later engine adds one entry here.
-    HARNESS = {"claude": "cc", "codex": "codex", "fw": "cc@fw"}
+    HARNESS: ClassVar[dict[str, str]] = {
+        "claude": "cc",
+        "codex": "codex",
+        "fw": "cc@fw",
+    }
 
     @property
     def label(self) -> str:

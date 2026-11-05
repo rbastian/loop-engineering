@@ -1575,7 +1575,7 @@ def test_the_header_shows_the_harness_label(tmp_path, capsys, engine):
     watch.SESSION.header()
 
     out = capsys.readouterr().out
-    assert f"session 20261105-101500.jsonl · started " in out
+    assert "session 20261105-101500.jsonl · started " in out
     assert out.count(f" · {label}\n") == 1, out
     assert " · model " not in out
 
