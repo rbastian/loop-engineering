@@ -5,13 +5,7 @@ verified, and writes one 'Acceptance evidence:' note per review round. In pr
 mode the PR comment carries the same list.
 """
 
-from pathlib import Path
-
-from test_review_method import fenced, section, step
-
-LOOP = Path(__file__).parents[1]
-REVIEWER = (LOOP / "REVIEWER.md").read_text()
-LOOP_README = (LOOP / "README.md").read_text()
+from test_review_method import LOOP_README, REVIEWER, fenced, section, step
 
 EVIDENCE_NOTE = 'bd note <id> "Acceptance evidence:'
 SUMMARY_NOTE = 'bd note <id> "Review summary:'
@@ -37,6 +31,7 @@ def test_step_4_defines_the_three_outcomes():
     for outcome in ("**verified**", "**trusted**", "**not verified**"):
         assert outcome in text, outcome
     assert "Review round <n> failed: acceptance <k> not verified: <why>" in text
+    assert "each Phase 2 `gh pr comment` carries the same entries" in text
     assert "blocking" in text
 
 
@@ -54,11 +49,11 @@ def test_every_pass_and_fail_path_writes_the_evidence_note():
 
 
 def test_every_pr_comment_template_carries_the_list():
-    for heading in ["Pass in `pr` mode → ready for the human to merge", *FAIL_PATHS]:
+    for heading in [PASS_PATHS[0], *FAIL_PATHS]:
         commands = fenced(section(REVIEWER, heading))
         comment = commands[commands.index("gh pr comment") :]
         assert "Acceptance evidence:" in comment, heading
-        assert "<k> verified by <how>" in comment, heading
+        assert "<one line per criterion, as in Phase 1 step 4>" in comment, heading
 
 
 def test_a_merge_wait_resume_does_not_write_a_second_evidence_note():
