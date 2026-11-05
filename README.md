@@ -185,7 +185,7 @@ In `local` mode, the reviewer waits for the primary checkout to be on `main` wit
 | --- | --- |
 | [`loop/`](loop/) | Reusable source: runner, coder and reviewer prompts, project template, watcher and tests. |
 | [`skills/dev-env-setup/`](skills/dev-env-setup/) | Claude Code setup skill and scripts that install the harness into a target project. |
-| [`ralph/`](ralph/) | This repository's installed harness. The repository runs its own loop; reusable harness changes belong in `loop/` or `skills/`. |
+| [`.loop/`](.loop/) | This repository's installed harness. The repository runs its own loop; reusable harness changes belong in `loop/` or `skills/`. |
 
 An installed project's `.loop/project.md` holds its agent names, paths, ship mode, reviewer engine, stack and **gate**—the required validation command. The default gate checks Ruff formatting, Ruff lint and pytest. The runner appends this configuration to each role prompt at the start of every session.
 
@@ -209,7 +209,7 @@ In `pr` mode, the human controls every merge. In `local` mode, the reviewer and 
 
 ## Contributing
 
-Keep documentation aligned with the scripts and role prompts. Reusable harness changes belong in `loop/` or `skills/`; `ralph/` is the installed copy.
+Keep documentation aligned with the scripts and role prompts. Reusable harness changes belong in `loop/` or `skills/`; `.loop/` is the installed copy.
 
 See [Tests](loop/README.md#tests) for the test command. For documentation changes, verify the commands, links and workflow descriptions against the implementation.
 

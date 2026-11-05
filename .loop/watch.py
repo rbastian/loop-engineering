@@ -5,11 +5,11 @@
 # ///
 """Human-readable live view of a Ralph or an Alice session.
 
-`run.sh` with RALPH_STREAM_LOG=1 writes the session's events to
-$RALPH_LOG_DIR/<timestamp>.jsonl and repoints a `current.jsonl` symlink at it
+`run.sh` with LOOP_STREAM_LOG=1 writes the session's events to
+$LOOP_LOG_DIR/<timestamp>.jsonl and repoints a `current.jsonl` symlink at it
 each iteration. Two vocabularies reach this file — Claude Code's stream-json
 and `codex exec --json`, since Alice may review on either engine — and run.sh
-names the coder in a `ralph.session` line at the top of every log. That
+names the coder in a `loop.session` line at the top of every log. That
 stream is complete but unreadable at a glance; this turns it into one labelled
 line per tool call:
 
@@ -17,17 +17,18 @@ line per tool call:
     03:47:02  PHASE 1   write tests      tests/test_transitions.py
     03:52:15  PHASE 2   lint             ruff check --fix .
 
-The agent being watched comes from RALPH_LOG_DIR, which run.sh gives each
+The agent being watched comes from LOOP_LOG_DIR, which run.sh gives each
 loop separately so their `current.jsonl` symlinks cannot collide, so following
 Alice needs nothing but her directory.
 
 Usage:
-    uv run ralph/watch.py            # follow the live session
-    uv run ralph/watch.py --tui      # the same, with a pinned header and footer
-    uv run ralph/watch.py --replay   # print a finished log and exit
-    uv run ralph/watch.py --file X   # a specific session log
-    uv run ralph/watch.py --summary X   # one finished log as JSON (run.sh)
-    RALPH_LOG_DIR=/tmp/alice-sessions uv run ralph/watch.py   # Alice
+    uv run .loop/watch.py            # follow the live session
+    uv run .loop/watch.py --tui      # the same, with a pinned header and footer
+    uv run .loop/watch.py --replay   # print a finished log and exit
+    uv run .loop/watch.py --file X   # a specific session log
+    uv run .loop/watch.py --summary X   # one finished log as JSON (run.sh)
+    uv run .loop/watch.py --prefix lpe  # match only this project's bead IDs
+    LOOP_LOG_DIR=/tmp/alice-sessions uv run .loop/watch.py   # Alice
 """
 
 import argparse
@@ -41,9 +42,11 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 
-LOG_DIR = Path(os.environ.get("RALPH_LOG_DIR", "/tmp/ralph-sessions"))
+LOG_DIR = Path(os.environ.get("LOOP_LOG_DIR", "/tmp/loop-sessions"))
 # The loop being watched. Resolved once, by main, from --agent or LOG_DIR.
 AGENT = "Ralph"
+# The type of run.sh's first log line. Logs from before lpe-wh5 use the old one.
+SESSION_KINDS = ("loop.session", "ralph.session")
 POLL_SECONDS = 0.4
 STATUS_SECONDS = 120
 # How often the pinned footer repaints with nothing new to show. A finished
@@ -53,17 +56,49 @@ REPAINT_SECONDS = 30
 RULE = "\u2500" * 74
 # The body line that opens a session, whichever engine wrote it.
 SESSION_MARK = "\u2500\u2500 session \u2500\u2500"
-BEAD = r"[a-z]+-[a-z0-9]{3}(?:\.\d+)?"
-BEAD_RE = re.compile(rf"\b({BEAD})\b")
-# Alice's first write on every review (ralph/REVIEWER.md). Matched down to the
-# marker text and the bead's position as `bd note`'s argument: she also writes
-# notes that quote OTHER beads, and those must not move the header.
-REVIEW_RE = re.compile(rf"""bd note\s+({BEAD})\s+["']?Review round \d+ started""")
-# Ralph's commit tag, read from between the brackets rather than from anywhere
-# in the command. A commit subject carries ordinary hyphenated words — mid-log,
-# set-up, add-on — and BEAD matches those too, so a search over the whole
-# command returns the first one of them instead of the tag (agents-8vr).
-TAG_RE = re.compile(rf"\[({BEAD})\]")
+# The part of a bead ID after its prefix: a hash of 3 to 8 characters (bd
+# makes hashes longer as a database grows), and child numbers to any depth, as
+# in lpe-3or.1.2.
+HASH = r"-[a-z0-9]{3,8}(?:\.\d+)*"
+# The prefix when --prefix does not name it. bd accepts prefixes such as my-app,
+# my_app and app2, so the prefix takes as much as it can and the hash is the
+# last segment. A hyphenated word before an ID can still be read as part of
+# it, which is why the warning below asks for --prefix (lpe-7fn).
+ANY_PREFIX = r"[a-z][a-z0-9_-]*"
+PREFIX_WARNING = (
+    "watch: no --prefix given, so bead names can be wrong;"
+    " pass --prefix with the project's bead prefix"
+)
+
+
+def use_prefix(prefix: str | None) -> None:
+    """Build the three patterns that name a bead, for one prefix or for any.
+
+    main calls this once with --prefix. The import below sets the default, so
+    the patterns exist for a caller that never runs main.
+    """
+    global CLAIM_RE, REVIEW_RE, TAG_RE
+    bead = (re.escape(prefix) if prefix else ANY_PREFIX) + HASH
+    # Ralph's claim, read from the ID argument of `bd update`. A wide hash also
+    # matches hyphenated words such as re-review, so a search over the whole
+    # command can return a word that comes before the ID (lpe-708).
+    CLAIM_RE = re.compile(rf"bd update\s+({bead})\b")
+    # Alice's first write on every review (.loop/REVIEWER.md). Matched down to
+    # the marker text and the bead's position as `bd note`'s argument: she also
+    # writes notes that quote OTHER beads, and those must not move the header.
+    # A round that the human resumes after `Review not run` is `restarted`.
+    REVIEW_RE = re.compile(
+        rf"""bd note\s+({bead})\s+["']?Review round \d+ (?:re)?started"""
+    )
+    # Ralph's commit tag, read from between the brackets rather than from
+    # anywhere in the command. A commit subject carries ordinary hyphenated
+    # words — mid-log, set-up, add-on — and a bead pattern matches those too,
+    # so a search over the whole command returns the first one of them
+    # instead of the tag (agents-8vr).
+    TAG_RE = re.compile(rf"\[({bead})\]")
+
+
+use_prefix(None)
 # A git commit that starts a command: at its start, or after `&&`, `;` or a
 # line break. One that follows a quote or a paren is text inside a string — a
 # heredoc edit of the watcher's own tests is full of them (agents-ejc).
@@ -81,15 +116,16 @@ def agent_name(log_dir: Path) -> str:
     """The agent a log directory belongs to: /tmp/alice-sessions -> "Alice".
 
     One watcher serves both loops, and the directory is the only thing that
-    already tells them apart — run.sh gives each loop its own RALPH_LOG_DIR
+    already tells them apart — run.sh gives each loop its own LOOP_LOG_DIR
     precisely so their `current.jsonl` symlinks cannot collide. Anything that
     is not named for a loop is Ralph's, since his is the default.
     """
     loop = log_dir.name.removesuffix("-sessions")
     # removesuffix hands back the whole name when the suffix is absent, so this
     # catches both "not named for a loop" and a directory called just
-    # `-sessions`. Either way it is Ralph's: his is run.sh's default.
-    if loop in ("", log_dir.name):
+    # `-sessions`. Either way it is Ralph's: his is run.sh's default. So is
+    # /tmp/loop-sessions, run.sh's default folder.
+    if loop in ("", "loop", log_dir.name):
         return "Ralph"
     return loop.capitalize()
 
@@ -108,7 +144,7 @@ def bead_in(command: str) -> str | None:
     """
     if found := REVIEW_RE.search(command):
         return found.group(1)
-    if "--claim" in command and (found := BEAD_RE.search(command)):
+    if "--claim" in command and (found := CLAIM_RE.search(command)):
         return found.group(1)
     if (start := COMMIT_START_RE.search(command)) and (
         found := TAG_RE.search(command, start.start())
@@ -190,7 +226,7 @@ class Session:
         self.title = ""
         self.looked_up = None
         self.model = ""
-        # Which agent CLI wrote this log, from its `ralph.session` line. A log
+        # Which agent CLI wrote this log, from its `loop.session` line. A log
         # without one was written before run.sh had engines, so it is Claude's.
         self.engine = "claude"
         self.first = None
@@ -512,7 +548,7 @@ class Pinned:
 PINNED = Pinned(enabled=False)
 
 # (phase, label, pattern) against a Bash command string, first match wins.
-# Phases mirror ralph/CODER.md; ordering matters because a single command can
+# Phases mirror .loop/CODER.md; ordering matters because a single command can
 # chain several steps (`bd update --claim && git checkout -b ...`), and the
 # earlier, more specific rule is the one worth reporting.
 BASH_RULES = [
@@ -727,13 +763,14 @@ def close(event: dict) -> None:
 
 
 def start_line(event: dict) -> None:
-    """Fold run.sh's `ralph.session` line, the first line of every new log.
+    """Fold run.sh's `loop.session` line, the first line of every new log.
 
     It carries the three things no engine's own stream carries for both of
     them: which engine wrote the log, the model run.sh passed on the command
     line (Codex's JSON names none, even when -m was given), and the wall-clock
     start (Codex's events carry no timestamps at all). A log with no such line
-    was written before run.sh had engines, and reads as Claude.
+    was written before run.sh had engines, and reads as Claude. A log written
+    before lpe-wh5 calls the line `ralph.session`, and reads the same.
     """
     SESSION.engine = event.get("engine") or "claude"
     SESSION.model = event.get("model") or ""
@@ -808,7 +845,7 @@ def track(event: dict, kind: str) -> None:
     # ended before the start its session line gave.
     if kind in CLOSING_KINDS:
         SESSION.result_at = SESSION.last or SESSION.clock()
-    if kind == "ralph.session":
+    if kind in SESSION_KINDS:
         start_line(event)
         return
     if kind == "turn.started":
@@ -909,7 +946,7 @@ def handle(event: dict) -> None:
     kind = event.get("type")
     track(event, kind)
 
-    if kind == "ralph.session":
+    if kind in SESSION_KINDS:
         # A Claude log announces itself with its init event, as it always has.
         # A Codex log has no such event, so its session line is the marker.
         if SESSION.engine == "codex":
@@ -1065,7 +1102,7 @@ def cost_note(summary: dict) -> str:
         ctx += f" ({summary['cached'] / 1000:.0f}k cached)"
     parts = [summary["agent"], summary["model"], cost]
     if summary["elapsed"] != "?":
-        parts.append(summary["elapsed"])
+        parts.append(f"{summary['elapsed']} wall")
     parts += [
         f"{summary['turns']} turns",
         f"{summary['output'] / 1000:.1f}k out",
@@ -1170,6 +1207,10 @@ def main(argv: list | None = None) -> int:
         help="when following, replay the log before tailing it",
     )
     parser.add_argument(
+        "--prefix",
+        help="the project's bead prefix, for example lpe; default: any prefix",
+    )
+    parser.add_argument(
         "--summary",
         type=Path,
         metavar="LOG",
@@ -1179,7 +1220,12 @@ def main(argv: list | None = None) -> int:
 
     global AGENT
     AGENT = args.agent or agent_name(LOG_DIR)
+    use_prefix(args.prefix)
     if args.summary:
+        # stdout carries the JSON that run.sh parses, so the warning goes to
+        # stderr.
+        if not args.prefix:
+            print(PREFIX_WARNING, file=sys.stderr)
         print(json.dumps(summarize(args.summary)))
         return 0
     # A replay or stdin run prints a whole log and exits, and a full-screen
@@ -1192,6 +1238,8 @@ def main(argv: list | None = None) -> int:
         )
         PINNED.enabled = False
     PINNED.start()
+    if not args.prefix:
+        PINNED.add(PREFIX_WARNING)
     try:
         return run(args)
     finally:
