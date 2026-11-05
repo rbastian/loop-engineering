@@ -60,10 +60,11 @@ def run_bootstrap(
     *,
     check: bool = True,
     prefix: str = "demo",
+    extra_stubs: tuple[str, ...] = (),
 ) -> subprocess.CompletedProcess:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
-    for name, body in STUBS.items():
+    for name, body in {**STUBS, **dict.fromkeys(extra_stubs, "")}.items():
         stub = bin_dir / name
         stub.write_text("#!/bin/bash\n" + body)
         stub.chmod(0o755)

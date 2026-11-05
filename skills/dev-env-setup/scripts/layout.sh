@@ -42,13 +42,11 @@ for v in CODER REVIEWER CODER_TREE REVIEWER_TREE; do
     case "${!v}" in "" | *"{{"*) echo "ERROR: $v is not set in .loop/project.md"; exit 1 ;; esac
 done
 
-# Set ROLE_ENGINE and ROLE_MODEL for ROLE (CODER or REVIEWER). ENGINES lists
-# the engines that the role allows, and CLAUDE_MODEL is its default on claude.
-# A model in .loop/project.md belongs to the engine in that file, so an
-# engine override in the environment does not take it.
-# Usage: pick_engine ROLE "ENGINES" CLAUDE_MODEL
+# Set ROLE_ENGINE and ROLE_MODEL for ROLE (CODER or REVIEWER). CLAUDE_MODEL
+# is the role's default model on claude. A model in .loop/project.md belongs
+# to the engine in that file, so an engine override in the environment does
+# not take it. Usage: pick_engine ROLE CLAUDE_MODEL
 pick_engine() {
-    local role="$1" engines="$2" claude_model="$3"
     local engine_var="${1}_ENGINE" model_var="${1}_MODEL"
     local file_engine file_model engine model
     file_engine="$(conf "$engine_var")"
@@ -60,29 +58,21 @@ pick_engine() {
         model="$file_model"
     fi
     case "$engine $model" in *"{{"*) echo "ERROR: $engine_var or $model_var is not set in .loop/project.md"; exit 1 ;; esac
-    case " $engines " in
-        *" $engine "*) ;;
-        *) echo "ERROR: $engine_var must be one of: $engines (got: $engine)"; exit 1 ;;
-    esac
-    if ! valid_model "$model"; then
-        echo "ERROR: $model_var must be letters, digits and . _ : / @ - [ ] (got: $model)"
-        exit 1
-    fi
+    check_engine "" "$1" "$engine" "$model" || exit 1
     case "$engine" in
-        claude) model="${model:-$claude_model}" ;;
+        claude) model="${model:-$2}" ;;
         codex)
             command -v codex >/dev/null 2>&1 || { echo "ERROR: $engine_var=codex, but codex is not installed"; exit 1; }
             ;;
         fw)
-            [ -n "$model" ] || { echo "ERROR: $engine_var=fw needs $model_var, for example deepseek-flash-latest[1m]"; exit 1; }
             command -v fw >/dev/null 2>&1 || { echo "ERROR: $engine_var=fw, but fw is not on PATH (usually ~/.local/bin/fw)"; exit 1; }
             ;;
     esac
     printf -v "$engine_var" '%s' "$engine"
     printf -v "$model_var" '%s' "$model"
 }
-pick_engine CODER "claude fw" claude-opus-5-5
-pick_engine REVIEWER "claude codex fw" claude-sonnet-5-5
+pick_engine CODER claude-opus-5-5
+pick_engine REVIEWER claude-sonnet-5-5
 
 # The watchers match only this project's bead IDs. An overlay written before
 # BEAD_PREFIX existed has no such line, and watch.py then matches any prefix.

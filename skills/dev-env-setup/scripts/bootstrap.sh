@@ -72,32 +72,8 @@ if [ "$CODER" = "$REVIEWER" ]; then
     echo "ERROR: the coder and the reviewer need different names"
     exit 1
 fi
-# The coder's prompt uses /simplify, a Claude Code skill. fw runs Claude Code.
-case "$CODER_ENGINE" in
-    claude | fw) ;;
-    *)
-        echo "ERROR: LOOP_CODER_ENGINE must be claude or fw (got: $CODER_ENGINE)"
-        exit 1
-        ;;
-esac
-case "$REVIEWER_ENGINE" in
-    claude | codex | fw) ;;
-    *)
-        echo "ERROR: LOOP_REVIEWER_ENGINE must be claude, codex or fw (got: $REVIEWER_ENGINE)"
-        exit 1
-        ;;
-esac
-for role in CODER REVIEWER; do
-    engine="${role}_ENGINE" model="${role}_MODEL"
-    if ! valid_model "${!model}"; then
-        echo "ERROR: LOOP_$model must be letters, digits and . _ : / @ - [ ] (got: ${!model})"
-        exit 1
-    fi
-    if [ "${!engine}" = fw ] && [ -z "${!model}" ]; then
-        echo "ERROR: LOOP_$engine=fw needs LOOP_$model, for example deepseek-flash-latest[1m]"
-        exit 1
-    fi
-done
+check_engine LOOP_ CODER "$CODER_ENGINE" "$CODER_MODEL" || exit 1
+check_engine LOOP_ REVIEWER "$REVIEWER_ENGINE" "$REVIEWER_MODEL" || exit 1
 case "$SHIP_MODE" in
     pr | local) ;;
     *)
@@ -128,11 +104,11 @@ missing=0
 TOOLS=(git uv bd jq claude)
 # pr mode pushes branches and opens pull requests.
 [ "$SHIP_MODE" = pr ] && TOOLS+=(gh)
-[ "$REVIEWER_ENGINE" = codex ] && TOOLS+=(codex)
-# run.sh runs fw --check at start, so bootstrap.sh only looks for fw.
-if [ "$CODER_ENGINE" = fw ] || [ "$REVIEWER_ENGINE" = fw ]; then
-    TOOLS+=(fw)
-fi
+# Each engine is also its command. run.sh runs fw --check at start, so
+# bootstrap.sh only looks for the command.
+for engine in "$CODER_ENGINE" "$REVIEWER_ENGINE"; do
+    [ "$engine" = claude ] || TOOLS+=("$engine")
+done
 for tool in "${TOOLS[@]}"; do
     command -v "$tool" >/dev/null 2>&1 || { echo "ERROR: $tool not found"; missing=1; }
 done

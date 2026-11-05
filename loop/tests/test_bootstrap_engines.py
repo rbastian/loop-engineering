@@ -13,14 +13,6 @@ from test_bootstrap_interactive import run_bootstrap
 SKILL = Path(__file__).parents[2] / "skills/dev-env-setup/SKILL.md"
 
 
-def add_stub(tmp_path: Path, name: str) -> None:
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir(exist_ok=True)
-    stub = bin_dir / name
-    stub.write_text("#!/bin/sh\n")
-    stub.chmod(0o755)
-
-
 def test_defaults_write_claude_and_empty_models(tmp_path):
     project = tmp_path / "proj"
     run_bootstrap(tmp_path, project)
@@ -36,7 +28,6 @@ def test_defaults_write_claude_and_empty_models(tmp_path):
 
 
 def test_fw_engines_and_models_go_into_project_md(tmp_path):
-    add_stub(tmp_path, "fw")
     project = tmp_path / "proj"
     run_bootstrap(
         tmp_path,
@@ -47,6 +38,7 @@ def test_fw_engines_and_models_go_into_project_md(tmp_path):
             "LOOP_REVIEWER_ENGINE": "fw",
             "LOOP_REVIEWER_MODEL": "kimi-latest",
         },
+        extra_stubs=("fw",),
     )
     text = (project / ".loop" / "project.md").read_text()
     assert "\nCODER_ENGINE=fw\n" in text
@@ -56,10 +48,13 @@ def test_fw_engines_and_models_go_into_project_md(tmp_path):
 
 
 def test_codex_for_the_coder_is_rejected(tmp_path):
-    add_stub(tmp_path, "codex")
     project = tmp_path / "proj"
     result = run_bootstrap(
-        tmp_path, project, {"LOOP_CODER_ENGINE": "codex"}, check=False
+        tmp_path,
+        project,
+        {"LOOP_CODER_ENGINE": "codex"},
+        check=False,
+        extra_stubs=("codex",),
     )
     assert result.returncode == 1
     assert "LOOP_CODER_ENGINE" in result.stdout
@@ -68,10 +63,13 @@ def test_codex_for_the_coder_is_rejected(tmp_path):
 
 @pytest.mark.parametrize("role", ["CODER", "REVIEWER"])
 def test_fw_with_an_empty_model_is_rejected(tmp_path, role):
-    add_stub(tmp_path, "fw")
     project = tmp_path / "proj"
     result = run_bootstrap(
-        tmp_path, project, {f"LOOP_{role}_ENGINE": "fw"}, check=False
+        tmp_path,
+        project,
+        {f"LOOP_{role}_ENGINE": "fw"},
+        check=False,
+        extra_stubs=("fw",),
     )
     assert result.returncode == 1
     assert f"LOOP_{role}_MODEL" in result.stdout
@@ -91,13 +89,13 @@ def test_fw_is_a_required_tool_when_an_agent_uses_it(tmp_path):
 
 
 def test_a_model_with_shell_or_sed_characters_is_rejected(tmp_path):
-    add_stub(tmp_path, "fw")
     project = tmp_path / "proj"
     result = run_bootstrap(
         tmp_path,
         project,
         {"LOOP_CODER_ENGINE": "fw", "LOOP_CODER_MODEL": "a#b'c"},
         check=False,
+        extra_stubs=("fw",),
     )
     assert result.returncode == 1
     assert "LOOP_CODER_MODEL" in result.stdout
