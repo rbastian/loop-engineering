@@ -1,0 +1,23 @@
+{
+  "deepseek-flash-latest": {
+    "provider": "fireworks",
+    "input": 0.30,
+    "cached_input": 0.006,
+    "output": 1.20,
+    "checked": "2026-11-05"
+  },
+  "accounts/fireworks/models/deepseek-v4p1-flash": {
+    "provider": "fireworks",
+    "input": 0.30,
+    "cached_input": 0.006,
+    "output": 1.20,
+    "checked": "2026-11-05"
+  },
+  "accounts/fireworks/models/deepseek-v4p1-flash-1017": {
+    "provider": "fireworks",
+    "input": 0.30,
+    "cached_input": 0.006,
+    "output": 1.20,
+    "checked": "2026-11-05"
+  }
+}

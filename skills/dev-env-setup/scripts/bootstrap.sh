@@ -106,7 +106,7 @@ TOOLS=(git uv bd jq claude)
 for tool in "${TOOLS[@]}"; do
     command -v "$tool" >/dev/null 2>&1 || { echo "ERROR: $tool not found"; missing=1; }
 done
-for f in run.sh watch.py CODER.md REVIEWER.md project.template.md interactive.template.md; do
+for f in run.sh watch.py prices.json CODER.md REVIEWER.md project.template.md interactive.template.md; do
     [ -f "$HARNESS/$f" ] || { echo "ERROR: $HARNESS/$f not found (set LOOP_HOME)"; missing=1; }
 done
 [ "$missing" -eq 0 ] || exit 1
@@ -250,7 +250,7 @@ mkdir -p .loop
 # CODER.md and REVIEWER.md hold only the loop protocol, so they copy unchanged.
 # The project facts go in .loop/project.md, which run.sh appends to each prompt.
 KEPT=0
-for f in run.sh watch.py CODER.md REVIEWER.md; do
+for f in run.sh watch.py prices.json CODER.md REVIEWER.md; do
     if [ -f ".loop/$f" ]; then
         echo ".loop/$f exists; keeping it"
         KEPT=1
