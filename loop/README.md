@@ -254,6 +254,7 @@ To update a project, do these steps:
 - The install has an old `PROMPT.md` or `ALICE.md`. Migrate them by hand.
 - `loop/` in the clone has uncommitted changes. Commit or stash them in the clone first.
 - `.loop/project.md` lacks a `KEY=` line that `loop/project.template.md` has. `update.sh` prints each key and what it means. Add the keys, then run `update.sh` again.
+- A `KEY=` line in `.loop/project.md` still holds a `{{...}}` placeholder, or `CODER`, `REVIEWER` or `HUMAN` is empty.
 - An installed file differs from the same file at the stamped commit: a local edit. `update.sh` prints each diff. Move the edit into `loop/` in the clone, or run `update.sh --force` to overwrite it.
 - The stamp is missing, says `dirty=1`, or names a commit that the clone does not have. Then `update.sh` cannot tell a local edit from an old version, so it prints each file's diff against the clone's current version. `--force` overwrites them.
 - `CLAUDE.md` or `AGENTS.md` has a BEGIN marker of the interactive section with no END marker after it.
@@ -273,7 +274,7 @@ Before lpe-wh5, `bootstrap.sh` installed the harness into `ralph/`. It now insta
 5. It prints the `RALPH_` to `LOOP_` renames from the table under [run.sh variables](#runsh-variables). Rename each variable that your shell or herdr setup sets.
 6. It does the update.
 
-Then exclude `.loop` from ruff, as in step 3 of [Install in a project](#install-in-a-project). `update.sh` prints a note when `pyproject.toml` does not name `.loop`. Commit the change as in the update steps.
+Then exclude `.loop` from ruff, as in step 3 of [Install in a project](#install-in-a-project). Commit the change as in the update steps.
 
 ## Rules of engagement
 

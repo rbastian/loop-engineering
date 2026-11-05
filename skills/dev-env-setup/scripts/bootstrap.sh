@@ -97,8 +97,6 @@ PKG="$(tr '[:upper:]-' '[:lower:]_' <<<"$NAME")"
 
 step() { printf '\n==> %s\n' "$*"; }
 lower() { tr '[:upper:]' '[:lower:]' <<<"$1"; }
-# The sed expressions that fill the name placeholders in project.template.md.
-NAMES=(-e "s#{{CODER}}#$CODER#g" -e "s#{{REVIEWER}}#$REVIEWER#g" -e "s#{{HUMAN}}#$HUMAN#g")
 
 missing=0
 TOOLS=(git uv bd jq claude)
@@ -241,7 +239,7 @@ step "interactive section"
 # It goes after the first H1, before the beads blocks that bd setup wrote.
 # A file that already holds the BEGIN marker keeps its section unchanged.
 SECTION="$(mktemp)"
-render_interactive "$HARNESS/interactive.template.md" "$CODER" "$REVIEWER" "$HUMAN" >"$SECTION"
+fill_names "$HARNESS/interactive.template.md" "$CODER" "$REVIEWER" "$HUMAN" >"$SECTION"
 for doc in CLAUDE.md AGENTS.md; do
     install_interactive "$doc" "$SECTION" keep
 done
@@ -269,27 +267,26 @@ if [ -f .loop/HARNESS_VERSION ]; then
     echo ".loop/HARNESS_VERSION exists; keeping it"
 elif [ "$KEPT" -eq 1 ]; then
     echo "NOTE: the kept harness has no .loop/HARNESS_VERSION; run update.sh to bring it up to date"
-elif ! git -C "$LOOP_HOME" rev-parse --verify -q HEAD >/dev/null; then
+elif ! clone_has_commit "$LOOP_HOME"; then
     echo "WARNING: $LOOP_HOME is not a git repository with a commit; wrote no .loop/HARNESS_VERSION"
 else
     write_stamp .loop/HARNESS_VERSION "$LOOP_HOME"
     echo "wrote .loop/HARNESS_VERSION"
-    if ! clone_clean "$LOOP_HOME"; then
+    if [ "$(key_value .loop/HARNESS_VERSION dirty)" = 1 ]; then
         echo "WARNING: loop/ in $LOOP_HOME has uncommitted changes; the stamp says dirty=1, and update.sh will ask for --force"
     fi
 fi
 if [ -f .loop/project.md ]; then
     echo ".loop/project.md exists; keeping it"
 else
-    sed -e "s#{{PRIMARY}}#$PROJECT#g" \
+    fill_names "$HARNESS/project.template.md" "$CODER" "$REVIEWER" "$HUMAN" | sed \
+        -e "s#{{PRIMARY}}#$PROJECT#g" \
         -e "s#{{CODER_WORKTREE}}#$PARENT/$NAME-$(lower "$CODER")#g" \
         -e "s#{{REVIEWER_WORKTREE}}#$PARENT/$NAME-$(lower "$REVIEWER")#g" \
-        "${NAMES[@]}" \
         -e "s#{{SHIP_MODE}}#$SHIP_MODE#g" \
         -e "s#{{GITHUB_ACCOUNT}}#$GITHUB_ACCOUNT#g" \
         -e "s#{{REVIEWER_ENGINE}}#$REVIEWER_ENGINE#g" \
-        -e "s#{{BEAD_PREFIX}}#$PREFIX#g" \
-        "$HARNESS/project.template.md" >.loop/project.md
+        -e "s#{{BEAD_PREFIX}}#$PREFIX#g" >.loop/project.md
     echo "wrote .loop/project.md for $NAME: $CODER codes, $REVIEWER reviews, $HUMAN merges, ship mode $SHIP_MODE${GITHUB_ACCOUNT:+ as $GITHUB_ACCOUNT}, reviewer on $REVIEWER_ENGINE"
 fi
 

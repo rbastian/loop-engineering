@@ -28,7 +28,7 @@ NAME="$(basename "$PROJECT")"
 LABEL="$NAME loop"
 
 # One KEY=value line from the overlay; bootstrap.sh wrote them.
-conf() { sed -n "s/^$1=//p" "$PROJECT/.loop/project.md" | head -1; }
+conf() { key_value "$PROJECT/.loop/project.md" "$1"; }
 lower() { tr '[:upper:]' '[:lower:]' <<<"$1"; }
 
 CODER="$(conf CODER)"

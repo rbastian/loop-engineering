@@ -335,13 +335,11 @@ pin_github_account
 # The same function is in skills/dev-env-setup/scripts/lib.sh.
 drift_line() {
     local commit clone count
-    [ -f "$1" ] || return 0
     commit=$(sed -n 's/^commit=//p' "$1" 2>/dev/null | head -1)
     clone=$(sed -n 's/^clone=//p' "$1" 2>/dev/null | head -1)
     [ -n "$commit" ] && [ -d "$clone" ] || return 0
-    git -C "$clone" cat-file -e "$commit^{commit}" 2>/dev/null || return 0
     count=$(git -C "$clone" rev-list --count "$commit..HEAD" -- loop/ 2>/dev/null) || return 0
-    case "$count" in '' | 0 | *[!0-9]*) return 0 ;; 1) count="1 commit" ;; *) count="$count commits" ;; esac
+    case "$count" in 0) return 0 ;; 1) count="1 commit" ;; *) count="$count commits" ;; esac
     echo "harness is $count behind loop-engineering; run update.sh"
 }
 drift_line "$HARNESS_DIR/HARNESS_VERSION" 2>/dev/null || true

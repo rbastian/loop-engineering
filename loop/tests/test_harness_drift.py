@@ -7,6 +7,7 @@ print one line when the clone has newer commits on loop/.
 import subprocess
 from pathlib import Path
 
+import pytest
 from test_bootstrap_interactive import run_bootstrap
 from test_update import (
     GIT_ENV,
@@ -175,24 +176,39 @@ def test_run_sh_prints_the_drift_line_once(tmp_path):
     assert result.stdout.index(line) < result.stdout.index("Starting claude session")
 
 
-def test_run_sh_prints_nothing_without_a_usable_stamp(tmp_path):
+def unusable_stamp(case: str, tmp_path: Path, clone: Path) -> str | None:
+    older = git(clone, "rev-parse", "HEAD~1")
+    return {
+        "no stamp": None,
+        "missing clone": f"commit={older}\nclone={tmp_path / 'gone'}\n",
+        "not a repository": f"commit={older}\nclone={tmp_path}\n",
+        "unknown commit": f"commit={'0' * 40}\nclone={clone}\n",
+    }[case]
+
+
+@pytest.mark.parametrize(
+    "case", ["no stamp", "missing clone", "not a repository", "unknown commit"]
+)
+def test_run_sh_prints_nothing_without_a_usable_stamp(tmp_path, case):
     clone, harness = loop_project(tmp_path)
     advance_clone(clone)
     stamp = harness / "HARNESS_VERSION"
-    cases = {
-        "no stamp": None,
-        "missing clone": f"commit={git(clone, 'rev-parse', 'HEAD~1')}\n"
-        f"clone={tmp_path / 'gone'}\n",
-        "not a repository": f"commit={git(clone, 'rev-parse', 'HEAD~1')}\n"
-        f"clone={tmp_path}\n",
-        "unknown commit": f"commit={'0' * 40}\nclone={clone}\n",
-    }
-    for name, text in cases.items():
-        if text is None:
-            stamp.unlink(missing_ok=True)
-        else:
-            stamp.write_text(text)
-        (tmp_path / "sleep.count").unlink(missing_ok=True)
-        result = run_loop(tmp_path, harness)
-        assert "behind" not in result.stdout, name
-        assert "Starting claude session" in result.stdout, name
+    text = unusable_stamp(case, tmp_path, clone)
+    if text is None:
+        stamp.unlink()
+    else:
+        stamp.write_text(text)
+    result = run_loop(tmp_path, harness)
+    assert "behind" not in result.stdout
+    assert "Starting claude session" in result.stdout
+
+
+def function_text(path: Path, name: str) -> str:
+    text = path.read_text()
+    start = text.index(f"\n{name}() {{\n")
+    return text[start : text.index("\n}\n", start) + 3]
+
+
+def test_run_sh_and_lib_sh_share_the_same_drift_line():
+    lib = ROOT / "skills/dev-env-setup/scripts/lib.sh"
+    assert function_text(RUN_SH, "drift_line") == function_text(lib, "drift_line")

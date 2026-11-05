@@ -5,14 +5,15 @@ copy of loop/) and a scratch project with an install in .loop/ or ralph/. The
 scripts run under /bin/bash, which is bash 3.2 on macOS.
 """
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
 
+from test_bootstrap_interactive import BEGIN, END
+
 ROOT = Path(__file__).parents[2]
 UPDATE = ROOT / "skills/dev-env-setup/scripts/update.sh"
-BEGIN = "<!-- BEGIN LOOP INTERACTIVE -->"
-END = "<!-- END LOOP INTERACTIVE -->"
 FILES = ("run.sh", "watch.py", "CODER.md", "REVIEWER.md")
 CLONE_FILES = FILES + (
     "project.template.md",
@@ -174,7 +175,7 @@ def test_update_one_commit_behind(tmp_path):
     assert "A new coder rule." in result.stdout
     assert ".loop/CODER.md" in result.stdout
     assert git(project, "rev-parse", "HEAD") == head_before
-    assert "commit" in result.stdout.lower()
+    assert "committed nothing" in result.stdout
 
 
 # Case 7: a file without a section gets one; a file with one gets it replaced.
@@ -315,18 +316,9 @@ def test_every_template_key_has_a_meaning(tmp_path):
     (project / ".loop/project.md").write_text("# Project\n")
     result = run_update(tmp_path, clone, project)
     assert result.returncode == 1
-    keys = [
-        "CODER",
-        "REVIEWER",
-        "HUMAN",
-        "REVIEWER_ENGINE",
-        "BEAD_PREFIX",
-        "SHIP_MODE",
-        "GITHUB_ACCOUNT",
-        "PRIMARY",
-        "CODER_WORKTREE",
-        "REVIEWER_WORKTREE",
-    ]
+    template = (clone / "loop/project.template.md").read_text()
+    keys = re.findall(r"^([A-Z][A-Z0-9_]*)=", template, re.MULTILINE)
+    assert len(keys) == 10
     for key in keys:
         lines = [line for line in result.stdout.splitlines() if f"{key}:" in line]
         assert lines, key
@@ -498,3 +490,17 @@ def test_a_failed_check_stops_before_the_move(tmp_path):
     assert_refused(result, before, project)
     assert (project / "ralph/run.sh").is_file()
     assert not (project / ".loop").exists()
+
+
+def test_refuses_a_key_that_still_holds_a_placeholder(tmp_path):
+    clone = make_clone(tmp_path)
+    project = make_project(tmp_path, clone)
+    md = project / ".loop/project.md"
+    md.write_text(
+        md.read_text().replace("BEAD_PREFIX=demo", "BEAD_PREFIX={{BEAD_PREFIX}}")
+    )
+    advance_clone(clone)
+    before = snapshot(project)
+    result = run_update(tmp_path, clone, project)
+    assert_refused(result, before, project)
+    assert "placeholder: BEAD_PREFIX" in result.stdout
