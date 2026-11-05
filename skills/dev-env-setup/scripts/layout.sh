@@ -2,8 +2,8 @@
 # Start both loops in their own herdr tab, and both watchers and the beads list
 # in the caller's tab:
 #   loop tab:      coder loop | reviewer loop (Claude or Codex, another model from the coder)
-#   caller's tab:  coder watcher | reviewer watcher | Beads   (top third)
-#                  the calling pane                            (bottom two thirds)
+#   caller's tab:  coder watcher (1/2)  | reviewer watcher (1/2)   (top third)
+#                  calling pane (2/3)   | Beads (1/3)               (bottom two thirds)
 # Usage: layout.sh PROJECT_DIR
 # The agent names and worktree paths come from .loop/project.md.
 # The coder runs on Claude Code with CODER_MODEL (default claude-opus-5-5).
@@ -95,10 +95,11 @@ REVIEWER_PANE=$(split "$CODER_PANE" right 0.5 "$REVIEWER_TREE")
 # the new pane up there. Pane IDs follow their processes through a swap.
 CODER_WATCH=$(split "$HERDR_PANE_ID" down 0.33 "$PROJECT")
 herdr pane swap --source-pane "$CODER_WATCH" --target-pane "$HERDR_PANE_ID" >/dev/null
-REVIEWER_WATCH=$(split "$CODER_WATCH" right 0.33 "$PROJECT")
-BEADS_PANE=$(split "$REVIEWER_WATCH" right 0.5 "$PROJECT")
+REVIEWER_WATCH=$(split "$CODER_WATCH" right 0.5 "$PROJECT")
 # The swap moves focus to the watcher; give it back to the caller below.
 herdr pane focus --direction down --pane "$CODER_WATCH" >/dev/null
+# Beads: the right third of the bottom area, beside the calling pane.
+BEADS_PANE=$(split "$HERDR_PANE_ID" right 0.67 "$PROJECT")
 
 herdr pane rename "$CODER_PANE" "$CODER" >/dev/null
 herdr pane rename "$REVIEWER_PANE" "$REVIEWER" >/dev/null
