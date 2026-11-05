@@ -22,7 +22,7 @@ bd show <id>
 
 The bead's description and design fields contain all the context you need for implementation.
 
-The `ralph/` directory holds the loop scripts and prompts. Do not change it in a bead unless the bead tells you to.
+The `.loop/` directory holds the loop scripts and prompts. Do not change it in a bead unless the bead tells you to.
 
 ## Where you work
 

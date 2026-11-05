@@ -1,4 +1,4 @@
-"""ralph/watch.py --tui: a Rich Live screen with a pinned header and footer.
+""".loop/watch.py --tui: a Rich Live screen with a pinned header and footer.
 
 The scroll-region version crashed both watchers on a terminal resize
 (RuntimeError: reentrant call inside BufferedWriter, 2026-10-14), so Rich owns

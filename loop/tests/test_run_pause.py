@@ -40,7 +40,7 @@ def setup_loop(tmp_path: Path, sleep_body: str) -> dict[str, str]:
     return {
         "PATH": f"{bin_dir}:/usr/bin:/bin",
         "HOME": str(tmp_path),
-        "RALPH_OVERLAY": "none",
+        "LOOP_OVERLAY": "none",
         "SLEEP_COUNT": str(tmp_path / "sleep.count"),
     }
 

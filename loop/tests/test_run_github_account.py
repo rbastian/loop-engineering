@@ -77,7 +77,7 @@ def run_loop(
         '[ "$1" = 30 ] || exec /bin/sleep "$@"\nkill -TERM $PPID\n',
     )
 
-    prompt_dir = repo / "ralph"
+    prompt_dir = repo / ".loop"
     prompt_dir.mkdir()
     (prompt_dir / "CODER.md").write_text("code\n")
     (prompt_dir / "project.md").write_text(
@@ -90,7 +90,7 @@ def run_loop(
         "HOME": str(tmp_path),
     }
     result = subprocess.run(
-        ["bash", str(RUN_SH), "Ralph", "ralph/CODER.md"],
+        ["bash", str(RUN_SH), "Ralph", ".loop/CODER.md"],
         check=False,
         cwd=repo,
         env=env,

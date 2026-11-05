@@ -23,12 +23,12 @@ def watcher_commands() -> list[str]:
 
 def test_both_watchers_run_watch_py_as_a_uv_script():
     for command in watcher_commands():
-        assert "uv run ralph/watch.py" in command
+        assert "uv run .loop/watch.py" in command
 
 
 def test_both_watchers_get_the_bead_prefix():
     """watch.py matches bead IDs with the project's prefix only when it is
-    given one, so layout.sh passes BEAD_PREFIX from ralph/project.md (lpe-7fn)."""
+    given one, so layout.sh passes BEAD_PREFIX from .loop/project.md (lpe-7fn)."""
     assert "conf BEAD_PREFIX" in LAYOUT.read_text()
     for command in watcher_commands():
         assert "$PREFIX_ARG" in command

@@ -5,28 +5,28 @@
 #   PROMPT_FILE — prompt file path, relative to cwd (default: CODER.md)
 #
 # Optional switches (default OFF — set to any non-empty value to enable):
-#   RALPH_STREAM_LOG=1   Stream tool calls + assistant turns as JSONL.
-#                        Tees claude output to $RALPH_LOG_DIR/<timestamp>.jsonl
-#                        (default $RALPH_LOG_DIR=/tmp/ralph-sessions) and maintains
+#   LOOP_STREAM_LOG=1    Stream tool calls + assistant turns as JSONL.
+#                        Tees claude output to $LOOP_LOG_DIR/<timestamp>.jsonl
+#                        (default $LOOP_LOG_DIR=/tmp/loop-sessions) and maintains
 #                        a "current.jsonl" symlink for tail -f. After each
 #                        session, also appends a "Session cost:" note to the
 #                        bead (needs uv, which runs watch.py --summary).
-#   RALPH_SHOW_BEAD=1    For each in-progress bead, also run `bd show <id>` so
+#   LOOP_SHOW_BEAD=1     For each in-progress bead, also run `bd show <id>` so
 #                        notes/checkpoint/gate-output are visible between sessions.
-#   RALPH_KEEP_AWAKE=1   Run each session under `caffeinate -i`, so the Mac does
+#   LOOP_KEEP_AWAKE=1    Run each session under `caffeinate -i`, so the Mac does
 #                        not idle-sleep during a session. Without caffeinate on
 #                        PATH, the loop warns once and runs without it.
-#   RALPH_SESSION_TIMEOUT  Max wall-clock time per session (default: 2h): a whole
+#   LOOP_SESSION_TIMEOUT Max wall-clock time per session (default: 2h): a whole
 #                        number with an optional suffix s, m, h or d. 0 means no
 #                        limit. Time while the Mac sleeps counts too.
-#   RALPH_ENGINE         Which agent CLI runs each session: claude (default)
+#   LOOP_ENGINE          Which agent CLI runs each session: claude (default)
 #                        or codex. Any other value stops the loop at startup.
-#   RALPH_MODEL          Model for each session. Defaults to claude-opus-5-5 on
+#   LOOP_MODEL           Model for each session. Defaults to claude-opus-5-5 on
 #                        the claude engine; on codex it has no default, and an
 #                        unset one means the default model of the ChatGPT plan.
-#   RALPH_OVERLAY        Project overlay appended to the prompt (default:
+#   LOOP_OVERLAY         Project overlay appended to the prompt (default:
 #                        project.md beside PROMPT_FILE; "none" disables it).
-#   RALPH_PRINT_PROMPT=1 Print the combined prompt and exit.
+#   LOOP_PRINT_PROMPT=1  Print the combined prompt and exit.
 #
 # GitHub account (pr mode only, when the overlay says SHIP_MODE=pr):
 #   The overlay must name GITHUB_ACCOUNT, the account that the agents use.
@@ -39,17 +39,17 @@ set -euo pipefail
 
 AGENT_NAME="${1:-Ralph}"
 PROMPT_FILE="${2:-CODER.md}"
-SESSION_TIMEOUT="${RALPH_SESSION_TIMEOUT:-2h}"
-ENGINE="${RALPH_ENGINE:-claude}"
+SESSION_TIMEOUT="${LOOP_SESSION_TIMEOUT:-2h}"
+ENGINE="${LOOP_ENGINE:-claude}"
 
 # The engine picks the command and the model default. Reviewing on a second
 # model family is the point of the codex engine, so it gets no default model:
-# an unset RALPH_MODEL there means whatever the ChatGPT plan runs by default.
+# an unset LOOP_MODEL there means whatever the ChatGPT plan runs by default.
 case "$ENGINE" in
-    claude) MODEL="${RALPH_MODEL:-claude-opus-5-5}" ;;
-    codex) MODEL="${RALPH_MODEL:-}" ;;
+    claude) MODEL="${LOOP_MODEL:-claude-opus-5-5}" ;;
+    codex) MODEL="${LOOP_MODEL:-}" ;;
     *)
-        echo "ERROR: RALPH_ENGINE must be claude or codex (got: $ENGINE)"
+        echo "ERROR: LOOP_ENGINE must be claude or codex (got: $ENGINE)"
         exit 1
         ;;
 esac
@@ -68,13 +68,13 @@ duration_seconds() {
 }
 
 if ! SESSION_LIMIT=$(duration_seconds "$SESSION_TIMEOUT"); then
-    echo "ERROR: RALPH_SESSION_TIMEOUT must be a whole number with an optional suffix s, m, h or d (got: $SESSION_TIMEOUT)"
+    echo "ERROR: LOOP_SESSION_TIMEOUT must be a whole number with an optional suffix s, m, h or d (got: $SESSION_TIMEOUT)"
     exit 1
 fi
 
 # The agent reads this to choose its engine-specific steps: on codex, the reviewer
 # reviews with `codex exec review` instead of the /code-review skill.
-export RALPH_ENGINE="$ENGINE"
+export LOOP_ENGINE="$ENGINE"
 
 # bd resolves its actor from $BEADS_ACTOR (then git user.name, then $USER).
 # The actor must match the bead's assignee or `bd update --claim` refuses
@@ -87,19 +87,19 @@ if [ ! -f "$PROMPT_FILE" ]; then
     exit 1
 fi
 
-# The overlay defaults to project.md beside the prompt file. RALPH_OVERLAY
-# overrides the path; RALPH_OVERLAY=none runs the base prompt alone.
-OVERLAY_FILE="${RALPH_OVERLAY:-$(dirname "$PROMPT_FILE")/project.md}"
+# The overlay defaults to project.md beside the prompt file. LOOP_OVERLAY
+# overrides the path; LOOP_OVERLAY=none runs the base prompt alone.
+OVERLAY_FILE="${LOOP_OVERLAY:-$(dirname "$PROMPT_FILE")/project.md}"
 if [ "$OVERLAY_FILE" = "none" ]; then
     OVERLAY_FILE=""
 elif [ ! -f "$OVERLAY_FILE" ]; then
     echo "ERROR: project overlay $OVERLAY_FILE not found"
-    echo "Hint: create it, point RALPH_OVERLAY at it, or set RALPH_OVERLAY=none."
+    echo "Hint: create it, point LOOP_OVERLAY at it, or set LOOP_OVERLAY=none."
     exit 1
 fi
 
-# RALPH_PRINT_PROMPT=1 prints the combined prompt and exits, to check an overlay.
-if [ -n "${RALPH_PRINT_PROMPT:-}" ]; then
+# LOOP_PRINT_PROMPT=1 prints the combined prompt and exits, to check an overlay.
+if [ -n "${LOOP_PRINT_PROMPT:-}" ]; then
     cat "$PROMPT_FILE"
     if [ -n "$OVERLAY_FILE" ]; then printf '\n\n'; cat "$OVERLAY_FILE"; fi
     exit 0
@@ -111,11 +111,11 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 KEEP_AWAKE=""
-if [ -n "${RALPH_KEEP_AWAKE:-}" ]; then
+if [ -n "${LOOP_KEEP_AWAKE:-}" ]; then
     if command -v caffeinate >/dev/null 2>&1; then
         KEEP_AWAKE=1
     else
-        echo "WARNING: caffeinate not found; RALPH_KEEP_AWAKE has no effect"
+        echo "WARNING: caffeinate not found; LOOP_KEEP_AWAKE has no effect"
     fi
 fi
 
@@ -204,7 +204,7 @@ run_session() {
     [ "$?" -ne 124 ] || SESSION_EXIT=124
 }
 
-# watch.py sits beside this script, in the primary checkout's ralph/ folder.
+# watch.py sits beside this script, in the primary checkout's .loop/ folder.
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Append the finished session's cost to its bead. The agent cannot do this:
@@ -375,7 +375,7 @@ while true; do
         echo "In-progress beads (claimed, not finished):"
         bd list --assignee="$AGENT_NAME" --status=in_progress 2>&1 || true
         echo ""
-        if [ -n "${RALPH_SHOW_BEAD:-}" ]; then
+        if [ -n "${LOOP_SHOW_BEAD:-}" ]; then
             for BEAD_ID in $(bd list --assignee="$AGENT_NAME" --status=in_progress --json 2>/dev/null \
                               | jq -r '.[].id // empty' 2>/dev/null | head -5); do
                 echo "--- bd show $BEAD_ID ---"
@@ -402,7 +402,7 @@ while true; do
     # Built here rather than at startup: $PROMPT is re-read each iteration.
     # One array for both call sites below. claude needs two flags to emit the
     # JSONL that codex exec --json emits on its own, so only it reads
-    # $RALPH_STREAM_LOG here.
+    # $LOOP_STREAM_LOG here.
     if [ "$ENGINE" = "codex" ]; then
         AGENT_CMD=(codex exec --json --dangerously-bypass-approvals-and-sandbox)
         if [ -n "$MODEL" ]; then
@@ -411,7 +411,7 @@ while true; do
         AGENT_CMD+=("$PROMPT")
     else
         AGENT_CMD=(claude -p "$PROMPT" --model "$MODEL" --dangerously-skip-permissions)
-        if [ -n "${RALPH_STREAM_LOG:-}" ]; then
+        if [ -n "${LOOP_STREAM_LOG:-}" ]; then
             AGENT_CMD+=(--verbose --output-format stream-json)
         fi
     fi
@@ -424,8 +424,8 @@ while true; do
     # rate limit, timeout) into a dead daemon.
     set +e
     SESSION_LOG=""
-    if [ -n "${RALPH_STREAM_LOG:-}" ]; then
-        LOG_DIR="${RALPH_LOG_DIR:-/tmp/ralph-sessions}"
+    if [ -n "${LOOP_STREAM_LOG:-}" ]; then
+        LOG_DIR="${LOOP_LOG_DIR:-/tmp/loop-sessions}"
         mkdir -p "$LOG_DIR"
         SESSION_LOG="$LOG_DIR/$(date +%Y%m%d-%H%M%S).jsonl"
         ln -sf "$SESSION_LOG" "$LOG_DIR/current.jsonl"
@@ -437,7 +437,7 @@ while true; do
         # APPENDED below — a plain `tee` would truncate this line away.
         jq -nc --arg engine "$ENGINE" --arg model "$MODEL" \
             --arg started "$(date +%Y-%m-%dT%H:%M:%S%z)" \
-            '{type:"ralph.session",engine:$engine,model:$model,started:$started}' \
+            '{type:"loop.session",engine:$engine,model:$model,started:$started}' \
             >"$SESSION_LOG"
     fi
     run_session

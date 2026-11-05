@@ -1,7 +1,7 @@
 <!-- BEGIN LOOP INTERACTIVE -->
 ## Interactive sessions: orient the person, refine and assign, do not implement
 
-This section is for an interactive session with a person. If `ralph/CODER.md` or `ralph/REVIEWER.md` started your session, skip it. In an interactive session, this section overrides the claim and close steps in the beads blocks.
+This section is for an interactive session with a person. If `.loop/CODER.md` or `.loop/REVIEWER.md` started your session, skip it. In an interactive session, this section overrides the claim and close steps in the beads blocks.
 
 ### Orientation
 
@@ -38,7 +38,7 @@ You can read any code, and you can change bead records, `CLAUDE.md` and `AGENTS.
 
 ### The GitHub remote
 
-This session acts as the GitHub account in `GITHUB_ACCOUNT` in `ralph/project.md`. Run each `gh` command as that account, for example `GH_TOKEN=$(gh auth token --user <account>) gh pr view <number>`, and do not switch the active `gh` account. Do not push, open, comment on, merge or close pull requests, or change anything else on the remote, unless the person asks you to do that one task.
+This session acts as the GitHub account in `GITHUB_ACCOUNT` in `.loop/project.md`. Run each `gh` command as that account, for example `GH_TOKEN=$(gh auth token --user <account>) gh pr view <number>`, and do not switch the active `gh` account. Do not push, open, comment on, merge or close pull requests, or change anything else on the remote, unless the person asks you to do that one task.
 
 ### After a merge
 

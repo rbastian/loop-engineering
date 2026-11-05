@@ -126,7 +126,7 @@ def test_empty_folder_gets_the_section_before_the_beads_block(tmp_path):
         assert section(text) == fill("Bob", "Carol", "Dana")
         assert text.index("# Agent Instructions\n") < text.index(BEGIN)
         assert text.index(END) < text.index(BEADS)
-    project_md = (project / "ralph" / "project.md").read_text()
+    project_md = (project / ".loop" / "project.md").read_text()
     assert "\nGITHUB_ACCOUNT=dana-gh\n" in project_md
 
 
@@ -172,7 +172,9 @@ def test_h1_after_the_beads_block_puts_the_section_at_the_top(tmp_path):
 
 
 def test_this_repository_uses_the_filled_template():
-    expected = fill("Ralph", "Alice", "Rob Bastian")
+    # This repository's own install stays in ralph/ until lpe-80j moves it to
+    # .loop/. Remove the replace() then.
+    expected = fill("Ralph", "Alice", "Rob Bastian").replace(".loop/", "ralph/")
     for name in ("CLAUDE.md", "AGENTS.md"):
         text = (ROOT / name).read_text()
         assert text.count(BEGIN) == 1
@@ -185,13 +187,13 @@ def test_pr_mode_without_a_github_account_stops(tmp_path):
     result = run_bootstrap(tmp_path, project, {"LOOP_GITHUB_ACCOUNT": ""}, check=False)
     assert result.returncode == 1
     assert "LOOP_GITHUB_ACCOUNT" in result.stdout + result.stderr
-    assert not (project / "ralph" / "project.md").exists()
+    assert not (project / ".loop" / "project.md").exists()
 
 
 def test_local_mode_writes_an_empty_github_account(tmp_path):
     project = tmp_path / "proj"
     run_bootstrap(tmp_path, project, {"LOOP_SHIP_MODE": "local"})
-    text = (project / "ralph" / "project.md").read_text()
+    text = (project / ".loop" / "project.md").read_text()
     assert "\nGITHUB_ACCOUNT=\n" in text
     assert "{{GITHUB_ACCOUNT}}" not in text
 
@@ -199,4 +201,4 @@ def test_local_mode_writes_an_empty_github_account(tmp_path):
 def test_interactive_section_has_the_remote_rule():
     text = TEMPLATE.read_text()
     assert "GITHUB_ACCOUNT" in text
-    assert "ralph/project.md" in text
+    assert ".loop/project.md" in text
