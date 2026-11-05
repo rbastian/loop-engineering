@@ -53,10 +53,7 @@ case "$ENGINE" in
     codex) MODEL="${LOOP_MODEL:-}" ;;
     fw)
         MODEL="${LOOP_MODEL:-}"
-        if [ -z "$MODEL" ]; then
-            echo "ERROR: LOOP_ENGINE=fw needs LOOP_MODEL, for example deepseek-flash-latest[1m]"
-            exit 1
-        fi
+        [ -n "$MODEL" ] || { echo "ERROR: LOOP_ENGINE=fw needs LOOP_MODEL, for example deepseek-flash-latest[1m]"; exit 1; }
         ;;
     *)
         echo "ERROR: LOOP_ENGINE must be claude, codex or fw (got: $ENGINE)"
@@ -453,10 +450,11 @@ while true; do
         AGENT_CMD+=("$PROMPT")
     else
         if [ "$ENGINE" = "fw" ]; then
-            AGENT_CMD=(fw --model "$MODEL" -- -p "$PROMPT" --dangerously-skip-permissions)
+            AGENT_CMD=(fw --model "$MODEL" -- -p "$PROMPT")
         else
-            AGENT_CMD=(claude -p "$PROMPT" --model "$MODEL" --dangerously-skip-permissions)
+            AGENT_CMD=(claude -p "$PROMPT" --model "$MODEL")
         fi
+        AGENT_CMD+=(--dangerously-skip-permissions)
         if [ -n "${LOOP_STREAM_LOG:-}" ]; then
             AGENT_CMD+=(--verbose --output-format stream-json)
         fi

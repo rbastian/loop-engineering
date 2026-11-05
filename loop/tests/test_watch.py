@@ -98,8 +98,7 @@ def isolated(monkeypatch):
     monkeypatch.setattr(watch, "LOG_DIR", Path("/tmp/loop-sessions"))
     monkeypatch.setattr(watch, "_last", [None, 0, ""])
     monkeypatch.setattr(watch, "COSTS", {})
-    monkeypatch.setattr(watch, "CODEX_SESSIONS", set())
-    monkeypatch.setattr(watch, "FW_SESSIONS", set())
+    monkeypatch.setattr(watch, "UNPRICED_SESSIONS", {})
     monkeypatch.setattr(watch, "REPLAYING", False)
     monkeypatch.setattr(watch, "POLL_SECONDS", 0)
     monkeypatch.setattr(
@@ -144,18 +143,21 @@ def session_log(
     model: str = MODEL,
     at: str = STARTED,
     bead_command: str = CLAIM,
+    first: tuple[str, ...] = (),
 ) -> Path:
     """A log whose model, bead and start time all sit above the live edge.
 
     Three tool calls spread over seven minutes, so `elapsed` has a real span
     to report, then whatever closing result events the caller asked for. The
     middle call is `bead_command`, the one that names the bead: a claim by
-    default, since that is how Ralph opens one.
+    default, since that is how Ralph opens one. `first` goes above it all,
+    where run.sh writes its session line.
     """
     began = datetime.fromisoformat(at)
     path.write_text(
         "\n".join(
             [
+                *first,
                 init_line(model),
                 bash_line("bd ready --assignee=Ralph", at=at),
                 bash_line(bead_command, at=(began + timedelta(minutes=2)).isoformat()),
@@ -1249,13 +1251,12 @@ FW_MODEL = "deepseek-flash-latest[1m]"
 
 def fw_log(path: Path, *results: str) -> Path:
     """A Claude stream-json log that run.sh started with an fw session line."""
-    session_log(path, *results, model=FW_MODEL)
-    path.write_text(
-        session_line(engine="fw", model=FW_MODEL, started=EARLY)
-        + "\n"
-        + path.read_text()
+    return session_log(
+        path,
+        *results,
+        model=FW_MODEL,
+        first=(session_line(engine="fw", model=FW_MODEL, started=EARLY),),
     )
-    return path
 
 
 def test_an_fw_log_replays_as_a_claude_log(tmp_path, capsys):

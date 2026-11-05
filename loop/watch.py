@@ -38,7 +38,7 @@ import re
 import subprocess
 import sys
 import time
-from collections import deque
+from collections import Counter, deque
 from datetime import datetime
 from pathlib import Path
 
@@ -161,18 +161,30 @@ def bead_in(command: str) -> str | None:
 # must replace the session's figure instead of adding to it.
 COSTS: dict = {}
 
-# The Codex sessions this watcher has followed, by log name. They are counted
-# apart from COSTS rather than stored there at 0: a ChatGPT plan reports no
-# per-session figure, and a zero would divide the dollar total over sessions
-# that never contributed to it. A set for the same reason COSTS is a mapping —
-# one log must count once however many times its lines are read.
-CODEX_SESSIONS: set = set()
+# The engines with no dollar figure to trust, and what each one says in its
+# place: on the session's footer, in its bead note, and in the watcher total.
+# Codex on a ChatGPT plan reports no per-session figure. fw runs Claude Code on
+# a Fireworks model, and Claude Code has no price for one (it warns
+# unrecognized_model), so its total_cost_usd is wrong.
+UNPRICED = {
+    "codex": {
+        "footer": "no cost (ChatGPT plan)",
+        "note": "no cost reported (ChatGPT plan)",
+        "total": "Codex sessions (no cost)",
+    },
+    "fw": {
+        "footer": "cost unknown (fw)",
+        "note": "cost unknown (fw)",
+        "total": "fw sessions (cost unknown)",
+    },
+}
 
-# The fw sessions this watcher has followed, by log name. fw runs Claude Code
-# on a Fireworks model, and Claude Code has no price for one (it warns
-# unrecognized_model), so its total_cost_usd is wrong. They are counted apart
-# from COSTS for the same reason as the Codex sessions.
-FW_SESSIONS: set = set()
+# The sessions of an UNPRICED engine this watcher has followed: log name to
+# engine. They are counted apart from COSTS rather than stored there at 0, as
+# a zero would divide the dollar total over sessions that never contributed to
+# it. A mapping for the same reason COSTS is one: one log must count once
+# however many times its lines are read.
+UNPRICED_SESSIONS: dict = {}
 
 
 def watcher_cost() -> str:
@@ -180,14 +192,14 @@ def watcher_cost() -> str:
 
     The account signs in through claude.ai rather than with an API key, so
     total_cost_usd is Claude Code's API-equivalent estimate and not a bill.
-    Everything built on it is labelled `est.` for that reason. Codex sessions
-    run on a ChatGPT plan and are counted beside the figure, not inside it.
+    Everything built on it is labelled `est.` for that reason. The sessions of
+    an UNPRICED engine are counted beside the figure, not inside it.
     """
     total = f"watcher ${sum(COSTS.values()):.2f} est. over {len(COSTS)} sessions"
-    if CODEX_SESSIONS:
-        total += f" · {len(CODEX_SESSIONS)} Codex sessions (no cost)"
-    if FW_SESSIONS:
-        total += f" · {len(FW_SESSIONS)} fw sessions (cost unknown)"
+    counts = Counter(UNPRICED_SESSIONS.values())
+    for engine, labels in UNPRICED.items():
+        if counts[engine]:
+            total += f" · {counts[engine]} {labels['total']}"
     return total
 
 
@@ -318,10 +330,8 @@ class Session:
         """The counters line. Cost comes last on purpose: the pinned footer is
         cut to the pane's columns, and a narrow pane should lose the cost
         rather than the elapsed time and the turns."""
-        if self.engine == "codex":
-            cost = "no cost (ChatGPT plan)"
-        elif self.engine == "fw":
-            cost = "cost unknown (fw)"
+        if self.engine in UNPRICED:
+            cost = UNPRICED[self.engine]["footer"]
         elif self.cost is None:
             cost = "session cost at end"
         else:
@@ -762,8 +772,8 @@ def close(event: dict) -> None:
     timestamped event for both engines' closing events.
     """
     cost = event.get("total_cost_usd")
-    # Claude Code prices an fw session's Fireworks model wrongly: see FW_SESSIONS.
-    if isinstance(cost, (int, float)) and SESSION.engine != "fw":
+    # An fw session runs Claude Code, but its figure is wrong: see UNPRICED.
+    if isinstance(cost, (int, float)) and SESSION.engine not in UNPRICED:
         COSTS[SESSION.name] = float(cost)
     models = (event.get("modelUsage") or {}).values()
     output = sum(
@@ -785,10 +795,8 @@ def start_line(event: dict) -> None:
     """
     SESSION.engine = event.get("engine") or "claude"
     SESSION.model = event.get("model") or ""
-    if SESSION.engine == "codex":
-        CODEX_SESSIONS.add(SESSION.name)
-    elif SESSION.engine == "fw":
-        FW_SESSIONS.add(SESSION.name)
+    if SESSION.engine in UNPRICED:
+        UNPRICED_SESSIONS[SESSION.name] = SESSION.engine
     raw = event.get("started")
     if not raw:
         return
@@ -803,7 +811,7 @@ def close_codex(event: dict) -> None:
 
     The Claude counterpart of `close`, minus the money — a ChatGPT plan
     reports no per-session figure, so nothing goes into COSTS and the session
-    is counted in CODEX_SESSIONS instead.
+    is counted in UNPRICED_SESSIONS instead.
 
     `codex exec` runs one turn per session, but the usage is that turn's
     rather than the thread's, so output and reasoning accumulate. Input is a
@@ -1103,12 +1111,10 @@ def cost_note(summary: dict) -> str:
     route on the last marker in a bead's notes, and this note lands after the
     agent's own. Codex on a ChatGPT plan reports tokens and no dollar figure,
     and says so rather than printing $0.00. Claude Code has no price for the
-    Fireworks model of an fw session, so its figure is left out.
+    Fireworks model of an fw session, so its figure is left out (UNPRICED).
     """
-    if summary["engine"] == "codex":
-        cost = "no cost reported (ChatGPT plan)"
-    elif summary["engine"] == "fw":
-        cost = "cost unknown (fw)"
+    if summary["engine"] in UNPRICED:
+        cost = UNPRICED[summary["engine"]]["note"]
     elif summary["cost"] is None:
         cost = "no cost reported"
     else:

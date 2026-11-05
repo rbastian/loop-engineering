@@ -3,30 +3,33 @@
 fw (~/.local/bin/fw) starts one Claude Code process against the Fireworks
 endpoint. Usage: fw --model MODEL [--check] [-- CLAUDE_ARGUMENTS...]. These
 tests reuse the fakes from test_run_watchdog.py and add a fake fw that records
-its arguments, one per line, in fw.args.
+its arguments, one per line, in fw.args and fw.checks.
 """
 
 import json
 import time
 
+import pytest
 from test_run_watchdog import alive, claude_pid, run_loop, setup_loop, write_exe
 
 FW_MODEL = "deepseek-flash-latest[1m]"
 FW_ERROR = "fw: FIREWORKS_API_KEY is not set"
+STREAM_FLAGS = ["--verbose", "--output-format", "stream-json"]
 
 
 def setup_fw(tmp_path, session_body: str = "exit 0\n") -> dict[str, str]:
     """The watchdog fakes plus a fake fw, and the environment for LOOP_ENGINE=fw.
 
-    The fake fw answers --check with a line on stdout, or with FW_ERROR on
-    stderr and exit 2 when FW_CHECK_FAIL is set. A session writes claude.pid,
-    so the watchdog helpers find it, and its arguments to fw.args.
+    The fake fw records the arguments of each call, one per line: a --check
+    call in fw.checks, a session in fw.args. It answers --check with a line on
+    stdout, or with FW_ERROR on stderr and exit 2 when FW_CHECK_FAIL is set.
+    A session writes claude.pid, so the watchdog helpers find it.
     """
     env = setup_loop(tmp_path, "exit 0\n")
     write_exe(
         tmp_path / "bin" / "fw",
         'if [ "${3:-}" = --check ]; then\n'
-        '  echo "$@" >>"$WORK/fw.checks"\n'
+        '  printf \'%s\\n\' "$@" >"$WORK/fw.checks"\n'
         '  if [ -n "${FW_CHECK_FAIL:-}" ]; then echo "'
         + FW_ERROR
         + '" >&2; exit 2; fi\n'
@@ -41,62 +44,36 @@ def setup_fw(tmp_path, session_body: str = "exit 0\n") -> dict[str, str]:
     return env
 
 
-def test_an_fw_session_runs_claude_code_through_fw(tmp_path):
+def lines_of(path) -> list[str]:
+    return path.read_text().splitlines()
+
+
+@pytest.mark.parametrize("stream_log", [True, False])
+def test_an_fw_session_runs_claude_code_through_fw(tmp_path, stream_log):
     env = setup_fw(tmp_path)
-    env["LOOP_STREAM_LOG"] = "1"
-    env["LOOP_LOG_DIR"] = str(tmp_path / "logs")
+    if stream_log:
+        env["LOOP_STREAM_LOG"] = "1"
+        env["LOOP_LOG_DIR"] = str(tmp_path / "logs")
 
     result = run_loop(tmp_path, env)
 
     assert "fw exited with 0" in result.stdout, result.stdout
-    args = (tmp_path / "fw.args").read_text().splitlines()
-    assert args == [
+    assert lines_of(tmp_path / "fw.args") == [
         "--model",
         FW_MODEL,
         "--",
         "-p",
         "code",
         "--dangerously-skip-permissions",
-        "--verbose",
-        "--output-format",
-        "stream-json",
+        *(STREAM_FLAGS if stream_log else []),
     ]
+    assert lines_of(tmp_path / "fw.checks") == ["--model", FW_MODEL, "--check"]
     assert "fw check passed" not in result.stdout, "the check output was not discarded"
-    assert (tmp_path / "fw.checks").read_text().split() == [
-        "--model",
-        FW_MODEL,
-        "--check",
-    ]
-
-
-def test_an_fw_session_without_a_stream_log_has_no_stream_flags(tmp_path):
-    env = setup_fw(tmp_path)
-
-    run_loop(tmp_path, env)
-
-    args = (tmp_path / "fw.args").read_text().splitlines()
-    assert args == [
-        "--model",
-        FW_MODEL,
-        "--",
-        "-p",
-        "code",
-        "--dangerously-skip-permissions",
-    ]
-
-
-def test_the_fw_log_starts_with_a_session_line_for_fw(tmp_path):
-    env = setup_fw(tmp_path)
-    env["LOOP_STREAM_LOG"] = "1"
-    env["LOOP_LOG_DIR"] = str(tmp_path / "logs")
-
-    run_loop(tmp_path, env)
-
-    log = (tmp_path / "logs" / "current.jsonl").read_text().splitlines()
-    first = json.loads(log[0])
-    assert first["type"] == "loop.session"
-    assert first["engine"] == "fw"
-    assert first["model"] == FW_MODEL
+    if stream_log:
+        first = json.loads(lines_of(tmp_path / "logs" / "current.jsonl")[0])
+        assert first["type"] == "loop.session"
+        assert first["engine"] == "fw"
+        assert first["model"] == FW_MODEL
 
 
 def test_fw_without_a_model_stops_the_loop_at_start(tmp_path):
@@ -114,15 +91,13 @@ def test_fw_without_a_model_stops_the_loop_at_start(tmp_path):
 
 
 def test_fw_not_on_path_stops_the_loop_before_any_session(tmp_path):
-    env = setup_loop(tmp_path, "exit 0\n")
-    env["LOOP_ENGINE"] = "fw"
-    env["LOOP_MODEL"] = FW_MODEL
+    env = setup_fw(tmp_path)
+    (tmp_path / "bin" / "fw").unlink()
 
     result = run_loop(tmp_path, env)
 
     assert result.returncode == 1
-    assert "ERROR" in result.stdout
-    assert "fw" in result.stdout
+    assert "ERROR: LOOP_ENGINE=fw needs fw on PATH" in result.stdout
     assert "Starting" not in result.stdout
     assert not (tmp_path / "claude.pid").exists()
 
