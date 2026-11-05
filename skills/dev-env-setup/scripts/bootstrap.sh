@@ -1,11 +1,11 @@
 #!/bin/bash
 # Prepare a project for the coder and reviewer loop:
-# git, uv with the gate tools, beads, and the ralph/ harness from loop-engineering.
+# git, uv with the gate tools, beads, and the .loop/ harness from loop-engineering.
 # Usage: bootstrap.sh PROJECT_DIR BEAD_PREFIX [DEV_PACKAGE ...]
 #   PROJECT_DIR  — the primary checkout (created if missing)
 #   BEAD_PREFIX  — lowercase letters, digits, - and _, starting with a letter
 #   DEV_PACKAGE  — extra dev dependencies on top of ruff and pytest
-# These go into ralph/project.md, where worktrees.sh and layout.sh read them back:
+# These go into .loop/project.md, where worktrees.sh and layout.sh read them back:
 #   LOOP_CODER     — the coder agent's name (default: Ralph)
 #   LOOP_REVIEWER   — the reviewer agent's name (default: Alice)
 #   LOOP_HUMAN      — the bd assignee who approves merges (default: $USER)
@@ -169,7 +169,7 @@ EOF
 fi
 # Existing tests anywhere in the project. pytest then finds them by its
 # default rules, so bootstrap.sh sets no testpaths and writes no smoke test.
-EXISTING_TESTS="$(find . \( -name .git -o -name .venv -o -name ralph -o -name node_modules \) -prune \
+EXISTING_TESTS="$(find . \( -name .git -o -name .venv -o -name .loop -o -name node_modules \) -prune \
     -o -type f \( -name 'test_*.py' -o -name '*_test.py' \) -print -quit)"
 HAS_PYTEST_CONF=0
 grep -q '^\[tool.pytest' pyproject.toml && HAS_PYTEST_CONF=1
@@ -179,6 +179,25 @@ if [ "$HAS_PYTEST_CONF" -eq 0 ] && [ -z "$EXISTING_TESTS" ]; then
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 EOF
+fi
+# pytest skips dot folders by default, but ruff lints them, so the gate would
+# check the installed harness against the project's rules. A [tool.ruff] table
+# gets the key on its first line. One that already has the key gets a hint.
+export RUFF_TABLE='^\[tool\.ruff\][[:space:]]*(#.*)?$'
+if grep -q '"\.loop"' pyproject.toml; then
+    echo "pyproject.toml excludes .loop from ruff already"
+elif ! grep -Eq "$RUFF_TABLE" pyproject.toml; then
+    printf '\n[tool.ruff]\nextend-exclude = [".loop"]\n' >>pyproject.toml
+elif ! awk '
+        /^[[:space:]]*\[/ { in_table = ($0 ~ ENVIRON["RUFF_TABLE"]) }
+        in_table && /^[[:space:]]*extend-exclude[[:space:]]*=/ { found = 1 }
+        END { exit !found }
+    ' pyproject.toml; then
+    awk '{ print } $0 ~ ENVIRON["RUFF_TABLE"] { print "extend-exclude = [\".loop\"]" }' \
+        pyproject.toml >pyproject.toml.tmp
+    mv pyproject.toml.tmp pyproject.toml
+else
+    echo "NOTE: add \".loop\" to extend-exclude in [tool.ruff] in pyproject.toml, so that ruff skips the harness"
 fi
 if [ "$HAS_PYTEST_CONF" -eq 0 ] && ! grep -q '^\[tool.ruff.lint\]' pyproject.toml; then
     cat >>pyproject.toml <<'EOF'
@@ -257,20 +276,20 @@ done
 rm -f "$SECTION"
 
 step "harness"
-mkdir -p ralph
+mkdir -p .loop
 # CODER.md and REVIEWER.md hold only the loop protocol, so they copy unchanged.
-# The project facts go in ralph/project.md, which run.sh appends to each prompt.
+# The project facts go in .loop/project.md, which run.sh appends to each prompt.
 for f in run.sh watch.py CODER.md REVIEWER.md; do
-    if [ -f "ralph/$f" ]; then
-        echo "ralph/$f exists; keeping it"
+    if [ -f ".loop/$f" ]; then
+        echo ".loop/$f exists; keeping it"
     else
-        cp "$HARNESS/$f" "ralph/$f"
-        echo "copied ralph/$f"
+        cp "$HARNESS/$f" ".loop/$f"
+        echo "copied .loop/$f"
     fi
 done
-chmod +x ralph/run.sh ralph/watch.py
-if [ -f ralph/project.md ]; then
-    echo "ralph/project.md exists; keeping it"
+chmod +x .loop/run.sh .loop/watch.py
+if [ -f .loop/project.md ]; then
+    echo ".loop/project.md exists; keeping it"
 else
     sed -e "s#{{PRIMARY}}#$PROJECT#g" \
         -e "s#{{CODER_WORKTREE}}#$PARENT/$NAME-$(lower "$CODER")#g" \
@@ -280,8 +299,8 @@ else
         -e "s#{{GITHUB_ACCOUNT}}#$GITHUB_ACCOUNT#g" \
         -e "s#{{REVIEWER_ENGINE}}#$REVIEWER_ENGINE#g" \
         -e "s#{{BEAD_PREFIX}}#$PREFIX#g" \
-        "$HARNESS/project.template.md" >ralph/project.md
-    echo "wrote ralph/project.md for $NAME: $CODER codes, $REVIEWER reviews, $HUMAN merges, ship mode $SHIP_MODE${GITHUB_ACCOUNT:+ as $GITHUB_ACCOUNT}, reviewer on $REVIEWER_ENGINE"
+        "$HARNESS/project.template.md" >.loop/project.md
+    echo "wrote .loop/project.md for $NAME: $CODER codes, $REVIEWER reviews, $HUMAN merges, ship mode $SHIP_MODE${GITHUB_ACCOUNT:+ as $GITHUB_ACCOUNT}, reviewer on $REVIEWER_ENGINE"
 fi
 
 step "gate"
@@ -299,4 +318,4 @@ fi
 
 echo
 echo "bootstrap done: $PROJECT"
-echo "Next: fill the {{...}} placeholders in ralph/project.md, then run worktrees.sh."
+echo "Next: fill the {{...}} placeholders in .loop/project.md, then run worktrees.sh."

@@ -86,7 +86,7 @@ def run_loop(
         f'[ "$n" -lt {iterations} ] || kill -TERM $PPID\n',
     )
 
-    prompt_dir = tmp_path / "ralph"
+    prompt_dir = tmp_path / ".loop"
     prompt_dir.mkdir()
     (prompt_dir / "REVIEWER.md").write_text("review\n")
     if overlay:
@@ -103,10 +103,10 @@ def run_loop(
         "SLEEP_COUNT": str(tmp_path / "sleep.count"),
     }
     if not overlay:
-        env["RALPH_OVERLAY"] = "none"
+        env["LOOP_OVERLAY"] = "none"
     # The fake sleep stops run.sh with SIGTERM, so run.sh never exits 0.
     result = subprocess.run(
-        ["bash", str(RUN_SH), agent, "ralph/REVIEWER.md"],
+        ["bash", str(RUN_SH), agent, ".loop/REVIEWER.md"],
         check=False,
         cwd=tmp_path,
         env=env,

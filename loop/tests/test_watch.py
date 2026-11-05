@@ -1,4 +1,4 @@
-"""ralph/watch.py: the header must name the right agent, bead and model.
+""".loop/watch.py: the header must name the right agent, bead and model.
 
 Alice's watcher showed `Ralph · no bead yet · model ?` through her whole review
 of agents-ype on 2026-10-02. Every one of the three values was wrong, for three
@@ -87,7 +87,7 @@ def isolated(monkeypatch):
     because `main` resolves it once — so each test needs its own. LOG_DIR is
     the one global read from the environment, and it is read at import, so it
     is pinned here rather than deleted from os.environ: without it a suite run
-    from Alice's shell, which exports RALPH_LOG_DIR, renames the agent under
+    from Alice's shell, which exports LOOP_LOG_DIR, renames the agent under
     every test that goes through `main`. `bd show` is stubbed rather than
     `lookup_title` patched out, so the header tests still run the real method
     without the suite depending on the issue database. POLL_SECONDS is the
@@ -197,6 +197,7 @@ def paths(*targets: Path):
 @pytest.mark.parametrize(
     "directory,expected",
     [
+        ("/tmp/loop-sessions", "Ralph"),
         ("/tmp/ralph-sessions", "Ralph"),
         ("/tmp/alice-sessions", "Alice"),
         ("/tmp/sessions", "Ralph"),
@@ -205,7 +206,7 @@ def paths(*targets: Path):
     ],
 )
 def test_agent_name_comes_from_the_log_directory(directory, expected):
-    """run.sh gives each loop its own RALPH_LOG_DIR so their `current.jsonl`
+    """run.sh gives each loop its own LOOP_LOG_DIR so their `current.jsonl`
     symlinks cannot collide, which makes the directory the one thing that
     already tells the two loops apart."""
     assert watch.agent_name(Path(directory)) == expected
@@ -433,7 +434,7 @@ def test_a_malformed_line_in_the_catch_up_does_not_raise(tmp_path):
 
 
 def test_the_review_marker_matches_the_one_alice_is_told_to_write():
-    """REVIEW_RE quotes prose out of ralph/REVIEWER.md, and nothing else binds the
+    """REVIEW_RE quotes prose out of .loop/REVIEWER.md, and nothing else binds the
     two: reword the marker there and the header silently loses Alice's bead.
     So build the command out of the document rather than out of a literal."""
     alice = (ROOT / "REVIEWER.md").read_text()
@@ -821,7 +822,7 @@ def test_replay_prints_the_finish_time_without_an_age(tmp_path, capsys):
 #
 # Alice can review on Codex instead of Claude, so one watcher now reads two
 # event vocabularies. Codex's JSON names no model and carries no timestamps at
-# all, so run.sh writes both into a `ralph.session` line at the top of every
+# all, so run.sh writes both into a `loop.session` line at the top of every
 # log — for both engines, because the start time is worth having either way.
 
 CODEX_MODEL = "gpt-5.1-codex"
@@ -838,11 +839,16 @@ EARLY = (datetime.fromisoformat(STARTED) - timedelta(minutes=5)).isoformat()
 CODEX_REVIEW = REVIEW.split(" && ")[0]
 
 
-def session_line(engine: str = "codex", model: str = "", started: str = CODEX_STARTED):
+def session_line(
+    engine: str = "codex",
+    model: str = "",
+    started: str = CODEX_STARTED,
+    kind: str = "loop.session",
+):
     """run.sh's first line: which engine wrote the log, its model, its start."""
     return json.dumps(
         {
-            "type": "ralph.session",
+            "type": kind,
             "engine": engine,
             "model": model,
             "started": started,
@@ -938,8 +944,22 @@ def test_the_session_line_gives_the_header_its_model_and_start(tmp_path, capsys)
     assert f"model {CODEX_MODEL}" in out
 
 
+@pytest.mark.parametrize("kind", ["loop.session", "ralph.session"])
+def test_both_session_line_types_are_read(tmp_path, kind):
+    """run.sh writes `loop.session` (lpe-wh5). A log written before the rename
+    starts with `ralph.session`, and still shows its engine, model and start."""
+    log = tmp_path / "20261005-143012.jsonl"
+    log.write_text(session_line(model=CODEX_MODEL, kind=kind) + "\n")
+
+    feed_log(log)
+
+    assert watch.SESSION.engine == "codex"
+    assert watch.SESSION.model == CODEX_MODEL
+    assert watch.SESSION.first == datetime.fromisoformat(CODEX_STARTED)
+
+
 def test_a_codex_session_with_no_model_says_so(tmp_path, capsys):
-    """run.sh passes no -m unless RALPH_MODEL is set, so the model really is
+    """run.sh passes no -m unless LOOP_MODEL is set, so the model really is
     unknown here — and `model ?` would read as a watcher that lost it."""
     feed_log(codex_log(tmp_path / "20261005-143012.jsonl"))
 

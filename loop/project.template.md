@@ -62,7 +62,7 @@ There are no exceptions to the rule that agents do not write in the primary chec
 
 - `src/`: {{the package}}.
 - `tests/`: the pytest suite.
-- `ralph/`: the loop scripts and prompts.
+- `.loop/`: the loop scripts and prompts.
 
 ## Format commands and gate
 

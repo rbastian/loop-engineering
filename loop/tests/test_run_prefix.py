@@ -2,7 +2,7 @@
 
 watch.py matches only the project's prefix when --prefix names it, and falls
 back to a greedy pattern without it. These tests run one session of run.sh with
-RALPH_STREAM_LOG=1 and a stub uv that records its arguments, so the cost note
+LOOP_STREAM_LOG=1 and a stub uv that records its arguments, so the cost note
 step calls the stub instead of watch.py.
 """
 
@@ -36,7 +36,7 @@ def summary_args(tmp_path: Path, overlay_lines: str) -> list[str]:
         bin_dir / "sleep",
         '[ "$1" = 30 ] || exec /bin/sleep "$@"\nkill -TERM $PPID\n',
     )
-    prompt_dir = repo / "ralph"
+    prompt_dir = repo / ".loop"
     prompt_dir.mkdir()
     (prompt_dir / "CODER.md").write_text("code\n")
     (prompt_dir / "project.md").write_text(
@@ -44,14 +44,14 @@ def summary_args(tmp_path: Path, overlay_lines: str) -> list[str]:
         f"{overlay_lines}```\n\n```bash\nSHIP_MODE=local\nGITHUB_ACCOUNT=\n```\n"
     )
     result = subprocess.run(
-        ["bash", str(RUN_SH), "Ralph", "ralph/CODER.md"],
+        ["bash", str(RUN_SH), "Ralph", ".loop/CODER.md"],
         check=False,
         cwd=repo,
         env={
             "PATH": f"{bin_dir}:/usr/bin:/bin",
             "HOME": str(tmp_path),
-            "RALPH_STREAM_LOG": "1",
-            "RALPH_LOG_DIR": str(tmp_path / "logs"),
+            "LOOP_STREAM_LOG": "1",
+            "LOOP_LOG_DIR": str(tmp_path / "logs"),
         },
         capture_output=True,
         text=True,

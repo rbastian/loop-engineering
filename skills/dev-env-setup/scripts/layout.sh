@@ -5,9 +5,9 @@
 #   caller's tab:  coder watcher | reviewer watcher | Beads   (top third)
 #                  the calling pane                            (bottom two thirds)
 # Usage: layout.sh PROJECT_DIR
-# The agent names and worktree paths come from ralph/project.md.
+# The agent names and worktree paths come from .loop/project.md.
 # The coder runs on Claude Code with CODER_MODEL (default claude-opus-5-5).
-# REVIEWER_ENGINE in ralph/project.md picks the reviewer's CLI: claude or codex.
+# REVIEWER_ENGINE in .loop/project.md picks the reviewer's CLI: claude or codex.
 # The REVIEWER_ENGINE environment variable overrides it for one start. On claude,
 # REVIEWER_MODEL defaults to claude-sonnet-5-5, so it reviews with a different
 # model. On codex it has no default, and run.sh uses the plan's default model.
@@ -24,7 +24,7 @@ NAME="$(basename "$PROJECT")"
 LABEL="$NAME loop"
 
 # One KEY=value line from the overlay; bootstrap.sh wrote them.
-conf() { sed -n "s/^$1=//p" "$PROJECT/ralph/project.md" | head -1; }
+conf() { sed -n "s/^$1=//p" "$PROJECT/.loop/project.md" | head -1; }
 lower() { tr '[:upper:]' '[:lower:]' <<<"$1"; }
 
 CODER="$(conf CODER)"
@@ -32,7 +32,7 @@ REVIEWER="$(conf REVIEWER)"
 CODER_TREE="$(conf CODER_WORKTREE)"
 REVIEWER_TREE="$(conf REVIEWER_WORKTREE)"
 for v in CODER REVIEWER CODER_TREE REVIEWER_TREE; do
-    case "${!v}" in "" | *"{{"*) echo "ERROR: $v is not set in ralph/project.md"; exit 1 ;; esac
+    case "${!v}" in "" | *"{{"*) echo "ERROR: $v is not set in .loop/project.md"; exit 1 ;; esac
 done
 
 REVIEWER_ENGINE="${REVIEWER_ENGINE:-$(conf REVIEWER_ENGINE)}"
@@ -52,7 +52,7 @@ esac
 # The watchers match only this project's bead IDs. An overlay written before
 # BEAD_PREFIX existed has no such line, and watch.py then matches any prefix.
 BEAD_PREFIX="$(conf BEAD_PREFIX)"
-case "$BEAD_PREFIX" in *"{{"*) echo "ERROR: BEAD_PREFIX is not set in ralph/project.md"; exit 1 ;; esac
+case "$BEAD_PREFIX" in *"{{"*) echo "ERROR: BEAD_PREFIX is not set in .loop/project.md"; exit 1 ;; esac
 PREFIX_ARG="${BEAD_PREFIX:+ --prefix $BEAD_PREFIX}"
 
 # Per-project log directories, so two projects never share a current.jsonl.
@@ -99,8 +99,8 @@ herdr pane rename "$REVIEWER_WATCH" "$REVIEWER watcher" >/dev/null
 herdr pane rename "$BEADS_PANE" "Beads" >/dev/null
 
 # Watchers first: they wait for current.jsonl, so nothing is missed.
-herdr pane run "$CODER_WATCH" "RALPH_LOG_DIR=$CODER_LOG uv run ralph/watch.py --agent $CODER$PREFIX_ARG --tui" >/dev/null
-herdr pane run "$REVIEWER_WATCH" "RALPH_LOG_DIR=$REVIEWER_LOG uv run ralph/watch.py --agent $REVIEWER$PREFIX_ARG --tui" >/dev/null
+herdr pane run "$CODER_WATCH" "LOOP_LOG_DIR=$CODER_LOG uv run .loop/watch.py --agent $CODER$PREFIX_ARG --tui" >/dev/null
+herdr pane run "$REVIEWER_WATCH" "LOOP_LOG_DIR=$REVIEWER_LOG uv run .loop/watch.py --agent $REVIEWER$PREFIX_ARG --tui" >/dev/null
 
 # The beads list redraws only when it changes. bd list takes about 0.6 s, so a
 # loop that clears first leaves the pane blank on every cycle. bd turns color
@@ -112,9 +112,9 @@ herdr pane run "$BEADS_PANE" "$BEADS_LOOP" >/dev/null
 # The loops read the primary's harness files, so prompt changes merged to
 # main take effect without touching the worktrees.
 herdr pane run "$CODER_PANE" \
-    "RALPH_MODEL=${CODER_MODEL:-claude-opus-5-5} RALPH_STREAM_LOG=1 RALPH_SHOW_BEAD=1 RALPH_LOG_DIR=$CODER_LOG $PROJECT/ralph/run.sh $CODER $PROJECT/ralph/CODER.md" >/dev/null
+    "LOOP_MODEL=${CODER_MODEL:-claude-opus-5-5} LOOP_STREAM_LOG=1 LOOP_SHOW_BEAD=1 LOOP_LOG_DIR=$CODER_LOG $PROJECT/.loop/run.sh $CODER $PROJECT/.loop/CODER.md" >/dev/null
 herdr pane run "$REVIEWER_PANE" \
-    "RALPH_ENGINE=$REVIEWER_ENGINE RALPH_MODEL=$REVIEWER_MODEL RALPH_STREAM_LOG=1 RALPH_SHOW_BEAD=1 RALPH_LOG_DIR=$REVIEWER_LOG $PROJECT/ralph/run.sh $REVIEWER $PROJECT/ralph/REVIEWER.md" >/dev/null
+    "LOOP_ENGINE=$REVIEWER_ENGINE LOOP_MODEL=$REVIEWER_MODEL LOOP_STREAM_LOG=1 LOOP_SHOW_BEAD=1 LOOP_LOG_DIR=$REVIEWER_LOG $PROJECT/.loop/run.sh $REVIEWER $PROJECT/.loop/REVIEWER.md" >/dev/null
 
 echo "opened tab '$LABEL'"
 echo "  $CODER: $CODER_PANE   $REVIEWER: $REVIEWER_PANE ($REVIEWER_ENGINE)"

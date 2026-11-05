@@ -14,7 +14,7 @@ The **Project** section at the end of this prompt describes the project. It give
 
 `$SHIP_MODE` is `pr` or `local`. Where a step differs between the two, it says so. `$BASE` is the branch you compare against: `origin/main` in `pr` mode, `main` in `local` mode.
 
-The `ralph/` directory holds the loop scripts and prompts. You never change it, whatever a bead says.
+The `.loop/` directory holds the loop scripts and prompts. You never change it, whatever a bead says.
 
 ## Where you work
 
@@ -64,7 +64,7 @@ One exception: a round that follows a `Rebase needed:` note re-uses the previous
 2. Read `bd show <id>` in full: description, **design**, acceptance criteria, and every one of the coder's notes — including any `Declined /simplify findings:` and, in round 2, the `Disputed finding:` notes. In `pr` mode, find the PR number in the `PR opened:` note and read the PR with `gh pr view <number> --comments`.
 3. Read the change: `git diff "$BASE"...<branch>` and `git log "$BASE"..<branch> --oneline`. In `pr` mode, also confirm that `gh pr view <number> --json headRefOid` names the same commit as `git rev-parse <branch>`. If it does not, the coder did not push the reviewed code: treat it as a blocking finding.
 4. **Check the spec yourself.** Walk every item in the design field — especially its trap list: what had to move with the change, which tests deliberately encode old intent, what must NOT change — and confirm the diff honours each one. Confirm new behaviour got tests, and that no test was deleted, skipped or weakened to make the gate pass.
-5. Review the change against `$BASE` with the review method that the Project section gives for this kind of change. If the Project section gives no method for it, use the method for your engine, which `run.sh` exports as `$RALPH_ENGINE`:
+5. Review the change against `$BASE` with the review method that the Project section gives for this kind of change. If the Project section gives no method for it, use the method for your engine, which `run.sh` exports as `$LOOP_ENGINE`:
    - `codex` → run `codex exec review --base "$BASE"` on the branch HEAD. It runs for minutes, so give the command a long tool timeout, and read its whole output before you decide anything.
    - anything else → run the `/code-review` skill at **high** effort on the branch against `$BASE`.
 

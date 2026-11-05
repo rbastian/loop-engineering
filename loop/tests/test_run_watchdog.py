@@ -70,7 +70,7 @@ def setup_loop(tmp_path: Path, claude_body: str) -> dict[str, str]:
         "PATH": f"{bin_dir}:/usr/bin:/bin:/usr/sbin:/sbin",
         "HOME": str(tmp_path),
         "WORK": str(tmp_path),
-        "RALPH_OVERLAY": "none",
+        "LOOP_OVERLAY": "none",
     }
 
 
@@ -124,7 +124,7 @@ def wait_for(path: Path, seconds: float = 10) -> None:
 
 def test_the_watchdog_stops_a_session_that_runs_too_long(tmp_path):
     env = setup_loop(tmp_path, "exec /bin/sleep 300\n")
-    env["RALPH_SESSION_TIMEOUT"] = "2s"
+    env["LOOP_SESSION_TIMEOUT"] = "2s"
     start = time.monotonic()
     result = run_loop(tmp_path, env)
     assert "claude session timed out after 2s" in result.stdout
@@ -137,7 +137,7 @@ def test_the_watchdog_stops_a_session_that_runs_too_long(tmp_path):
 def test_the_watchdog_counts_time_the_clock_jumped(tmp_path):
     """After a sleep, the first check sees the real elapsed time."""
     env = setup_loop(tmp_path, "exec /bin/sleep 300\n")
-    env["RALPH_SESSION_TIMEOUT"] = "1h"
+    env["LOOP_SESSION_TIMEOUT"] = "1h"
     with start_loop(
         tmp_path, env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
     ) as proc:
@@ -185,20 +185,31 @@ def test_ctrl_c_stops_the_session_and_the_watchdog(tmp_path):
 @pytest.mark.parametrize("value", ["2x", "h", "1.5h", "-1h", "2 h", "1hm"])
 def test_an_invalid_timeout_stops_the_loop_at_start(tmp_path, value):
     env = setup_loop(tmp_path, "exit 0\n")
-    env["RALPH_SESSION_TIMEOUT"] = value
+    env["LOOP_SESSION_TIMEOUT"] = value
     result = run_loop(tmp_path, env)
     assert result.returncode == 1
-    assert "RALPH_SESSION_TIMEOUT" in result.stdout
+    assert "LOOP_SESSION_TIMEOUT" in result.stdout
     assert not (tmp_path / "claude.pid").exists()
 
 
 @pytest.mark.parametrize("value", ["90", "90s", "30m", "2h", "1d", "0"])
 def test_a_valid_timeout_is_accepted(tmp_path, value):
     env = setup_loop(tmp_path, "exit 0\n")
-    env["RALPH_SESSION_TIMEOUT"] = value
-    env["RALPH_PRINT_PROMPT"] = "1"
+    env["LOOP_SESSION_TIMEOUT"] = value
+    env["LOOP_PRINT_PROMPT"] = "1"
     result = run_loop(tmp_path, env)
     assert result.returncode == 0, result.stdout
+
+
+def test_an_old_ralph_variable_is_ignored(tmp_path):
+    """run.sh reads only the LOOP_ names (lpe-wh5): an old RALPH_ variable
+    gets the default, with no fallback and no warning."""
+    env = setup_loop(tmp_path, "exit 0\n")
+    env["RALPH_SESSION_TIMEOUT"] = "bogus"
+    env["LOOP_PRINT_PROMPT"] = "1"
+    result = run_loop(tmp_path, env)
+    assert result.returncode == 0, result.stdout
+    assert "RALPH_" not in result.stdout
 
 
 def test_keep_awake_runs_the_session_under_caffeinate(tmp_path):
@@ -207,7 +218,7 @@ def test_keep_awake_runs_the_session_under_caffeinate(tmp_path):
         tmp_path / "bin" / "caffeinate",
         'echo "$@" >"$WORK/caffeinate.args"\nshift\nexec "$@"\n',
     )
-    env["RALPH_KEEP_AWAKE"] = "1"
+    env["LOOP_KEEP_AWAKE"] = "1"
     result = run_loop(tmp_path, env)
     assert "claude exited with 0" in result.stdout
     args = (tmp_path / "caffeinate.args").read_text().split()
@@ -225,7 +236,7 @@ def test_keep_awake_without_caffeinate_warns_and_continues(tmp_path):
     env["PATH"] = f"{tmp_path / 'bin'}:{usr_bin}:/bin"
     if shutil.which("caffeinate", path=env["PATH"]):
         pytest.skip("caffeinate is on the reduced PATH on this machine")
-    env["RALPH_KEEP_AWAKE"] = "1"
+    env["LOOP_KEEP_AWAKE"] = "1"
     result = run_loop(tmp_path, env)
     assert result.stdout.count("WARNING: caffeinate not found") == 1
     assert "claude exited with 0" in result.stdout
@@ -242,7 +253,7 @@ def test_keep_awake_is_off_by_default(tmp_path):
 def test_a_session_that_ends_before_the_watchdog_fires_is_not_a_timeout(tmp_path):
     """The clock passes the limit, but the session ends before the next check."""
     env = setup_loop(tmp_path, 'echo 3700 >"$WORK/offset"\n/bin/sleep 1\nexit 0\n')
-    env["RALPH_SESSION_TIMEOUT"] = "1h"
+    env["LOOP_SESSION_TIMEOUT"] = "1h"
     result = run_loop(tmp_path, env)
     assert "claude exited with 0" in result.stdout
     assert "timed out" not in result.stdout

@@ -13,7 +13,7 @@ from test_bootstrap_interactive import run_bootstrap
 def test_a_valid_prefix_goes_into_project_md(tmp_path, prefix):
     project = tmp_path / "proj"
     run_bootstrap(tmp_path, project, prefix=prefix)
-    text = (project / "ralph" / "project.md").read_text()
+    text = (project / ".loop" / "project.md").read_text()
     assert f"\nBEAD_PREFIX={prefix}\n" in text
     assert "{{BEAD_PREFIX}}" not in text
 
