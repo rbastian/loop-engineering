@@ -328,6 +328,24 @@ pin_github_account() {
 }
 pin_github_account
 
+# One line when the loop-engineering clone has newer commits on loop/ than this
+# harness. HARNESS_VERSION beside run.sh names the clone and the commit that
+# bootstrap.sh or update.sh installed. A missing stamp or clone, or a commit
+# that the clone lacks, prints nothing, and no error here stops the loop.
+# The same function is in skills/dev-env-setup/scripts/lib.sh.
+drift_line() {
+    local commit clone count
+    [ -f "$1" ] || return 0
+    commit=$(sed -n 's/^commit=//p' "$1" 2>/dev/null | head -1)
+    clone=$(sed -n 's/^clone=//p' "$1" 2>/dev/null | head -1)
+    [ -n "$commit" ] && [ -d "$clone" ] || return 0
+    git -C "$clone" cat-file -e "$commit^{commit}" 2>/dev/null || return 0
+    count=$(git -C "$clone" rev-list --count "$commit..HEAD" -- loop/ 2>/dev/null) || return 0
+    case "$count" in '' | 0 | *[!0-9]*) return 0 ;; 1) count="1 commit" ;; *) count="$count commits" ;; esac
+    echo "harness is $count behind loop-engineering; run update.sh"
+}
+drift_line "$HARNESS_DIR/HARNESS_VERSION" 2>/dev/null || true
+
 # The busy reason printed last, so a wait prints its reason once, not every 30s.
 LAST_BUSY=""
 

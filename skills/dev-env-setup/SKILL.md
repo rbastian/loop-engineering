@@ -12,13 +12,14 @@ The loop has two agents. The coder (default name Ralph) implements one bead per 
 - `pr` is the default. The coder pushes the branch and opens a pull request. The reviewer comments on it, and a human approves and merges it.
 - `local` is only for a repository with one user. The reviewer merges the branch into `main` in the primary checkout. No remote is necessary.
 
-The three scripts in `scripts/` do the mechanical work. Each script is safe to run twice, because each step skips itself when its work is already done.
+The scripts in `scripts/` do the mechanical work. Each script is safe to run twice, because each step skips itself when its work is already done. `lib.sh` holds the functions that the scripts share.
 
 | Script | What it does |
 |---|---|
 | `bootstrap.sh PROJECT_DIR BEAD_PREFIX [DEV_PACKAGE ...]` | git, uv, ruff and pytest, beads, the `.loop/` harness, `.loop/project.md` with the names, the ship mode and the paths filled in, the interactive section in `CLAUDE.md` and `AGENTS.md`, one gate run |
 | `worktrees.sh PROJECT_DIR` | the first commit on `main`, then the push to `origin` in `pr` mode, then the two worktrees: the coder on branch `loop`, the reviewer on a detached HEAD |
 | `layout.sh PROJECT_DIR` | a `<name> loop` tab with both loops side by side, and the two watchers and a Beads pane in the top third of the calling tab (coder left, reviewer center, Beads right) |
+| `update.sh PROJECT_DIR [--force]` | the update of an installed harness to the clone's current `loop/`, after checks that change nothing when one fails. See "Update an installed harness" in `loop/README.md` |
 
 `bootstrap.sh` takes the names, the ship mode, the reviewer's engine and the GitHub account from six variables: `LOOP_CODER`, `LOOP_REVIEWER`, `LOOP_HUMAN`, `LOOP_SHIP_MODE`, `LOOP_REVIEWER_ENGINE` and `LOOP_GITHUB_ACCOUNT`. It writes them into `.loop/project.md`. `worktrees.sh` and `layout.sh` read them back from that file, so `.loop/project.md` is the one place to change them.
 

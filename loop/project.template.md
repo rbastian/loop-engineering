@@ -27,7 +27,7 @@ SHIP_MODE={{SHIP_MODE}}
 GITHUB_ACCOUNT={{GITHUB_ACCOUNT}}
 ```
 
-`pr` is the default. `$CODER` pushes each branch to `origin` and opens a pull request against `main`. `$REVIEWER` reviews the branch and comments on the pull request. `$HUMAN` approves and merges it. `$BASE` is `origin/main`.
+`SHIP_MODE` is `pr` or `local`. `pr` is the default. `$CODER` pushes each branch to `origin` and opens a pull request against `main`. `$REVIEWER` reviews the branch and comments on the pull request. `$HUMAN` approves and merges it. `$BASE` is `origin/main`.
 
 `local` is only for a repository with one user and no shared remote. `$REVIEWER` merges the branch into `main` in the primary checkout, and no pull request exists. `$BASE` is `main`.
 
@@ -49,6 +49,8 @@ PRIMARY={{PRIMARY}}
 CODER_WORKTREE={{CODER_WORKTREE}}
 REVIEWER_WORKTREE={{REVIEWER_WORKTREE}}
 ```
+
+`PRIMARY` is the primary checkout, which belongs to `$HUMAN`. `CODER_WORKTREE` is the worktree of `$CODER`. `REVIEWER_WORKTREE` is the worktree of `$REVIEWER`.
 
 There are no exceptions to the rule that agents do not write in the primary checkout.
 

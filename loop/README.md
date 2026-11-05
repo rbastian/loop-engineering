@@ -37,7 +37,7 @@ The reviewer comments but does not approve. The agents act as the GitHub account
 | `project.template.md` | The template for `.loop/project.md`, the project overlay. |
 | `interactive.template.md` | The template for the interactive section of `CLAUDE.md` and `AGENTS.md`. The section tells an interactive agent to orient a new person, to refine and assign beads, and not to implement them. |
 | `watch.py` | The watcher. It shows a live session log as one line per tool call. |
-| `tests/` | Tests for `watch.py`. |
+| `tests/` | Tests for `watch.py`, `run.sh` and the setup scripts. |
 
 ## The project overlay
 
@@ -220,35 +220,60 @@ Use your configured agent name in place of `Ralph`.
 
 ### Update an installed harness
 
-Bootstrap preserves existing files in `.loop/`. Rerunning it does not install newer copies of the runner, watcher or role prompts. It still runs `uv add --dev`, which can change `pyproject.toml` and `uv.lock`. A rerun sees an existing repository, so it runs only the check-only gate and does not reformat files. In `local` mode, modified tracked files prevent merges until the human resolves those changes.
+`bootstrap.sh` keeps the files that `.loop/` already holds, so a rerun does not install newer copies of the runner, the watcher or the prompts. `update.sh` in the setup skill does the update. It copies `run.sh`, `watch.py`, `CODER.md` and `REVIEWER.md` from `loop/` in your loop-engineering clone into `.loop/`. It never changes `.loop/project.md`, and it commits nothing.
 
-The standard launch commands read the runner and prompts from the primary checkout's working tree. They do not select the committed version on `main`. Keep that checkout on the reviewed version before restarting.
+The version stamp `.loop/HARNESS_VERSION` tells `update.sh` which version is installed. The stamp has two lines: `commit=`, the full SHA of the clone's HEAD, and `clone=`, the absolute path of the clone. `bootstrap.sh` and `update.sh` write it. If `loop/` in the clone has uncommitted changes, `bootstrap.sh` adds the line `dirty=1` and prints a warning.
+
+When the clone has newer commits on `loop/` than the stamp, `layout.sh` prints one line, and so does `run.sh` once at start:
+
+```text
+harness is 3 commits behind loop-engineering; run update.sh
+```
+
+The line is only a warning and never stops a loop. If the stamp is missing, the clone path does not exist, or the clone does not have the stamped commit, `run.sh` prints nothing.
+
+To update a project, do these steps:
 
 1. Stop both loops and their sessions with the procedure under [Stop and restart](#stop-and-restart).
-2. Prepare the update on a branch in a separate clone or worktree. Compare the source files in `loop/` with that checkout's installed files in `.loop/`. Copy the intended updates there and review the diff. Keep project facts in `.loop/project.md`. Compare it with `loop/project.template.md` for new configuration fields instead of replacing it.
-3. In the update checkout, inspect the combined prompts and resolve every `{{...}}` placeholder before committing. From that checkout's root, run `LOOP_PRINT_PROMPT=1 .loop/run.sh <agent> <prompt>` for each role. Use the configured agent name and its prompt path, such as `.loop/CODER.md`.
-4. In `pr` mode, open a pull request and merge the reviewed update. In the primary checkout on `main`, pull the merged update with `git pull --ff-only origin main`. In `local` mode, merge the reviewed update into `main` in the primary checkout.
-5. From the primary checkout's root, inspect the installed prompts again:
+2. In the primary checkout, start a branch for the update in `pr` mode. In `local` mode, stay on `main`.
+3. Run the update:
 
    ```bash
-   cd /path/to/primary-checkout
-   LOOP_PRINT_PROMPT=1 .loop/run.sh Ralph .loop/CODER.md
-   LOOP_PRINT_PROMPT=1 .loop/run.sh Alice .loop/REVIEWER.md
+   /path/to/loop-engineering/skills/dev-env-setup/scripts/update.sh /path/to/project
    ```
 
-   Use your configured agent names. Make sure that neither output contains unresolved `{{...}}` placeholders. This final check must read the primary checkout, because the loops use those files.
-6. Restart the loops only after the reviewed update is on `main` in the primary checkout and the prompt checks pass. Restart the watchers to load watcher updates.
+   `update.sh` finds the clone from its own location, like `bootstrap.sh`. Set `LOOP_HOME` to use another clone.
+4. Read the diff that `update.sh` prints. Make sure that neither combined prompt contains unresolved `{{...}}` placeholders: run `LOOP_PRINT_PROMPT=1 .loop/run.sh <agent> .loop/CODER.md`, and the same for `.loop/REVIEWER.md`.
+5. Commit the change. In `pr` mode, open a pull request, merge it, and pull `main` in the primary checkout.
+6. Reset each worktree to `main`. The coder's worktree is on the branch `loop`, so run `git reset --hard origin/main` there in `pr` mode, or `git reset --hard main` in `local` mode.
+7. Restart the loops and the watchers.
+
+`update.sh` runs every check before it changes a file. If a check fails, it prints every failure, changes nothing and exits 1. It checks these conditions:
+
+- A loop of the project runs: a `run.sh` process whose arguments name the project's `.loop/` or `ralph/`, or whose working directory is one of the project's worktrees. `update.sh` never stops a process.
+- The install has an old `PROMPT.md` or `ALICE.md`. Migrate them by hand.
+- `loop/` in the clone has uncommitted changes. Commit or stash them in the clone first.
+- `.loop/project.md` lacks a `KEY=` line that `loop/project.template.md` has. `update.sh` prints each key and what it means. Add the keys, then run `update.sh` again.
+- An installed file differs from the same file at the stamped commit: a local edit. `update.sh` prints each diff. Move the edit into `loop/` in the clone, or run `update.sh --force` to overwrite it.
+- The stamp is missing, says `dirty=1`, or names a commit that the clone does not have. Then `update.sh` cannot tell a local edit from an old version, so it prints each file's diff against the clone's current version. `--force` overwrites them.
+- `CLAUDE.md` or `AGENTS.md` has a BEGIN marker of the interactive section with no END marker after it.
+
+`--force` skips only the local-edit check. All other checks still run.
+
+`update.sh` also refreshes the interactive section of `CLAUDE.md` and `AGENTS.md`. It fills `interactive.template.md` with the names in `.loop/project.md` and replaces the text between the `<!-- BEGIN LOOP INTERACTIVE -->` and `<!-- END LOOP INTERACTIVE -->` markers. A file without the section gets one, in the same place that `bootstrap.sh` puts it. Text outside the markers does not change.
 
 ### Move an install from ralph/ to .loop/
 
-Before lpe-wh5, `bootstrap.sh` installed the harness into `ralph/`. It now installs into `.loop/`. To move an older install by hand, do these steps in the primary checkout:
+Before lpe-wh5, `bootstrap.sh` installed the harness into `ralph/`. It now installs into `.loop/`. If a project has `ralph/` and no `.loop/`, `update.sh` moves the install and then updates it in the same run:
 
-1. Stop both loops and their sessions with the procedure under [Stop and restart](#stop-and-restart).
-2. Move the folder: `git mv ralph .loop`.
-3. Exclude `.loop` from ruff, as in step 3 of [Install in a project](#install-in-a-project).
-4. Rename each `RALPH_` variable that you set. The table under [run.sh variables](#runsh-variables) gives the new names.
-5. Change each `ralph/` path in `.loop/project.md` and in the interactive section of `CLAUDE.md` and `AGENTS.md` to `.loop/`.
-6. Commit the change on `main`, then restart the loops and the watchers.
+1. It runs every check from [Update an installed harness](#update-an-installed-harness) against `ralph/`. If a check fails, it stops before the move.
+2. It moves the folder with `git mv ralph .loop`.
+3. It changes each `ralph/` path in `.loop/project.md` to `.loop/`.
+4. It prints each line outside the interactive section of `CLAUDE.md` and `AGENTS.md` that still names `ralph/`. Change those lines by hand. The interactive section itself gets the new text.
+5. It prints the `RALPH_` to `LOOP_` renames from the table under [run.sh variables](#runsh-variables). Rename each variable that your shell or herdr setup sets.
+6. It does the update.
+
+Then exclude `.loop` from ruff, as in step 3 of [Install in a project](#install-in-a-project). `update.sh` prints a note when `pyproject.toml` does not name `.loop`. Commit the change as in the update steps.
 
 ## Rules of engagement
 

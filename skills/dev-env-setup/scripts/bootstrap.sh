@@ -24,6 +24,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 LOOP_HOME="${LOOP_HOME:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
 HARNESS="$LOOP_HOME/loop"
+# shellcheck source=lib.sh
+. "$SCRIPT_DIR/lib.sh"
 
 if [ $# -lt 2 ]; then
     echo "Usage: bootstrap.sh PROJECT_DIR BEAD_PREFIX [DEV_PACKAGE ...]"
@@ -95,7 +97,7 @@ PKG="$(tr '[:upper:]-' '[:lower:]_' <<<"$NAME")"
 
 step() { printf '\n==> %s\n' "$*"; }
 lower() { tr '[:upper:]' '[:lower:]' <<<"$1"; }
-# The sed expressions that fill the name placeholders in both templates.
+# The sed expressions that fill the name placeholders in project.template.md.
 NAMES=(-e "s#{{CODER}}#$CODER#g" -e "s#{{REVIEWER}}#$REVIEWER#g" -e "s#{{HUMAN}}#$HUMAN#g")
 
 missing=0
@@ -239,39 +241,9 @@ step "interactive section"
 # It goes after the first H1, before the beads blocks that bd setup wrote.
 # A file that already holds the BEGIN marker keeps its section unchanged.
 SECTION="$(mktemp)"
-sed "${NAMES[@]}" "$HARNESS/interactive.template.md" >"$SECTION"
+render_interactive "$HARNESS/interactive.template.md" "$CODER" "$REVIEWER" "$HUMAN" >"$SECTION"
 for doc in CLAUDE.md AGENTS.md; do
-    if [ ! -f "$doc" ]; then
-        cp "$SECTION" "$doc"
-        echo "wrote $doc with the interactive section"
-        continue
-    fi
-    if grep -qF '<!-- BEGIN LOOP INTERACTIVE -->' "$doc"; then
-        echo "$doc holds the interactive section; keeping it"
-        continue
-    fi
-    # Pass 1 finds the first H1 outside a code fence and before any beads
-    # block. Pass 2 puts the section after it, or at the top if there is none.
-    awk -v section="$SECTION" '
-        function emit(line) {
-            while ((getline line <section) > 0) print line
-            close(section)
-        }
-        NR == FNR {
-            if (stop) next
-            if ($0 ~ /^(```|~~~)/) fence = !fence
-            else if (!fence && $0 ~ /^<!-- BEGIN BEADS/) stop = 1
-            else if (!fence && $0 ~ /^# /) { h1 = FNR; stop = 1 }
-            next
-        }
-        FNR == 1 && !h1 { emit(); print "" }
-        skip && $0 == "" { next }
-        skip { print ""; skip = 0 }
-        { print }
-        FNR == h1 { print ""; emit(); skip = 1 }
-    ' "$doc" "$doc" >"$doc.tmp"
-    mv "$doc.tmp" "$doc"
-    echo "added the interactive section to $doc"
+    install_interactive "$doc" "$SECTION" keep
 done
 rm -f "$SECTION"
 
@@ -279,15 +251,33 @@ step "harness"
 mkdir -p .loop
 # CODER.md and REVIEWER.md hold only the loop protocol, so they copy unchanged.
 # The project facts go in .loop/project.md, which run.sh appends to each prompt.
+KEPT=0
 for f in run.sh watch.py CODER.md REVIEWER.md; do
     if [ -f ".loop/$f" ]; then
         echo ".loop/$f exists; keeping it"
+        KEPT=1
     else
         cp "$HARNESS/$f" ".loop/$f"
         echo "copied .loop/$f"
     fi
 done
 chmod +x .loop/run.sh .loop/watch.py
+# The stamp names the clone commit that the files came from. update.sh and the
+# drift warning read it. Kept files may be older than the clone, so a stamp is
+# written only when bootstrap.sh copied every file.
+if [ -f .loop/HARNESS_VERSION ]; then
+    echo ".loop/HARNESS_VERSION exists; keeping it"
+elif [ "$KEPT" -eq 1 ]; then
+    echo "NOTE: the kept harness has no .loop/HARNESS_VERSION; run update.sh to bring it up to date"
+elif ! git -C "$LOOP_HOME" rev-parse --verify -q HEAD >/dev/null; then
+    echo "WARNING: $LOOP_HOME is not a git repository with a commit; wrote no .loop/HARNESS_VERSION"
+else
+    write_stamp .loop/HARNESS_VERSION "$LOOP_HOME"
+    echo "wrote .loop/HARNESS_VERSION"
+    if ! clone_clean "$LOOP_HOME"; then
+        echo "WARNING: loop/ in $LOOP_HOME has uncommitted changes; the stamp says dirty=1, and update.sh will ask for --force"
+    fi
+fi
 if [ -f .loop/project.md ]; then
     echo ".loop/project.md exists; keeping it"
 else
