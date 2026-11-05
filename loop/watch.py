@@ -495,16 +495,11 @@ class Session:
             title += f" \u00b7 {self.title}"
         started = self.first.astimezone().strftime("%H:%M:%S") if self.first else "?"
         tail = f" \u00b7 started {started} \u00b7 {self.label}"
-        row = f" session {self.name}{tail}"
-        if width is not None and len(row) > width:
-            # The part of the name that fits beside an ellipsis. When none of
-            # it fits, the row loses its start instead of its label.
-            room = len(self.name) - (len(row) - width) - 1
-            if room >= 0:
-                row = f" session {self.name[:room]}\u2026{tail}"
-            else:
-                row = "\u2026" + row[len(row) - width + 1 :]
-        return [title, row]
+        head = f" session {self.name}"
+        if width is not None and len(head) + len(tail) > width:
+            # Shorten the part before the label, and keep the label whole.
+            head = head[: max(width - len(tail) - 1, 0)] + "\u2026"
+        return [title, head + tail]
 
     def header(self) -> None:
         """The one-shot plain-stream header (non-TUI mode)."""
@@ -546,10 +541,8 @@ def header_rows(width: int | None = None) -> list:
     harness = label.split("/", 1)[0]
     if "@" in harness:
         # The label ends the row whole, so its place is counted from the end.
-        start = len(rows[1].plain) - len(label) + harness.index("@")
-        rows[1].stylize(
-            PROVIDER_STYLE, start, len(rows[1].plain) - len(label) + len(harness)
-        )
+        base = len(rows[1].plain) - len(label)
+        rows[1].stylize(PROVIDER_STYLE, base + harness.index("@"), base + len(harness))
     return rows
 
 
