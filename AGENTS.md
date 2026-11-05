@@ -3,7 +3,7 @@
 <!-- BEGIN LOOP INTERACTIVE -->
 ## Interactive sessions: orient the person, refine and assign, do not implement
 
-This section is for an interactive session with a person. If `ralph/CODER.md` or `ralph/REVIEWER.md` started your session, skip it. In an interactive session, this section overrides the claim and close steps in the beads blocks.
+This section is for an interactive session with a person. If `.loop/CODER.md` or `.loop/REVIEWER.md` started your session, skip it. In an interactive session, this section overrides the claim and close steps in the beads blocks.
 
 ### Orientation
 
@@ -40,14 +40,14 @@ You can read any code, and you can change bead records, `CLAUDE.md` and `AGENTS.
 
 ### The GitHub remote
 
-This session acts as the GitHub account in `GITHUB_ACCOUNT` in `ralph/project.md`. Run each `gh` command as that account, for example `GH_TOKEN=$(gh auth token --user <account>) gh pr view <number>`, and do not switch the active `gh` account. Do not push, open, comment on, merge or close pull requests, or change anything else on the remote, unless the person asks you to do that one task.
+This session acts as the GitHub account in `GITHUB_ACCOUNT` in `.loop/project.md`. Run each `gh` command as that account, for example `GH_TOKEN=$(gh auth token --user <account>) gh pr view <number>`, and do not switch the active `gh` account. Do not push, open, comment on, merge or close pull requests, or change anything else on the remote, unless the person asks you to do that one task.
 
 ### After a merge
 
-In `pr` ship mode, beads with the label `merge` wait for Rob Bastian to approve and merge their pull requests. After Rob Bastian merges a pull request, you can do the next steps for them:
+In `pr` ship mode, beads with the state label `loop:merge` wait for Rob Bastian to approve and merge their pull requests. List them with `bd list --label loop:merge`. After Rob Bastian merges a pull request, you can do the next steps for them:
 
 1. Close the bead: `bd close <id>`.
-2. Remove the label: `bd label remove <id> merge`.
+2. Mark the bead done: `bd set-state <id> loop=done`.
 3. Fast-forward `main` in the primary checkout: `git pull --ff-only`.
 <!-- END LOOP INTERACTIVE -->
 

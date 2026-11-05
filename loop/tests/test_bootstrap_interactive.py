@@ -171,34 +171,8 @@ def test_h1_after_the_beads_block_puts_the_section_at_the_top(tmp_path):
     assert text == fill("Bob", "Carol", "Dana") + "\n" + original
 
 
-PRE_0Y3_AFTER_MERGE = [
-    (
-        (
-            "beads with the state label `loop:merge` wait for Rob Bastian to approve"
-            " and merge their pull requests. List them with"
-            " `bd list --label loop:merge`. After"
-        ),
-        (
-            "beads with the label `merge` wait for Rob Bastian to approve and merge"
-            " their pull requests. After"
-        ),
-    ),
-    (
-        "2. Mark the bead done: `bd set-state <id> loop=done`.",
-        "2. Remove the label: `bd label remove <id> merge`.",
-    ),
-]
-
-
 def test_this_repository_uses_the_filled_template():
-    # This repository's own install stays in ralph/ until lpe-80j moves it to
-    # .loop/. Remove the replace() then.
-    expected = fill("Ralph", "Alice", "Rob Bastian").replace(".loop/", "ralph/")
-    # lpe-0y3 changed the "After a merge" steps in the template. The human
-    # updates CLAUDE.md and AGENTS.md at rollout. Remove these replace() calls then.
-    for new, old in PRE_0Y3_AFTER_MERGE:
-        assert new in expected, new
-        expected = expected.replace(new, old)
+    expected = fill("Ralph", "Alice", "Rob Bastian")
     for name in ("CLAUDE.md", "AGENTS.md"):
         text = (ROOT / name).read_text()
         assert text.count(BEGIN) == 1

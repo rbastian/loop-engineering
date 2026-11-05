@@ -5,46 +5,76 @@
 #   PROMPT_FILE — prompt file path, relative to cwd (default: CODER.md)
 #
 # Optional switches (default OFF — set to any non-empty value to enable):
-#   RALPH_STREAM_LOG=1   Stream tool calls + assistant turns as JSONL.
-#                        Tees claude output to $RALPH_LOG_DIR/<timestamp>.jsonl
-#                        (default $RALPH_LOG_DIR=/tmp/ralph-sessions) and maintains
+#   LOOP_STREAM_LOG=1    Stream tool calls + assistant turns as JSONL.
+#                        Tees claude output to $LOOP_LOG_DIR/<timestamp>.jsonl
+#                        (default $LOOP_LOG_DIR=/tmp/loop-sessions) and maintains
 #                        a "current.jsonl" symlink for tail -f. After each
 #                        session, also appends a "Session cost:" note to the
 #                        bead (needs uv, which runs watch.py --summary).
-#   RALPH_SHOW_BEAD=1    For each in-progress bead, also run `bd show <id>` so
+#   LOOP_SHOW_BEAD=1     For each in-progress bead, also run `bd show <id>` so
 #                        notes/checkpoint/gate-output are visible between sessions.
-#   RALPH_SESSION_TIMEOUT  Max wall-clock time per session (default: 2h).
-#                        Needs GNU timeout; on macOS: brew install coreutils.
-#   RALPH_ENGINE         Which agent CLI runs each session: claude (default)
+#   LOOP_KEEP_AWAKE=1    Run each session under `caffeinate -i`, so the Mac does
+#                        not idle-sleep during a session. Without caffeinate on
+#                        PATH, the loop warns once and runs without it.
+#   LOOP_SESSION_TIMEOUT Max wall-clock time per session (default: 2h): a whole
+#                        number with an optional suffix s, m, h or d. 0 means no
+#                        limit. Time while the Mac sleeps counts too.
+#   LOOP_ENGINE          Which agent CLI runs each session: claude (default)
 #                        or codex. Any other value stops the loop at startup.
-#   RALPH_MODEL          Model for each session. Defaults to claude-opus-5-5 on
+#   LOOP_MODEL           Model for each session. Defaults to claude-opus-5-5 on
 #                        the claude engine; on codex it has no default, and an
 #                        unset one means the default model of the ChatGPT plan.
-#   RALPH_OVERLAY        Project overlay appended to the prompt (default:
+#   LOOP_OVERLAY         Project overlay appended to the prompt (default:
 #                        project.md beside PROMPT_FILE; "none" disables it).
-#   RALPH_PRINT_PROMPT=1 Print the combined prompt and exit.
+#   LOOP_PRINT_PROMPT=1  Print the combined prompt and exit.
+#
+# GitHub account (pr mode only, when the overlay says SHIP_MODE=pr):
+#   The overlay must name GITHUB_ACCOUNT, the account that the agents use.
+#   At start, run.sh gets that account's token with gh auth token --user and
+#   exports it as GH_TOKEN for every session, whichever gh account is active.
+#   If origin is an SSH URL, it runs ssh -T git@<host> once and stops unless
+#   the reply greets the same account. An HTTPS origin needs no SSH check.
+#   Any failure stops the loop with exit 1 before the first session.
 set -euo pipefail
 
 AGENT_NAME="${1:-Ralph}"
 PROMPT_FILE="${2:-CODER.md}"
-SESSION_TIMEOUT="${RALPH_SESSION_TIMEOUT:-2h}"
-ENGINE="${RALPH_ENGINE:-claude}"
+SESSION_TIMEOUT="${LOOP_SESSION_TIMEOUT:-2h}"
+ENGINE="${LOOP_ENGINE:-claude}"
 
 # The engine picks the command and the model default. Reviewing on a second
 # model family is the point of the codex engine, so it gets no default model:
-# an unset RALPH_MODEL there means whatever the ChatGPT plan runs by default.
+# an unset LOOP_MODEL there means whatever the ChatGPT plan runs by default.
 case "$ENGINE" in
-    claude) MODEL="${RALPH_MODEL:-claude-opus-5-5}" ;;
-    codex) MODEL="${RALPH_MODEL:-}" ;;
+    claude) MODEL="${LOOP_MODEL:-claude-opus-5-5}" ;;
+    codex) MODEL="${LOOP_MODEL:-}" ;;
     *)
-        echo "ERROR: RALPH_ENGINE must be claude or codex (got: $ENGINE)"
+        echo "ERROR: LOOP_ENGINE must be claude or codex (got: $ENGINE)"
         exit 1
         ;;
 esac
 
+# Seconds in a duration such as 90, 90s, 30m, 2h or 1d: the forms GNU timeout
+# accepted, apart from fractions. Fails on anything else.
+duration_seconds() {
+    local num="${1%[smhd]}" mult=1
+    case "$num" in '' | *[!0-9]*) return 1 ;; esac
+    case "$1" in
+        *m) mult=60 ;;
+        *h) mult=3600 ;;
+        *d) mult=86400 ;;
+    esac
+    echo $((10#$num * mult))
+}
+
+if ! SESSION_LIMIT=$(duration_seconds "$SESSION_TIMEOUT"); then
+    echo "ERROR: LOOP_SESSION_TIMEOUT must be a whole number with an optional suffix s, m, h or d (got: $SESSION_TIMEOUT)"
+    exit 1
+fi
+
 # The agent reads this to choose its engine-specific steps: on codex, the reviewer
 # reviews with `codex exec review` instead of the /code-review skill.
-export RALPH_ENGINE="$ENGINE"
+export LOOP_ENGINE="$ENGINE"
 
 # bd resolves its actor from $BEADS_ACTOR (then git user.name, then $USER).
 # The actor must match the bead's assignee or `bd update --claim` refuses
@@ -57,19 +87,19 @@ if [ ! -f "$PROMPT_FILE" ]; then
     exit 1
 fi
 
-# The overlay defaults to project.md beside the prompt file. RALPH_OVERLAY
-# overrides the path; RALPH_OVERLAY=none runs the base prompt alone.
-OVERLAY_FILE="${RALPH_OVERLAY:-$(dirname "$PROMPT_FILE")/project.md}"
+# The overlay defaults to project.md beside the prompt file. LOOP_OVERLAY
+# overrides the path; LOOP_OVERLAY=none runs the base prompt alone.
+OVERLAY_FILE="${LOOP_OVERLAY:-$(dirname "$PROMPT_FILE")/project.md}"
 if [ "$OVERLAY_FILE" = "none" ]; then
     OVERLAY_FILE=""
 elif [ ! -f "$OVERLAY_FILE" ]; then
     echo "ERROR: project overlay $OVERLAY_FILE not found"
-    echo "Hint: create it, point RALPH_OVERLAY at it, or set RALPH_OVERLAY=none."
+    echo "Hint: create it, point LOOP_OVERLAY at it, or set LOOP_OVERLAY=none."
     exit 1
 fi
 
-# RALPH_PRINT_PROMPT=1 prints the combined prompt and exits, to check an overlay.
-if [ -n "${RALPH_PRINT_PROMPT:-}" ]; then
+# LOOP_PRINT_PROMPT=1 prints the combined prompt and exits, to check an overlay.
+if [ -n "${LOOP_PRINT_PROMPT:-}" ]; then
     cat "$PROMPT_FILE"
     if [ -n "$OVERLAY_FILE" ]; then printf '\n\n'; cat "$OVERLAY_FILE"; fi
     exit 0
@@ -80,15 +110,13 @@ if ! command -v jq >/dev/null 2>&1; then
     exit 1
 fi
 
-# Guard each session with a wall-clock timeout so a wedged session
-# (hung tool call, endless poll) can't stall the loop forever.
-TIMEOUT_CMD=""
-if command -v timeout >/dev/null 2>&1; then
-    TIMEOUT_CMD="timeout --signal=INT --kill-after=60 $SESSION_TIMEOUT"
-elif command -v gtimeout >/dev/null 2>&1; then
-    TIMEOUT_CMD="gtimeout --signal=INT --kill-after=60 $SESSION_TIMEOUT"
-else
-    echo "WARNING: timeout/gtimeout not found — sessions have no time limit (brew install coreutils)"
+KEEP_AWAKE=""
+if [ -n "${LOOP_KEEP_AWAKE:-}" ]; then
+    if command -v caffeinate >/dev/null 2>&1; then
+        KEEP_AWAKE=1
+    else
+        echo "WARNING: caffeinate not found; LOOP_KEEP_AWAKE has no effect"
+    fi
 fi
 
 # Count beads via JSON rather than scraping human-readable output, which
@@ -104,7 +132,79 @@ bead_count() {
 # A killed or failed sleep must not end the loop under set -e (lpe-qi4).
 pause() { sleep "$1" || true; }
 
-# watch.py sits beside this script, in the primary checkout's ralph/ folder.
+# Each session runs in its own process group, so that the watchdog and Ctrl-C
+# stop the agent and every child it started, and nothing else. GNU timeout
+# counted only awake time on macOS, and a session that started before the Mac
+# slept ran 12h52m against a 2h limit (lpe-k08). The watchdog compares the
+# wall clock with the start instead, so its first check after a sleep sees the
+# real elapsed time.
+
+# Send INT to a process group, then KILL if it still exists after $2 seconds.
+stop_group() {
+    local pgid="$1" grace="$2" waited=0
+    kill -INT -- "-$pgid" 2>/dev/null || return 0
+    while [ "$waited" -lt "$grace" ] && kill -0 -- "-$pgid" 2>/dev/null; do
+        pause 1
+        waited=$((waited + 1))
+    done
+    kill -KILL -- "-$pgid" 2>/dev/null || true
+}
+
+session_elapsed() { echo $(($(date +%s) - SESSION_START)); }
+
+# Runs as its own job. Exits 124 when it stopped the session. From that point
+# it ignores TERM, so run_session's TERM stops it only while it still waits.
+watchdog() {
+    local left
+    while kill -0 -- "-$SESSION_PGID" 2>/dev/null; do
+        left=$((SESSION_LIMIT - $(session_elapsed)))
+        if [ "$left" -le 0 ]; then
+            trap '' TERM
+            stop_group "$SESSION_PGID" 60
+            exit 124
+        fi
+        pause $((left < 5 ? left : 5))
+    done
+}
+
+# Ctrl-C reaches run.sh but not the session's own process group, so pass it on.
+interrupt_session() {
+    trap - INT TERM HUP
+    kill -KILL -- "-$WATCHDOG_PGID" 2>/dev/null || true
+    stop_group "$SESSION_PGID" 10
+    exit 130
+}
+
+# Runs AGENT_CMD under the watchdog, teeing to $SESSION_LOG when it is set.
+# Sets SESSION_EXIT: the agent's exit code, or 124 when the limit passed.
+run_session() {
+    SESSION_START=$(date +%s)
+    # set -m gives each background job its own process group, led by $!.
+    set -m
+    if [ -n "$SESSION_LOG" ]; then
+        ("${AGENT_CMD[@]}" </dev/null | tee -a "$SESSION_LOG"; exit "${PIPESTATUS[0]}") &
+    else
+        "${AGENT_CMD[@]}" </dev/null &
+    fi
+    SESSION_PGID=$!
+    WATCHDOG_PGID=""
+    if [ "$SESSION_LIMIT" -gt 0 ]; then
+        watchdog &
+        WATCHDOG_PGID=$!
+    fi
+    set +m
+    trap interrupt_session INT TERM HUP
+    wait "$SESSION_PGID" 2>/dev/null
+    SESSION_EXIT=$?
+    trap - INT TERM HUP
+    [ -n "$WATCHDOG_PGID" ] || return 0
+    # A watchdog that fired finishes its KILL grace period and exits 124.
+    kill -TERM -- "-$WATCHDOG_PGID" 2>/dev/null
+    wait "$WATCHDOG_PGID" 2>/dev/null
+    [ "$?" -ne 124 ] || SESSION_EXIT=124
+}
+
+# watch.py sits beside this script, in the primary checkout's .loop/ folder.
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Append the finished session's cost to its bead. The agent cannot do this:
@@ -114,12 +214,15 @@ HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # agent held when the session started. Every failure only warns: a missing
 # cost note must never stop the loop.
 record_cost() {
-    local log="$1" held="$2" summary bead note ids attempt
+    local log="$1" held="$2" summary bead note ids attempt prefix watch_args
     if ! command -v uv >/dev/null 2>&1; then
         echo "WARNING: uv not found; no cost note for this session"
         return 0
     fi
-    if ! summary=$(uv run --quiet "$HARNESS_DIR/watch.py" --summary "$log" --agent "$AGENT_NAME" 2>/dev/null); then
+    # Without a prefix, watch.py falls back to a pattern that matches any.
+    prefix=$(overlay_value BEAD_PREFIX)
+    watch_args=(--summary "$log" --agent "$AGENT_NAME" ${prefix:+--prefix "$prefix"})
+    if ! summary=$(uv run --quiet "$HARNESS_DIR/watch.py" "${watch_args[@]}" 2>/dev/null); then
         echo "WARNING: could not read $log; no cost note for this session"
         return 0
     fi
@@ -179,6 +282,68 @@ primary_busy_reason() {
     fi
 }
 
+# In pr mode the agents act as one GitHub account: GITHUB_ACCOUNT in the
+# overlay. The account that gh has active when the loop starts must not decide
+# it, so pin that account's token as GH_TOKEN for every session. gh uses it,
+# and so does git over HTTPS through gh's credential helper. An SSH push uses
+# the SSH key instead, so check once that the key belongs to the same account.
+# Every failure stops the loop before the first session. Never print the token.
+pin_github_account() {
+    local account url host port="" reply who=""
+    [ "$(overlay_value SHIP_MODE)" = "pr" ] || return 0
+    account=$(overlay_value GITHUB_ACCOUNT)
+    if [ -z "$account" ]; then
+        echo "ERROR: GITHUB_ACCOUNT is empty in $OVERLAY_FILE; pr mode needs the GitHub account that the agents use"
+        exit 1
+    fi
+    if ! GH_TOKEN=$(gh auth token --user "$account" 2>/dev/null) || [ -z "$GH_TOKEN" ]; then
+        echo "ERROR: gh has no token for the GitHub account $account"
+        echo "Hint: run 'gh auth login' and log in as $account, then restart the loop."
+        exit 1
+    fi
+    export GH_TOKEN
+    url=$(git remote get-url origin 2>/dev/null) || url=""
+    case "$url" in
+        http://* | https://* | '') return 0 ;;
+        ssh://*)
+            host="${url#ssh://}"
+            host="${host#*@}"
+            host="${host%%/*}"
+            ;;
+        *@*:*) host="${url#*@}"; host="${host%%:*}" ;;
+        *) return 0 ;;
+    esac
+    # Pass a port only when the URL names one: -p overrides ~/.ssh/config.
+    case "$host" in
+        *:*) port="${host##*:}"; host="${host%%:*}" ;;
+    esac
+    # ssh -T exits 1 even when GitHub greets the key, so read the reply.
+    reply=$(ssh -T ${port:+-p "$port"} -o BatchMode=yes -o ConnectTimeout=10 "git@$host" 2>&1 </dev/null) || true
+    if [[ "$reply" =~ Hi\ ([^!]*)! ]]; then who="${BASH_REMATCH[1]}"; fi
+    if [ "$who" != "$account" ]; then
+        echo "ERROR: git pushes to origin over SSH as '${who:-unknown}', but GITHUB_ACCOUNT is '$account'"
+        echo "ssh -T git@$host replied: $reply"
+        exit 1
+    fi
+}
+pin_github_account
+
+# One line when the loop-engineering clone has newer commits on loop/ than this
+# harness. HARNESS_VERSION beside run.sh names the clone and the commit that
+# bootstrap.sh or update.sh installed. A missing stamp or clone, or a commit
+# that the clone lacks, prints nothing, and no error here stops the loop.
+# The same function is in skills/dev-env-setup/scripts/lib.sh.
+drift_line() {
+    local commit clone count
+    commit=$(sed -n 's/^commit=//p' "$1" 2>/dev/null | head -1)
+    clone=$(sed -n 's/^clone=//p' "$1" 2>/dev/null | head -1)
+    [ -n "$commit" ] && [ -d "$clone" ] || return 0
+    count=$(git -C "$clone" rev-list --count "$commit..HEAD" -- loop/ 2>/dev/null) || return 0
+    case "$count" in 0) return 0 ;; 1) count="1 commit" ;; *) count="$count commits" ;; esac
+    echo "harness is $count behind loop-engineering; run update.sh"
+}
+drift_line "$HARNESS_DIR/HARNESS_VERSION" 2>/dev/null || true
+
 # The busy reason printed last, so a wait prints its reason once, not every 30s.
 LAST_BUSY=""
 
@@ -226,7 +391,7 @@ while true; do
         echo "In-progress beads (claimed, not finished):"
         bd list --assignee="$AGENT_NAME" --status=in_progress 2>&1 || true
         echo ""
-        if [ -n "${RALPH_SHOW_BEAD:-}" ]; then
+        if [ -n "${LOOP_SHOW_BEAD:-}" ]; then
             for BEAD_ID in $(bd list --assignee="$AGENT_NAME" --status=in_progress --json 2>/dev/null \
                               | jq -r '.[].id // empty' 2>/dev/null | head -5); do
                 echo "--- bd show $BEAD_ID ---"
@@ -253,7 +418,7 @@ while true; do
     # Built here rather than at startup: $PROMPT is re-read each iteration.
     # One array for both call sites below. claude needs two flags to emit the
     # JSONL that codex exec --json emits on its own, so only it reads
-    # $RALPH_STREAM_LOG here.
+    # $LOOP_STREAM_LOG here.
     if [ "$ENGINE" = "codex" ]; then
         AGENT_CMD=(codex exec --json --dangerously-bypass-approvals-and-sandbox)
         if [ -n "$MODEL" ]; then
@@ -262,9 +427,12 @@ while true; do
         AGENT_CMD+=("$PROMPT")
     else
         AGENT_CMD=(claude -p "$PROMPT" --model "$MODEL" --dangerously-skip-permissions)
-        if [ -n "${RALPH_STREAM_LOG:-}" ]; then
+        if [ -n "${LOOP_STREAM_LOG:-}" ]; then
             AGENT_CMD+=(--verbose --output-format stream-json)
         fi
+    fi
+    if [ -n "$KEEP_AWAKE" ]; then
+        AGENT_CMD=(caffeinate -i "${AGENT_CMD[@]}")
     fi
 
     # Capture the session's exit code explicitly: under set -e a bare failing
@@ -272,8 +440,8 @@ while true; do
     # rate limit, timeout) into a dead daemon.
     set +e
     SESSION_LOG=""
-    if [ -n "${RALPH_STREAM_LOG:-}" ]; then
-        LOG_DIR="${RALPH_LOG_DIR:-/tmp/ralph-sessions}"
+    if [ -n "${LOOP_STREAM_LOG:-}" ]; then
+        LOG_DIR="${LOOP_LOG_DIR:-/tmp/loop-sessions}"
         mkdir -p "$LOG_DIR"
         SESSION_LOG="$LOG_DIR/$(date +%Y%m%d-%H%M%S).jsonl"
         ln -sf "$SESSION_LOG" "$LOG_DIR/current.jsonl"
@@ -285,14 +453,10 @@ while true; do
         # APPENDED below — a plain `tee` would truncate this line away.
         jq -nc --arg engine "$ENGINE" --arg model "$MODEL" \
             --arg started "$(date +%Y-%m-%dT%H:%M:%S%z)" \
-            '{type:"ralph.session",engine:$engine,model:$model,started:$started}' \
+            '{type:"loop.session",engine:$engine,model:$model,started:$started}' \
             >"$SESSION_LOG"
-        ${TIMEOUT_CMD} "${AGENT_CMD[@]}" </dev/null | tee -a "$SESSION_LOG"
-        SESSION_EXIT=${PIPESTATUS[0]}
-    else
-        ${TIMEOUT_CMD} "${AGENT_CMD[@]}" </dev/null
-        SESSION_EXIT=$?
     fi
+    run_session
     set -e
 
     if [ "$SESSION_EXIT" -eq 124 ]; then
