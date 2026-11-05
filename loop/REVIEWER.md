@@ -77,8 +77,9 @@ The round number `<n>` is the value of `bd state <id> round` plus one. No value 
 1. Record the round in the state, then in the notes, then check the branch out:
    ```bash
    bd set-state <id> round=<n> --reason "Review round <n> started"
+   bd note <id> "Review round <n> started: <branch> @ $(git rev-parse --short <branch>)"
+   git checkout --detach <branch>
    ```
-   `bd note <id> "Review round <n> started: <branch> @ $(git rev-parse --short <branch>)"`, then `git checkout --detach <branch>`.
 2. Read `bd show <id>` in full: description, **design**, acceptance criteria, and every one of the coder's notes — including any `Declined /simplify findings:` and, in round 2, the `Disputed finding:` notes. In `pr` mode, find the PR number in the `PR opened:` note and read the PR with `gh pr view <number> --comments`.
 3. Read the change: `git diff "$BASE"...<branch>` and `git log "$BASE"..<branch> --oneline`. In `pr` mode, also confirm that `gh pr view <number> --json headRefOid` names the same commit as `git rev-parse <branch>`. If it does not, the coder did not push the reviewed code: treat it as a blocking finding.
 4. **Check the spec yourself.** Walk every item in the design field — especially its trap list: what had to move with the change, which tests deliberately encode old intent, what must NOT change — and confirm the diff honours each one. Confirm new behaviour got tests, and that no test was deleted, skipped or weakened to make the gate pass.
@@ -141,7 +142,8 @@ git -C "$PRIMARY" status --porcelain --untracked-files=no | grep -v '\.beads/'  
   ```bash
   bd note <id> "Review passed, awaiting merge: <branch> — primary checkout busy"
   bd set-state <id> loop=merge-wait --reason "Primary checkout busy"
-  ``` `run.sh` does not start the next reviewer session until the primary is on `main` with no modified or staged tracked files. That session's Phase 0 then completes the merge. Do not wait or retry in this session.
+  ```
+  `run.sh` does not start the next reviewer session until the primary is on `main` with no modified or staged tracked files. That session's Phase 0 then completes the merge. Do not wait or retry in this session.
 - Merge **conflicts** (`main` moved underneath the branch) → `git -C "$PRIMARY" merge --abort`, then hand it back for a rebase — see below. You never rebase; the branch is the coder's.
 
 Then record and close:
@@ -156,7 +158,7 @@ git branch -D <branch>
 git checkout --detach main
 ```
 
-`bd close` before `$HUMAN` has accepted is deliberate: a bead is closed when it is on `main`, and dependent beads only become ready when their blocker closes. The state `loop=accept` puts the bead in the human's acceptance queue instead (`bd list --label loop:accept`). The human runs `bd set-state <id> loop=done` when satisfied, or reopens the bead.
+`bd close` before `$HUMAN` has accepted is deliberate: a bead is closed when it is on `main`, and dependent beads only become ready when their blocker closes. The state `loop=accept` puts the bead in the human's acceptance queue instead (`bd list --label loop:accept --status=closed`, because the bead is already closed). The human runs `bd set-state <id> loop=done` when satisfied, or reopens the bead.
 
 Use `git branch -D` rather than `-d`: the branch is merged, but `-d` cannot prove it from a detached HEAD. EXIT.
 

@@ -442,9 +442,7 @@ def test_the_review_marker_matches_the_one_alice_is_told_to_write():
         found[1]
         for line in alice.splitlines()
         if (
-            found := re.search(
-                r'`(bd note <id> "Review round <n> started:[^`]*)`', line
-            )
+            found := re.search(r'(bd note <id> "Review round <n> started:[^"]*")', line)
         )
     ]
     command = (

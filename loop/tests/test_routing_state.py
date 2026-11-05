@@ -114,3 +114,67 @@ def test_the_human_queues_use_the_state_labels():
         assert label in LOOP_README, label
         assert label in DOCS["README.md"], label
     assert "bd set-state <id> loop=done" in DOCS["loop/interactive.template.md"]
+
+
+def test_the_accept_queue_lists_closed_beads():
+    # The reviewer closes the bead before it sets loop=accept, and bd list
+    # hides closed beads, so the queue command must ask for them.
+    texts = {"CODER.md": CODER, "REVIEWER.md": REVIEWER, **DOCS}
+    seen = 0
+    for name, text in texts.items():
+        for line in text.splitlines():
+            if re.search(r"bd list[^`\n]*loop:accept", line):
+                seen += 1
+                assert re.search(r"--status[= ]closed|--all", line), (name, line)
+    assert seen >= 2
+
+
+def _routing_bullet(value: str) -> str:
+    (bullet,) = [
+        line
+        for line in CODER.splitlines()
+        if line.lstrip().startswith(f"- **`{value}`**")
+    ]
+    return bullet
+
+
+def test_returned_and_rebase_stay_set_until_the_handoff():
+    # A session that crashes mid-resume must still see why the bead came back.
+    for value in ("returned", "rebase"):
+        assert "loop=coding" not in _routing_bullet(value), value
+    coding_rows = [
+        line
+        for text in (CODER, LOOP_README)
+        for line in text.splitlines()
+        if line.startswith(("| `coding`", "| `loop=coding`"))
+    ]
+    assert len(coding_rows) == 2
+    for row in coding_rows:
+        resumes = row.split("resume", 1)[1].split(".", 1)[0].split("|", 1)[0]
+        assert "`returned`" not in resumes and "`rebase`" not in resumes, row
+
+
+def test_code_fences_are_well_formed():
+    # A closing fence with text after it is not a closing fence in CommonMark.
+    for name, text in {"CODER.md": CODER, "REVIEWER.md": REVIEWER, **DOCS}.items():
+        inside = False
+        for number, line in enumerate(text.splitlines(), 1):
+            stripped = line.strip()
+            if not stripped.startswith("```"):
+                continue
+            info = stripped[3:]
+            if inside:
+                assert info == "", f"{name}:{number}: text after a closing fence"
+            else:
+                assert " " not in info, f"{name}:{number}: prose after a fence"
+            inside = not inside
+        assert not inside, f"{name}: unclosed fence"
+
+
+def test_the_round_start_note_is_in_the_code_block():
+    block = REVIEWER.split("1. Record the round in the state", 1)[1].split("\n2. ", 1)[
+        0
+    ]
+    fenced = block.split("```bash", 1)[1].split("```", 1)[0]
+    assert 'bd note <id> "Review round <n> started:' in fenced
+    assert "git checkout --detach <branch>" in fenced

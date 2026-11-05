@@ -49,7 +49,7 @@ The `loop` values you set, and what each one means:
 
 | Value | When you set it | Assignee after | Status after |
 |---|---|---|---|
-| `loop=coding` | At claim, and when you resume a bead in state `returned`, `rebase`, `parked`, `escalated` or `blocked` | `$CODER` | `in_progress` |
+| `loop=coding` | At claim, and when you resume a bead in state `parked`, `escalated` or `blocked` | `$CODER` | `in_progress` |
 | `loop=review` | At handoff (step 14) after new work or after you address review findings | `$REVIEWER` | `in_progress` |
 | `loop=rebased` | At handoff (step 14) after a rebase only | `$REVIEWER` | `in_progress` |
 | `loop=parked` | Gate fails twice (step 12), push or `gh` fails (step 13), no code written (step 10), design unclear | `$HUMAN` | `in_progress` when a branch with work exists, `open` with the branch deleted otherwise |
@@ -69,8 +69,8 @@ bd list --assignee="$CODER" --status=in_progress
 
 - If **nothing** is in progress → go to Phase 1.
 - If a bead is in progress, you MUST resume it instead of picking up new work. Run `bd show <id>`. The notes are an append-only log, so they still hold the branch name, every checkpoint SHA and any PR number. Then read the routing state with `bd state <id> loop`, and route on that value:
-  - **`returned`** → the reviewer bounced the bead. Run `bd set-state <id> loop=coding --reason "Addressing review findings"`. Get the round with `bd state <id> round`. Check the branch out and address every `Review round <round> failed:` finding, and only those. `Non-blocking review findings:` are for `$HUMAN` to triage. Then do Phase 2 again and run the gate again (step 12). Write `bd note <id> "Review round <n> addressed: $(git rev-parse --short HEAD)"`, with `<n>` as the round. Hand the bead back at step 13. If you think that a finding is wrong, do not change the code. Write the reason in `bd note <id> "Disputed finding: <why>"`. The reviewer judges it on its merits in the next round.
-  - **`rebase`** → `$BASE` moved under your branch. Run `bd set-state <id> loop=coding --reason "Rebasing on $BASE"`. Check the branch out, run `git rebase "$BASE"`, run the gate again (step 12), and hand the bead back at step 13. In `pr` mode, step 13 pushes with `--force-with-lease`. At step 14, set `loop=rebased`, not `loop=review`. A rebase is not a review round.
+  - **`returned`** → the reviewer bounced the bead. Leave the state at `returned` until the handoff at step 14, so that a session that crashes here still knows why the bead came back. Get the round with `bd state <id> round`. Check the branch out and address every `Review round <round> failed:` finding, and only those. `Non-blocking review findings:` are for `$HUMAN` to triage. Then do Phase 2 again and run the gate again (step 12). Write `bd note <id> "Review round <n> addressed: $(git rev-parse --short HEAD)"`, with `<n>` as the round. Hand the bead back at step 13. If you think that a finding is wrong, do not change the code. Write the reason in `bd note <id> "Disputed finding: <why>"`. The reviewer judges it on its merits in the next round.
+  - **`rebase`** → `$BASE` moved under your branch. Leave the state at `rebase` until the handoff at step 14, so that a session that crashes here still hands the bead back as a rebase. Check the branch out, run `git rebase "$BASE"`, run the gate again (step 12), and hand the bead back at step 13. In `pr` mode, step 13 pushes with `--force-with-lease`. At step 14, set `loop=rebased`, not `loop=review`. A rebase is not a review round.
   - **`parked`** or **`escalated`** → `$HUMAN` resumed the bead and gave it back to you. Read the newest note from `$HUMAN` and do what it says. Run `bd set-state <id> loop=coding --reason "Resumed by $HUMAN"`. From `escalated` only, also run `bd set-state <id> round=0 --reason "Resumed by $HUMAN after escalation"`, so that the next review is round 1 again. Then continue with the git checks below.
   - **`coding`, no value, or any other value** → continue with the git checks below.
 
@@ -162,7 +162,7 @@ bd list --assignee="$CODER" --status=in_progress
     bd update <id> --assignee="$REVIEWER"
     git checkout loop
     ```
-    Set `loop=rebased` only when this session resumed the bead from `rebase` and changed nothing but the rebase. In every other case, set `loop=review`. The reviewer starts a new round for `review` and keeps the round number for `rebased`.
+    Set `loop=rebased` only when the bead is in state `rebase` and the branch changed by nothing but the rebase. In every other case, set `loop=review`. The reviewer starts a new round for `review` and keeps the round number for `rebased`.
 
     The bead stays `in_progress` — it belongs to the reviewer now, not to you. **Keep the feature branch**: the reviewer reads it, and in `local` mode merges and deletes it. If it is bounced back, your next Phase 0 picks it up.
 15. EXIT. **Do NOT start another bead.**
@@ -265,7 +265,8 @@ Your session's work is done at the handoff. The bead itself CLOSES only when its
   bd note <id> "Blocked: <reason>"
   bd set-state <id> loop=parked --reason "Design unclear"
   bd update <id> --assignee="$HUMAN"
-  ``` Do not guess your way through an ambiguous spec — the human specs interactively precisely so you never have to.
+  ```
+  Do not guess your way through an ambiguous spec — the human specs interactively precisely so you never have to.
 - **An external service from the Project section is unavailable** (missing or expired credentials, network failure): work against fixtures or committed data. Write on the bead what you could not test live, and put a clear TODO in the bead notes, not in code comments. Never put credentials in code or in output.
 - **bd command fails with a lock/unavailable error:** the beads DB is single-writer and the human may be using it interactively. Wait a few seconds and retry the same command; only park if it stays down.
 - **You were interrupted mid-bead in a previous session:** Your checkpoint commits and bead notes are the recovery data — Phase 0 tells you how to resume from them.

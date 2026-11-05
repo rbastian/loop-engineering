@@ -168,11 +168,11 @@ Set the mode in `.loop/project.md`.
 | `pr` (default) | The reviewer hands the PR to the human for approval and merge. The human closes the bead after merging. Use this for shared repositories. | `loop:merge` |
 | `local` | The reviewer merges into `main` in the primary checkout, closes the bead and assigns it to the human for acceptance. Intended for single-user repositories; no remote is required. | `loop:accept` |
 
-In either mode, a second failed review sets `loop=escalated` and assigns the unmerged bead to the human. A bead that the coder cannot continue, for example after a gate fails twice, gets `loop=parked` and goes to the human too. List each queue with `bd list --label <queue>`:
+In either mode, a second failed review sets `loop=escalated` and assigns the unmerged bead to the human. A bead that the coder cannot continue, for example after a gate fails twice, gets `loop=parked` and goes to the human too. List each queue with `bd list --label <queue>`. The `loop:accept` beads are already closed, so that queue also needs `--status=closed`:
 
 ```bash
 bd list --label loop:merge       # pr mode: reviewed PRs to approve and merge
-bd list --label loop:accept      # local mode: merged work to accept with bd set-state <id> loop=done
+bd list --label loop:accept --status=closed   # local mode: merged work to accept with bd set-state <id> loop=done
 bd list --label loop:escalated   # review failed twice: decide, add a note, assign back to the coder
 bd list --label loop:parked      # the coder is stuck: fix the cause, add a note, assign back to the coder
 ```

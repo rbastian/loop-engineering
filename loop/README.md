@@ -42,7 +42,7 @@ This table is the one source for the `loop` values. `CODER.md` and `REVIEWER.md`
 
 | `loop` value | Set by | When | Assignee after | Status |
 |---|---|---|---|---|
-| `coding` | coder | At claim (Phase 1 step 3), and when it resumes a bead in state `returned`, `rebase`, `parked`, `escalated` or `blocked` | coder | `in_progress` |
+| `coding` | coder | At claim (Phase 1 step 3), and when it resumes a bead in state `parked`, `escalated` or `blocked`. A bead in state `returned` or `rebase` keeps that state until the handoff at step 14. | coder | `in_progress` |
 | `review` | coder | At handoff (step 14) after new work or after it addresses review findings | reviewer | `in_progress` |
 | `rebased` | coder | At handoff after a rebase only | reviewer | `in_progress` |
 | `returned` | reviewer | Round 1 failed | coder | `in_progress` |
@@ -328,7 +328,7 @@ Then exclude `.loop` from ruff, as in step 3 of [Install in a project](#install-
 
 - The coder implements and the reviewer reviews. In `pr` mode the human approves and merges. In `local` mode the reviewer merges and the human accepts.
 - If the reviewer finds a blocking problem, it returns the bead to the coder once. After a second failed round, it escalates the bead to the human.
-- The human has these queues. Each queue is a `loop` state label, and `bd list --label <label>` lists it:
+- The human has these queues. Each queue is a `loop` state label, and `bd list --label <label>` lists it. The `loop:accept` beads are closed, so list that queue with `bd list --label loop:accept --status=closed`:
   - `loop:merge` (`pr` mode): reviewed pull requests that wait for approval and merge. After the merge, run `bd close <id>` and `bd set-state <id> loop=done`.
   - `loop:accept` (`local` mode): merged work that waits for acceptance. Run `bd set-state <id> loop=done` when satisfied, or reopen the bead.
   - `loop:escalated`: unmerged work where the coder and the reviewer disagree. Read the findings and disputes, add a note with your decision, and assign the bead back to the coder.
