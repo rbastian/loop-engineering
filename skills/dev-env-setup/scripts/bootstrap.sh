@@ -10,7 +10,11 @@
 #   LOOP_REVIEWER   — the reviewer agent's name (default: Alice)
 #   LOOP_HUMAN      — the bd assignee who approves merges (default: $USER)
 #   LOOP_SHIP_MODE  — pr (default) or local, for a repository with one user
-#   LOOP_REVIEWER_ENGINE — claude (default) or codex, the reviewer's CLI
+#   LOOP_CODER_ENGINE    — claude (default) or fw, the coder's CLI
+#   LOOP_CODER_MODEL     — the coder's model; empty means the engine's default
+#   LOOP_REVIEWER_ENGINE — claude (default), codex or fw, the reviewer's CLI
+#   LOOP_REVIEWER_MODEL  — the reviewer's model; empty means the engine's default
+#   fw has no default model, so an agent on fw needs its model variable.
 #   LOOP_GITHUB_ACCOUNT — the GitHub account that the agents use; required in
 #                         pr mode, written empty in local mode
 #
@@ -52,7 +56,10 @@ CODER="${LOOP_CODER:-Ralph}"
 REVIEWER="${LOOP_REVIEWER:-Alice}"
 HUMAN="${LOOP_HUMAN:-$USER}"
 SHIP_MODE="${LOOP_SHIP_MODE:-pr}"
+CODER_ENGINE="${LOOP_CODER_ENGINE:-claude}"
+CODER_MODEL="${LOOP_CODER_MODEL:-}"
 REVIEWER_ENGINE="${LOOP_REVIEWER_ENGINE:-claude}"
+REVIEWER_MODEL="${LOOP_REVIEWER_MODEL:-}"
 GITHUB_ACCOUNT="${LOOP_GITHUB_ACCOUNT:-}"
 # The agent names become bd assignees and, lowercased, worktree and log paths.
 for agent in "$CODER" "$REVIEWER"; do
@@ -65,13 +72,8 @@ if [ "$CODER" = "$REVIEWER" ]; then
     echo "ERROR: the coder and the reviewer need different names"
     exit 1
 fi
-case "$REVIEWER_ENGINE" in
-    claude | codex) ;;
-    *)
-        echo "ERROR: LOOP_REVIEWER_ENGINE must be claude or codex (got: $REVIEWER_ENGINE)"
-        exit 1
-        ;;
-esac
+check_engine LOOP_ CODER "$CODER_ENGINE" "$CODER_MODEL" || exit 1
+check_engine LOOP_ REVIEWER "$REVIEWER_ENGINE" "$REVIEWER_MODEL" || exit 1
 case "$SHIP_MODE" in
     pr | local) ;;
     *)
@@ -102,7 +104,11 @@ missing=0
 TOOLS=(git uv bd jq claude)
 # pr mode pushes branches and opens pull requests.
 [ "$SHIP_MODE" = pr ] && TOOLS+=(gh)
-[ "$REVIEWER_ENGINE" = codex ] && TOOLS+=(codex)
+# Each engine is also its command. run.sh runs fw --check at start, so
+# bootstrap.sh only looks for the command.
+for engine in "$CODER_ENGINE" "$REVIEWER_ENGINE"; do
+    [ "$engine" = claude ] || TOOLS+=("$engine")
+done
 for tool in "${TOOLS[@]}"; do
     command -v "$tool" >/dev/null 2>&1 || { echo "ERROR: $tool not found"; missing=1; }
 done
@@ -285,9 +291,12 @@ else
         -e "s#{{REVIEWER_WORKTREE}}#$PARENT/$NAME-$(lower "$REVIEWER")#g" \
         -e "s#{{SHIP_MODE}}#$SHIP_MODE#g" \
         -e "s#{{GITHUB_ACCOUNT}}#$GITHUB_ACCOUNT#g" \
+        -e "s#{{CODER_ENGINE}}#$CODER_ENGINE#g" \
+        -e "s#{{CODER_MODEL}}#$CODER_MODEL#g" \
         -e "s#{{REVIEWER_ENGINE}}#$REVIEWER_ENGINE#g" \
+        -e "s#{{REVIEWER_MODEL}}#$REVIEWER_MODEL#g" \
         -e "s#{{BEAD_PREFIX}}#$PREFIX#g" >.loop/project.md
-    echo "wrote .loop/project.md for $NAME: $CODER codes, $REVIEWER reviews, $HUMAN merges, ship mode $SHIP_MODE${GITHUB_ACCOUNT:+ as $GITHUB_ACCOUNT}, reviewer on $REVIEWER_ENGINE"
+    echo "wrote .loop/project.md for $NAME: $CODER codes, $REVIEWER reviews, $HUMAN merges, ship mode $SHIP_MODE${GITHUB_ACCOUNT:+ as $GITHUB_ACCOUNT}, coder on $CODER_ENGINE${CODER_MODEL:+ ($CODER_MODEL)}, reviewer on $REVIEWER_ENGINE${REVIEWER_MODEL:+ ($REVIEWER_MODEL)}"
 fi
 
 step "gate"

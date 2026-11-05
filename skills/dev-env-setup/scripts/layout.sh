@@ -1,16 +1,19 @@
 #!/bin/bash
 # Start both loops in their own herdr tab, and both watchers and the beads list
 # in the caller's tab:
-#   loop tab:      coder loop | reviewer loop (Claude or Codex, another model from the coder)
+#   loop tab:      coder loop | reviewer loop
 #   caller's tab:  coder watcher (1/2)  | reviewer watcher (1/2)   (top third)
 #                  calling pane (2/3)   | Beads (1/3)               (bottom two thirds)
 # Usage: layout.sh PROJECT_DIR
 # The agent names and worktree paths come from .loop/project.md.
-# The coder runs on Claude Code with CODER_MODEL (default claude-opus-5-5).
-# REVIEWER_ENGINE in .loop/project.md picks the reviewer's CLI: claude or codex.
-# The REVIEWER_ENGINE environment variable overrides it for one start. On claude,
-# REVIEWER_MODEL defaults to claude-sonnet-5-5, so it reviews with a different
-# model. On codex it has no default, and run.sh uses the plan's default model.
+# CODER_ENGINE, CODER_MODEL, REVIEWER_ENGINE and REVIEWER_MODEL in
+# .loop/project.md pick each agent's CLI and model. The environment variables
+# of the same names override them for one start. The coder runs on claude or
+# fw, the reviewer on claude, codex or fw. A missing or empty field gives the
+# default: engine claude, model claude-opus-5-5 for the coder and
+# claude-sonnet-5-5 for the reviewer on claude, so the reviewer reviews with a
+# different model. On codex the model has no default, and run.sh uses the
+# plan's default model. fw has no default model, so an agent on fw needs one.
 # Must run inside a herdr pane. Refuses to run twice for the same project.
 set -euo pipefail
 
@@ -39,19 +42,37 @@ for v in CODER REVIEWER CODER_TREE REVIEWER_TREE; do
     case "${!v}" in "" | *"{{"*) echo "ERROR: $v is not set in .loop/project.md"; exit 1 ;; esac
 done
 
-REVIEWER_ENGINE="${REVIEWER_ENGINE:-$(conf REVIEWER_ENGINE)}"
-REVIEWER_ENGINE="${REVIEWER_ENGINE:-claude}"
-case "$REVIEWER_ENGINE" in
-    claude) REVIEWER_MODEL="${REVIEWER_MODEL:-claude-sonnet-5-5}" ;;
-    codex)
-        command -v codex >/dev/null 2>&1 || { echo "ERROR: REVIEWER_ENGINE=codex, but codex is not installed"; exit 1; }
-        REVIEWER_MODEL="${REVIEWER_MODEL:-}"
-        ;;
-    *)
-        echo "ERROR: REVIEWER_ENGINE must be claude or codex (got: $REVIEWER_ENGINE)"
-        exit 1
-        ;;
-esac
+# Set ROLE_ENGINE and ROLE_MODEL for ROLE (CODER or REVIEWER). CLAUDE_MODEL
+# is the role's default model on claude. A model in .loop/project.md belongs
+# to the engine in that file, so an engine override in the environment does
+# not take it. Usage: pick_engine ROLE CLAUDE_MODEL
+pick_engine() {
+    local engine_var="${1}_ENGINE" model_var="${1}_MODEL"
+    local file_engine file_model engine model
+    file_engine="$(conf "$engine_var")"
+    file_engine="${file_engine:-claude}"
+    file_model="$(conf "$model_var")"
+    engine="${!engine_var:-$file_engine}"
+    model="${!model_var:-}"
+    if [ -z "$model" ] && [ "$engine" = "$file_engine" ]; then
+        model="$file_model"
+    fi
+    case "$engine $model" in *"{{"*) echo "ERROR: $engine_var or $model_var is not set in .loop/project.md"; exit 1 ;; esac
+    check_engine "" "$1" "$engine" "$model" || exit 1
+    case "$engine" in
+        claude) model="${model:-$2}" ;;
+        codex)
+            command -v codex >/dev/null 2>&1 || { echo "ERROR: $engine_var=codex, but codex is not installed"; exit 1; }
+            ;;
+        fw)
+            command -v fw >/dev/null 2>&1 || { echo "ERROR: $engine_var=fw, but fw is not on PATH (usually ~/.local/bin/fw)"; exit 1; }
+            ;;
+    esac
+    printf -v "$engine_var" '%s' "$engine"
+    printf -v "$model_var" '%s' "$model"
+}
+pick_engine CODER claude-opus-5-5
+pick_engine REVIEWER claude-sonnet-5-5
 
 # The watchers match only this project's bead IDs. An overlay written before
 # BEAD_PREFIX existed has no such line, and watch.py then matches any prefix.
@@ -119,13 +140,14 @@ BEADS_LOOP='clear; prev=; while true; do out=$(CLICOLOR_FORCE=1 bd list --status
 herdr pane run "$BEADS_PANE" "$BEADS_LOOP" >/dev/null
 
 # The loops read the primary's harness files, so prompt changes merged to
-# main take effect without touching the worktrees.
+# main take effect without touching the worktrees. The quotes keep a model
+# such as deepseek-flash-latest[1m] from being read as a glob.
 herdr pane run "$CODER_PANE" \
-    "LOOP_MODEL=${CODER_MODEL:-claude-opus-5-5} LOOP_STREAM_LOG=1 LOOP_SHOW_BEAD=1 LOOP_LOG_DIR=$CODER_LOG $PROJECT/.loop/run.sh $CODER $PROJECT/.loop/CODER.md" >/dev/null
+    "LOOP_ENGINE=$CODER_ENGINE LOOP_MODEL='$CODER_MODEL' LOOP_STREAM_LOG=1 LOOP_SHOW_BEAD=1 LOOP_LOG_DIR=$CODER_LOG $PROJECT/.loop/run.sh $CODER $PROJECT/.loop/CODER.md" >/dev/null
 herdr pane run "$REVIEWER_PANE" \
-    "LOOP_ENGINE=$REVIEWER_ENGINE LOOP_MODEL=$REVIEWER_MODEL LOOP_STREAM_LOG=1 LOOP_SHOW_BEAD=1 LOOP_LOG_DIR=$REVIEWER_LOG $PROJECT/.loop/run.sh $REVIEWER $PROJECT/.loop/REVIEWER.md" >/dev/null
+    "LOOP_ENGINE=$REVIEWER_ENGINE LOOP_MODEL='$REVIEWER_MODEL' LOOP_STREAM_LOG=1 LOOP_SHOW_BEAD=1 LOOP_LOG_DIR=$REVIEWER_LOG $PROJECT/.loop/run.sh $REVIEWER $PROJECT/.loop/REVIEWER.md" >/dev/null
 
 echo "opened tab '$LABEL'"
-echo "  $CODER: $CODER_PANE   $REVIEWER: $REVIEWER_PANE ($REVIEWER_ENGINE)"
+echo "  $CODER: $CODER_PANE ($CODER_ENGINE)   $REVIEWER: $REVIEWER_PANE ($REVIEWER_ENGINE)"
 echo "watchers in this tab"
 echo "  $CODER watcher: $CODER_WATCH   $REVIEWER watcher: $REVIEWER_WATCH   Beads: $BEADS_PANE"

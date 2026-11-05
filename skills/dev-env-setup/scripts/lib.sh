@@ -131,3 +131,37 @@ drift_line() {
     case "$count" in 0) return 0 ;; 1) count="1 commit" ;; *) count="$count commits" ;; esac
     echo "harness is $count behind loop-engineering; run update.sh"
 }
+
+# Succeeds when MODEL is safe to write into .loop/project.md and into a pane
+# command: letters, digits and . _ : / @ - [ ], for example
+# deepseek-flash-latest[1m]. An empty MODEL passes. Usage: valid_model MODEL
+valid_model() {
+    local re='^[][A-Za-z0-9._:/@-]*$'
+    [[ "$1" =~ $re ]]
+}
+
+# Check the engine and the model of one agent, ROLE CODER or REVIEWER. The
+# coder runs on claude or fw, because its prompt uses /simplify, a Claude Code
+# skill, and fw runs Claude Code. The reviewer runs on claude, codex or fw. fw
+# has no default model. PREFIX goes before the variable names in the errors:
+# LOOP_ for bootstrap.sh, empty for layout.sh. Prints the error and fails.
+# Usage: check_engine PREFIX ROLE ENGINE MODEL
+check_engine() {
+    local engine_var="$1${2}_ENGINE" model_var="$1${2}_MODEL" engines
+    case "$2" in
+        CODER) engines="claude fw" ;;
+        *) engines="claude codex fw" ;;
+    esac
+    case " $engines " in
+        *" $3 "*) ;;
+        *) echo "ERROR: $engine_var must be one of: $engines (got: $3)"; return 1 ;;
+    esac
+    if ! valid_model "$4"; then
+        echo "ERROR: $model_var must be letters, digits and . _ : / @ - [ ] (got: $4)"
+        return 1
+    fi
+    if [ "$3" = fw ] && [ -z "$4" ]; then
+        echo "ERROR: $engine_var=fw needs $model_var, for example deepseek-flash-latest[1m]"
+        return 1
+    fi
+}
