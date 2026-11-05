@@ -42,9 +42,9 @@ This session acts as the GitHub account in `GITHUB_ACCOUNT` in `.loop/project.md
 
 ### After a merge
 
-In `pr` ship mode, beads with the label `merge` wait for {{HUMAN}} to approve and merge their pull requests. After {{HUMAN}} merges a pull request, you can do the next steps for them:
+In `pr` ship mode, beads with the state label `loop:merge` wait for {{HUMAN}} to approve and merge their pull requests. List them with `bd list --label loop:merge`. After {{HUMAN}} merges a pull request, you can do the next steps for them:
 
 1. Close the bead: `bd close <id>`.
-2. Remove the label: `bd label remove <id> merge`.
+2. Mark the bead done: `bd set-state <id> loop=done`.
 3. Fast-forward `main` in the primary checkout: `git pull --ff-only`.
 <!-- END LOOP INTERACTIVE -->
