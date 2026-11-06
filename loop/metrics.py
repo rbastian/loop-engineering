@@ -110,7 +110,7 @@ class Github:
 
     def __init__(self, account: str) -> None:
         self.token = self._token(account)
-        self.merged: dict[int, datetime | None] = {}
+        self.merged: dict[int, tuple[bool, datetime | None]] = {}
 
     def _token(self, account: str) -> str | None:
         if not account:
@@ -131,9 +131,13 @@ class Github:
             return None
         return result.stdout.strip() or None
 
-    def merged_at(self, number: int) -> datetime | None:
-        if number in self.merged:
-            return self.merged[number]
+    def merged_at(self, number: int) -> tuple[bool, datetime | None]:
+        """Whether the lookup worked, and the merge time when it did."""
+        if number not in self.merged:
+            self.merged[number] = self._lookup(number)
+        return self.merged[number]
+
+    def _lookup(self, number: int) -> tuple[bool, datetime | None]:
         env = os.environ.copy()
         if self.token:
             env["GH_TOKEN"] = self.token
@@ -148,21 +152,16 @@ class Github:
             )
         except (OSError, subprocess.TimeoutExpired) as error:
             warn(f"gh pr view #{number} failed: {error}")
-            self.merged[number] = None
-            return None
+            return False, None
         if result.returncode != 0:
             warn(f"gh pr view #{number} failed: {result.stderr.strip()}")
-            self.merged[number] = None
-            return None
+            return False, None
         try:
             payload = json.loads(result.stdout)
         except json.JSONDecodeError as error:
             warn(f"gh pr view #{number} returned invalid JSON: {error}")
-            self.merged[number] = None
-            return None
-        merged = parse_time(payload.get("mergedAt"))
-        self.merged[number] = merged
-        return merged
+            return False, None
+        return True, parse_time(payload.get("mergedAt"))
 
 
 def loop_events(rows: list[dict]) -> dict[str, list[dict]]:
@@ -231,8 +230,17 @@ def first_coding_event(events: list[dict]) -> datetime | None:
 
 
 def build_row(
-    row: dict, events: list[dict], escapes: Counter, github: Github
-) -> tuple[dict, datetime | None, dict[str, float]]:
+    row: dict,
+    events: list[dict],
+    escapes: Counter,
+    github: Github,
+    ship_mode: str,
+) -> tuple[dict, bool | None, datetime | None, dict[str, float]]:
+    """The row, whether it merged, the merge time, and the cost per agent.
+
+    `merged` is False for a bead that did not merge, True for one that did, and
+    None when `gh` failed and the answer is unknown.
+    """
     notes = row.get("notes") or ""
     human_times = [int(value) for value in HUMAN_TIME_RE.findall(notes)]
     human = sum(human_times) if human_times else None
@@ -240,31 +248,32 @@ def build_row(
 
     pr_match = PR_OPENED_RE.search(notes)
     pr_number = int(pr_match.group(1)) if pr_match else None
-    estimated = False
-    merged = None
+    merged: bool | None = False
+    merge_time = None
     if pr_number is not None:
-        merged = github.merged_at(pr_number)
-    elif row.get("status") == "closed" and row.get("closed_at"):
-        merged = parse_time(row.get("closed_at"))
-        estimated = merged is not None
+        known, merge_time = github.merged_at(pr_number)
+        merged = merge_time is not None if known else None
+    elif ship_mode == "local" and row.get("status") == "closed":
+        merge_time = parse_time(row.get("closed_at"))
+        merged = merge_time is not None
 
     coding = first_coding_event(events)
     lead = None
-    if coding is not None and merged is not None:
-        lead = round((merged - coding).total_seconds() / 60)
+    if coding is not None and merge_time is not None:
+        lead = round((merge_time - coding).total_seconds() / 60)
 
     result = {
         "id": row.get("id", ""),
         "title": row.get("title", ""),
         "human_minutes": human,
         "lead_time_minutes": lead,
-        "lead_time_estimated": estimated,
+        "lead_time_estimated": pr_number is None and merge_time is not None,
         "review_returns": len(REVIEW_FAILED_RE.findall(notes)),
         "escapes": escapes.get(row.get("id", ""), 0),
         "cost": round(cost, 2),
         "unknown_cost_sessions": unknown,
     }
-    return result, merged, cost_by_agent
+    return result, merged, merge_time, cost_by_agent
 
 
 def median(values: list[float]) -> float | None:
@@ -422,6 +431,7 @@ def main(argv: list[str] | None = None) -> int:
 
     overlay = read_overlay(find_project_file())
     account = overlay.get("GITHUB_ACCOUNT", "")
+    ship_mode = overlay.get("SHIP_MODE", "pr")
     agents = [overlay.get("CODER", "Ralph"), overlay.get("REVIEWER", "Alice")]
     agents = agents if args.by_agent else []
 
@@ -437,10 +447,12 @@ def main(argv: list[str] | None = None) -> int:
         bead_id = row.get("id", "")
         if bead_id not in events:
             continue
-        result, merged, cost_by_agent = build_row(row, events[bead_id], escapes, github)
-        if not args.all and merged is None:
+        result, merged, merge_time, cost_by_agent = build_row(
+            row, events[bead_id], escapes, github, ship_mode
+        )
+        if not args.all and merged is False:
             continue
-        if since is not None and (merged is None or merged.date() < since):
+        if since is not None and (merge_time is None or merge_time.date() < since):
             continue
         if agents:
             result["cost_by_agent"] = {

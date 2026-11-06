@@ -21,6 +21,7 @@ PROJECT = """# Project
 CODER=Ralph
 REVIEWER=Alice
 GITHUB_ACCOUNT=rbastian
+SHIP_MODE={ship_mode}
 ```
 """
 
@@ -88,12 +89,22 @@ def merged_bead(notes, *extra, bead_id="lpe-a"):
     ]
 
 
-def run_metrics(tmp_path, beads, *, args=(), pr_result=None, gh_fails=False):
+def closed_bead_without_pr():
+    """One bead that started coding at 10:00 and closed at 12:00."""
+    return [
+        bead("lpe-a", status="closed", closed_at="2026-01-01T12:00:00Z"),
+        event("lpe-a.1", "lpe-a", "2026-01-01T10:00:00Z"),
+    ]
+
+
+def run_metrics(
+    tmp_path, beads, *, args=(), pr_result=None, gh_fails=False, ship_mode="pr"
+):
     """Run metrics.py in a scratch project with fake bd and gh commands."""
     project = tmp_path / "project"
     (project / "loop").mkdir(parents=True)
     (project / ".loop").mkdir()
-    (project / ".loop/project.md").write_text(PROJECT)
+    (project / ".loop/project.md").write_text(PROJECT.format(ship_mode=ship_mode))
     shutil.copy(METRICS, project / "loop/metrics.py")
 
     beads_file = project / "beads.json"
@@ -187,33 +198,38 @@ def test_an_escaped_bug_counts_one_escape_on_the_original(tmp_path):
     assert row["escapes"] == 1
 
 
-# Criterion 4: no PR means closed_at and a mark.
+# Criterion 4: in local mode, no PR means closed_at and a mark.
 def test_a_bead_without_a_pr_uses_closed_at_and_marks_the_lead_time(tmp_path):
-    beads = [
-        bead(
-            "lpe-a",
-            status="closed",
-            closed_at="2026-01-01T12:00:00Z",
-        ),
-        event("lpe-a.1", "lpe-a", "2026-01-01T10:00:00Z"),
-    ]
-    data = run_json(tmp_path, beads)
+    data = run_json(tmp_path, closed_bead_without_pr(), ship_mode="local")
 
     row = data["beads"][0]
     assert row["lead_time_minutes"] == 120
     assert row["lead_time_estimated"] is True
 
 
-# Criterion 5: a gh failure warns, exits 0 and leaves the lead time empty.
+# Review round 1: in pr mode, a closed bead with no PR is not merged.
+def test_a_closed_bead_without_a_pr_is_not_merged_in_pr_mode(tmp_path):
+    beads = closed_bead_without_pr()
+    default = run_json(tmp_path / "default", beads)
+
+    assert default["beads"] == []
+
+    shown = run_json(tmp_path / "all", beads, args=("--json", "--all"))
+
+    row = shown["beads"][0]
+    assert row["lead_time_minutes"] is None
+    assert row["lead_time_estimated"] is False
+
+
+# Criterion 5: a gh failure warns, exits 0, and keeps the bead in the report.
 def test_a_gh_failure_warns_and_leaves_the_lead_time_empty(tmp_path):
     notes = "PR opened: #7 https://example.test/pull/7\n"
-    result = run_metrics(
-        tmp_path, merged_bead(notes), args=("--json", "--all"), gh_fails=True
-    )
+    result = run_metrics(tmp_path, merged_bead(notes), args=("--json",), gh_fails=True)
 
     assert result.returncode == 0
     assert "warning" in result.stderr.lower()
     data = json.loads(result.stdout)
+    assert len(data["beads"]) == 1
     assert data["beads"][0]["lead_time_minutes"] is None
 
 
