@@ -27,6 +27,59 @@ The reviewer comments but does not approve. The agents act as the GitHub account
 
 `local` is only for a repository with one user. No remote is necessary. If the review passes, the reviewer merges the branch into `main` in the primary checkout with `git merge --no-ff`. Then the reviewer closes the bead, sets `loop=accept` and assigns the bead to the human.
 
+### Pull request text
+
+In `pr` mode the coder's pull request description and the reviewer's pull request comments are Markdown. Each agent passes the text with `--body-file -` and a quoted heredoc (`<<'EOF'`). The shell expands nothing inside a quoted heredoc, so backticks, `$` and quotes reach GitHub unchanged. The agent types the bead ID, the round and the sha into the text itself. The bead notes stay plain text with the same markers, because the routing, the watchers and `run.sh` read them.
+
+The coder writes the description once, when it opens the pull request. It has a bead line, a summary, one bullet per changed file or area, and one checklist line per acceptance criterion:
+
+```markdown
+Bead: lpe-415
+
+## Summary
+
+The PR description and the review comments are structured Markdown. Each body goes through a quoted heredoc.
+
+## Changes
+
+- `loop/CODER.md`: step 13 opens the PR with `--body-file -`.
+- `loop/REVIEWER.md`: each `gh pr comment` uses the headed layout.
+
+## Acceptance criteria
+
+- [x] 1. The PR body uses a quoted heredoc (`test_the_coder_opens_the_pr_with_a_body_file_heredoc`)
+- [ ] 2. A live PR shows the layout (not checked: no network in the test run)
+```
+
+The reviewer posts one comment for each pass, round 1 fail and escalation. The heading names the outcome and the round: `passed`, `changes needed` or `escalated to <human>`. A short block gives the method, the finding counts and the gate result. Then come `### Blocking findings` (a numbered list, left out on a pass), `### Checked`, `### Non-blocking findings` and `### Acceptance evidence` as a table:
+
+```markdown
+## Review by Alice: changes needed (round 1)
+
+/code-review: 3 findings (1 blocking). Gate: passed on `a1b2c3d`, 343 tests.
+
+### Blocking findings
+
+1. `loop/REVIEWER.md`: the escalation comment still uses `--body "..."`.
+
+### Checked
+
+- Design item 5: the bead-note markers are unchanged.
+
+### Non-blocking findings
+
+- None
+
+### Acceptance evidence
+
+| # | Outcome | Evidence |
+|---|---|---|
+| 1 | verified | `test_the_coder_opens_the_pr_with_a_body_file_heredoc` |
+| 2 | not verified | the escalation comment, see finding 1 |
+```
+
+If lpe-6er.1 (the Behavior, Soundness and Evidence parts of a review) is built later, it changes these reviewer sections.
+
 ## Routing state
 
 The agents do not route on the text of bead notes. Each bead carries two bd state dimensions (named values that bd stores as labels):
@@ -333,7 +386,7 @@ Then exclude `.loop` from ruff, as in step 3 of [Install in a project](#install-
 
 - The coder implements and the reviewer reviews. In `pr` mode the human approves and merges. In `local` mode the reviewer merges and the human accepts.
 - The reviewer's default method always runs on every branch: the `/code-review` skill at high effort on `claude`, or `codex exec review` on `codex`. The Project section only adds checks to it. The `Review summary:` note gives the number of findings that the default method returned.
-- The reviewer checks each acceptance criterion itself. A coder's note alone is not evidence. Before the `Review summary:` note, the reviewer writes one `Acceptance evidence:` note, with one entry per criterion. Each entry is verified (with the test, command or line that shows it), trusted (the reviewer cannot repeat the check, and names the coder's note that reports the result) or not verified. A criterion that is not verified is a blocking finding. In `pr` mode the pull request comment carries the same list, one line per criterion, after the pass or fail line.
+- The reviewer checks each acceptance criterion itself. A coder's note alone is not evidence. Before the `Review summary:` note, the reviewer writes one `Acceptance evidence:` note, with one entry per criterion. Each entry is verified (with the test, command or line that shows it), trusted (the reviewer cannot repeat the check, and names the coder's note that reports the result) or not verified. A criterion that is not verified is a blocking finding. In `pr` mode the pull request comment carries the same list as a table, one row per criterion.
 - If the reviewer finds a blocking problem, it returns the bead to the coder once. After a second failed round, it escalates the bead to the human.
 - The human has these queues. Each queue is a `loop` state label, and `bd list --label <label>` lists it. The `loop:accept` beads are closed, so list that queue with `bd list --label loop:accept --status=closed`:
   - `loop:merge` (`pr` mode): reviewed pull requests that wait for approval and merge. After the merge, run `bd close <id>` and `bd set-state <id> loop=done`.

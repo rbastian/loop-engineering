@@ -24,12 +24,24 @@ LOOPHOLES = re.compile(
 
 
 def section(text: str, heading: str) -> str:
-    """The text under a markdown heading, up to the next heading of any level."""
-    found = re.search(
-        rf"^#+ {re.escape(heading)}\n(.*?)(?=^#+ |\Z)", text, re.DOTALL | re.MULTILINE
-    )
+    """The text under a markdown heading, up to the next heading of any level.
+
+    A line inside a code fence is never a heading, so a Markdown body in a
+    heredoc does not end the section.
+    """
+    lines, inside, found = [], False, False
+    for line in text.splitlines(keepends=True):
+        is_heading = not inside and re.match(r"#+ ", line)
+        if line.strip().startswith("```"):
+            inside = not inside
+        if is_heading and found:
+            break
+        if found:
+            lines.append(line)
+        elif is_heading and line.rstrip("\n") == f"{line.split(' ')[0]} {heading}":
+            found = True
     assert found, heading
-    return found[1]
+    return "".join(lines)
 
 
 def step(number: int) -> str:
@@ -98,12 +110,8 @@ def test_the_review_summary_and_pr_comment_carry_the_finding_count():
     assert len(summaries) == 2, "pr mode and local mode"
     for line in summaries:
         assert count in line, line
-    (comment,) = [
-        line
-        for line in REVIEWER.splitlines()
-        if "gh pr comment" in line and "passed (round <n>)" in line
-    ]
-    assert count in comment
+    passed = REVIEWER.split("## Review by <reviewer>: passed (round <n>)")[1]
+    assert count in passed.split("###")[0]
 
 
 def test_review_not_run_parks_the_bead_to_the_human():

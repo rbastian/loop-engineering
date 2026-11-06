@@ -143,9 +143,25 @@ bd list --assignee="$CODER" --status=in_progress
     - No PR yet → open it, then record it:
       ```bash
       gh pr create --base main --head <branch> --title "feat: <description> [<bead-id>]" \
-        --body "Bead: <bead-id>. <one paragraph: what changed and why>"
+        --body-file - <<'EOF'
+      Bead: <bead-id>
+
+      ## Summary
+
+      <two or three sentences: what changed and why>
+
+      ## Changes
+
+      - `<file or area>`: <what changed>
+
+      ## Acceptance criteria
+
+      - [x] <k>. <criterion, short> (<evidence: test name or command>)
+      - [ ] <k>. <criterion, short> (not checked: <reason>)
+      EOF
       bd note <id> "PR opened: #<number> <url>"
       ```
+      The body is Markdown. Write one bullet per changed file or area under `## Changes`, with the file names in backticks. Write one checklist line per acceptance criterion, numbered as in the bead. Use `- [x]` with the evidence for a criterion that you checked, and `- [ ]` with the reason for a criterion that you could not check. The quoted heredoc (`<<'EOF'`) sends backticks, `$` and quotes to GitHub unchanged, because the shell expands nothing inside it. Type the bead ID and every other value into the text yourself. Write the body once, when you open the PR. A later round does not edit it, because editing a PR is not on your list of remote actions.
     - The PR already exists → the push updated it. Do not open a second one.
     - Push or `gh` fails → park the bead with `$HUMAN` and EXIT. Do not hand off a branch the reviewer cannot see on the PR.
       ```bash

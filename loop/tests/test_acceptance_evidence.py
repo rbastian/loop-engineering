@@ -52,8 +52,8 @@ def test_every_pr_comment_template_carries_the_list():
     for heading in [PASS_PATHS[0], *FAIL_PATHS]:
         commands = fenced(section(REVIEWER, heading))
         comment = commands[commands.index("gh pr comment") :]
-        assert "Acceptance evidence:" in comment, heading
-        assert "<one line per criterion, as in Phase 1 step 4>" in comment, heading
+        assert "### Acceptance evidence" in comment, heading
+        assert "as in Phase 1 step 4> |" in comment, heading
 
 
 def test_a_merge_wait_resume_does_not_write_a_second_evidence_note():

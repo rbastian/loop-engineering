@@ -91,7 +91,7 @@ The round number `<n>` is the value of `bd state <id> round` plus one. No value 
    - **trusted**: you cannot repeat the check in your session, for example a manual run that needs herdr, caffeinate or the real network, and a coder's note reports the result. Name that note.
    - **not verified**: neither of the above. This is a blocking finding. Write it as `Review round <n> failed: acceptance <k> not verified: <why>`.
 
-   Use the criterion numbers from the bead. If the bead has no numbered criteria, number them in the order that they appear, and say so in the evidence note. Phase 2 writes the outcomes in one `Acceptance evidence:` note, one entry per criterion, for example `Acceptance evidence: 1 verified by test_x; 2 verified by running <command>; 3 trusted: coder's note 'Acceptance 3: ...'`. In `pr` mode, each Phase 2 `gh pr comment` carries the same entries after its pass or fail line, under the heading `Acceptance evidence:`, one line per criterion, for example `3 trusted: coder's note 'Acceptance 3: ...'`.
+   Use the criterion numbers from the bead. If the bead has no numbered criteria, number them in the order that they appear, and say so in the evidence note. Phase 2 writes the outcomes in one `Acceptance evidence:` note, one entry per criterion, for example `Acceptance evidence: 1 verified by test_x; 2 verified by running <command>; 3 trusted: coder's note 'Acceptance 3: ...'`. In `pr` mode, each Phase 2 `gh pr comment` carries the same entries as a table under `### Acceptance evidence`, one row per criterion, for example `| 3 | trusted | coder's note 'Acceptance 3: ...' |`.
 5. Review the change against `$BASE` with the default method for your engine. You always run it, on every branch. `run.sh` exports the engine as `$LOOP_ENGINE`:
    - `codex` → run `codex exec review --base "$BASE"` on the branch HEAD. It runs for minutes, so give the command a long tool timeout, and read its whole output before you decide anything.
    - anything else → run the `/code-review` skill at **high** effort on the branch against `$BASE`.
@@ -115,6 +115,8 @@ In round 2, a finding the coder answered with a `Disputed finding:` note is judg
 
 Exactly one of these ends your session.
 
+In `pr` mode, each path below posts a Markdown comment on the PR. Pass the body with `--body-file -` and a quoted heredoc (`<<'EOF'`). The shell expands nothing inside it, so backticks, `$` and quotes reach GitHub unchanged. Type your name, the round, the sha and every other value into the text yourself. Put code names in backticks. The comment starts with a `## Review by` heading and a short block with the method, the finding counts and the gate result. Then come the sections `### Blocking findings` (a numbered list, left out on a pass), `### Checked`, `### Non-blocking findings` and `### Acceptance evidence` (a table). The bead notes stay plain text, word for word as below.
+
 #### Pass in `pr` mode → ready for the human to merge
 
 Gate first: if you have not already run the gate **in this session** on the exact HEAD of the PR, run it now. Then check that the PR can merge:
@@ -126,9 +128,25 @@ gh pr view <number> --json state,mergeable
 - `mergeable` is `CONFLICTING` → `$BASE` moved under the branch. Go to "Rebase needed" below.
 - Otherwise → post the review on the PR, record it, and hand the bead to the human:
   ```bash
-  gh pr comment <number> --body "Review by $REVIEWER passed (round <n>). <method>: <k> findings (<b> blocking). <review summary>. Non-blocking: <findings, or none>.
-  Acceptance evidence:
-  <one line per criterion, as in Phase 1 step 4>"
+  gh pr comment <number> --body-file - <<'EOF'
+  ## Review by <reviewer>: passed (round <n>)
+
+  <method>: <k> findings (<b> blocking). Gate: passed on `<sha>`, <t> tests.
+
+  ### Checked
+
+  - <design item or check, with code names in backticks>
+
+  ### Non-blocking findings
+
+  - <finding>, or "None"
+
+  ### Acceptance evidence
+
+  | # | Outcome | Evidence |
+  |---|---|---|
+  | 1 | verified | <test, command or line, as in Phase 1 step 4> |
+  EOF
   bd note <id> "Acceptance evidence: <one entry per criterion, as in Phase 1 step 4>"
   bd note <id> "Review summary: <method>: <k> findings (<b> blocking). <what changed, which design/trap-list items you checked, anything $HUMAN should look at>"
   bd note <id> "Review passed, PR #<number> awaiting merge approval"
@@ -213,9 +231,29 @@ bd update <id> --assignee="$CODER"
 In `pr` mode, also post the blocking findings and the evidence list on the PR. The list shows which criteria passed:
 
 ```bash
-gh pr comment <number> --body "Review by $REVIEWER, round 1: changes needed. <findings>
-Acceptance evidence:
-<one line per criterion, as in Phase 1 step 4>"
+gh pr comment <number> --body-file - <<'EOF'
+## Review by <reviewer>: changes needed (round 1)
+
+<method>: <k> findings (<b> blocking). Gate: <passed or failed> on `<sha>`, <t> tests.
+
+### Blocking findings
+
+1. <finding: the file and what is wrong>
+
+### Checked
+
+- <design item or check, with code names in backticks>
+
+### Non-blocking findings
+
+- <finding>, or "None"
+
+### Acceptance evidence
+
+| # | Outcome | Evidence |
+|---|---|---|
+| 1 | verified | <test, command or line, as in Phase 1 step 4> |
+EOF
 ```
 
 Status stays `in_progress`, `main` is untouched, the branch stays where it is. EXIT.
@@ -235,9 +273,29 @@ bd update <id> --assignee="$HUMAN"
 In `pr` mode, also post the findings, the escalation and the evidence list on the PR:
 
 ```bash
-gh pr comment <number> --body "Review by $REVIEWER, round <n>: escalated to $HUMAN. <findings>
-Acceptance evidence:
-<one line per criterion, as in Phase 1 step 4>"
+gh pr comment <number> --body-file - <<'EOF'
+## Review by <reviewer>: escalated to <human> (round <n>)
+
+<method>: <k> findings (<b> blocking). Gate: <passed or failed> on `<sha>`, <t> tests.
+
+### Blocking findings
+
+1. <finding: the file and what is wrong>
+
+### Checked
+
+- <design item or check, with code names in backticks>
+
+### Non-blocking findings
+
+- <finding>, or "None"
+
+### Acceptance evidence
+
+| # | Outcome | Evidence |
+|---|---|---|
+| 1 | verified | <test, command or line, as in Phase 1 step 4> |
+EOF
 ```
 
 Status stays `in_progress`, the bead is unmerged, `main` is untouched. EXIT.
