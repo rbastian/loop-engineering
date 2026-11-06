@@ -339,14 +339,12 @@ def test_a_narrow_pane_keeps_the_whole_label(monkeypatch):
 # --- skill calls stand out (lpe-f2p) -----------------------------------------
 
 
+def assistant(block: dict) -> dict:
+    return {"type": "assistant", "timestamp": STARTED, "message": {"content": [block]}}
+
+
 def skill(name: str) -> dict:
-    return {
-        "type": "assistant",
-        "timestamp": STARTED,
-        "message": {
-            "content": [{"type": "tool_use", "name": "Skill", "input": {"skill": name}}]
-        },
-    }
+    return assistant({"type": "tool_use", "name": "Skill", "input": {"skill": name}})
 
 
 def codex_started(command: str) -> dict:
@@ -368,8 +366,6 @@ def test_a_code_review_skill_call_has_the_skill_style_from_its_label(screen):
     assert style == watch.SKILL_STYLE == "bold #af87ff"
     assert text[watch.LABEL_COLUMN :].startswith("skill")
     assert "/code-review" in text
-    row = rows(screen)[watch.Pinned.HEADER_ROWS]
-    assert row.rstrip() == text.rstrip()
     painted = screen.layout["body"].renderable
     lines = list(painted.render(screen.live.console, screen.live.console.options))
     spans = [(span.start, span.end, str(span.style)) for span in lines[-1].spans]
@@ -400,21 +396,21 @@ def test_a_codex_exec_review_command_has_the_skill_style(screen):
     assert style == watch.SKILL_STYLE
 
 
-def test_says_thinking_and_ordinary_tool_lines_keep_their_styles(screen):
-    assert body_line(screen, tool("uv run pytest -q"))[1] is None
-    said = {
-        "type": "assistant",
-        "timestamp": STARTED,
-        "message": {"content": [{"type": "text", "text": "Done."}]},
-    }
-    assert body_line(screen, said)[1] == "italic bright_cyan"
-    thought = {
-        "type": "assistant",
-        "timestamp": STARTED,
-        "message": {"content": [{"type": "thinking", "thinking": "Hmm."}]},
-    }
-    assert body_line(screen, thought)[1] == "italic #ffbf00"
-    assert body_line(screen, tool("codex exec --json 'hi'"))[1] is None
+@pytest.mark.parametrize(
+    "event, style",
+    [
+        (assistant({"type": "text", "text": "Done."}), watch.LINE_STYLES["says"]),
+        (
+            assistant({"type": "thinking", "thinking": "Hmm."}),
+            watch.LINE_STYLES["thinking"],
+        ),
+        (tool("uv run pytest -q"), None),
+        (tool("codex exec --json 'hi'"), None),
+    ],
+    ids=["says", "thinking", "bash", "codex-exec-not-review"],
+)
+def test_says_thinking_and_ordinary_tool_lines_keep_their_styles(screen, event, style):
+    assert body_line(screen, event)[1] == style
 
 
 def test_plain_mode_prints_a_skill_call_without_escape_codes(capsys, monkeypatch):

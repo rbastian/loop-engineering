@@ -825,7 +825,7 @@ def _write(
     # keeps the column and leaves it blank: HH:MM:SS is eight wide.
     PINNED.add(
         f"{stamp or '':8}  {marker:9} {label:16} {detail}{tail}",
-        style or LINE_STYLES.get(label),
+        style,
     )
 
 
@@ -842,7 +842,7 @@ def emit(
     otherwise a reader cannot tell a busy session from a stuck one. `style`
     overrides the label's own --tui style.
     """
-    key = (phase, label, detail, style)
+    key = (phase, label, detail, style or LINE_STYLES.get(label))
     if key == _last[0]:
         _last[1] += 1
         return
