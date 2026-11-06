@@ -7,19 +7,14 @@ and the same label. These tests reuse the fakes from test_run_watchdog.py and
 test_run_fw.py and write a project overlay beside the prompt.
 """
 
-import importlib.util
 import subprocess
 from pathlib import Path
 
 import pytest
+from test_harness_drift import function_text
 from test_run_fw import FW_MODEL, setup_fw
-from test_run_watchdog import RUN_SH, setup_loop, write_exe
-
-WATCH = importlib.util.spec_from_file_location(
-    "startup_watch", RUN_SH.parent / "watch.py"
-)
-watch = importlib.util.module_from_spec(WATCH)
-WATCH.loader.exec_module(watch)
+from test_run_watchdog import RUN_SH, run_loop, setup_loop, write_exe
+from test_watch import watch
 
 TOKEN = "gho_secrettoken987"
 API_KEY = "fw_secretkey654"
@@ -109,15 +104,7 @@ def test_defaults_without_logs_or_limit_or_overlay_inside_primary(tmp_path):
 def test_no_overlay_prints_no_overlay(tmp_path):
     env = setup_loop(tmp_path, "exit 0\n")
 
-    result = subprocess.run(
-        ["bash", str(RUN_SH), "Ralph", "CODER.md"],
-        check=False,
-        cwd=tmp_path,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    result = run_loop(tmp_path, env)
 
     block = block_of(result.stdout)
     assert block[0] == "=== Ralph (unknown role) ==="
@@ -139,9 +126,7 @@ def test_the_role_comes_from_the_overlay(tmp_path, agent, role):
 
 def harness_label(engine: str, model: str) -> str:
     """Run run.sh's harness_label function alone."""
-    text = RUN_SH.read_text()
-    start = text.index("\nharness_label() {\n")
-    func = text[start : text.index("\n}\n", start) + 3]
+    func = function_text(RUN_SH, "harness_label")
     return subprocess.run(
         ["bash", "-c", func + 'harness_label "$1" "$2"', "-", engine, model],
         check=True,

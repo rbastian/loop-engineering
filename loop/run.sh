@@ -405,7 +405,7 @@ show_path() {
 
 # The installed commit and whether the clone has newer commits on loop/.
 version_text() {
-    local stamp="$HARNESS_DIR/HARNESS_VERSION" commit clone short drift
+    local stamp="$HARNESS_DIR/HARNESS_VERSION" commit clone short count
     commit=$(sed -n 's/^commit=//p' "$stamp" 2>/dev/null | head -1)
     clone=$(sed -n 's/^clone=//p' "$stamp" 2>/dev/null | head -1)
     if [ -z "$commit" ]; then
@@ -413,14 +413,13 @@ version_text() {
         return 0
     fi
     short=$(git -C "$clone" rev-parse --short "$commit" 2>/dev/null) || short="${commit:0:7}"
-    drift=$(drift_line "$stamp" 2>/dev/null) || drift=""
-    if [ -n "$drift" ]; then
-        echo "$short ($drift)"
-    elif [ "$(git -C "$clone" rev-list --count "$commit..HEAD" -- loop/ 2>/dev/null)" = 0 ]; then
-        echo "$short (up to date)"
-    else
-        echo "$short"
-    fi
+    # drift_line owns the warning text, so it runs only when there is drift.
+    count=$(git -C "$clone" rev-list --count "$commit..HEAD" -- loop/ 2>/dev/null) || count=""
+    case "$count" in
+        '') echo "$short" ;;
+        0) echo "$short (up to date)" ;;
+        *) echo "$short ($(drift_line "$stamp" 2>/dev/null))" ;;
+    esac
 }
 
 ROLE=$(agent_role)
@@ -434,12 +433,9 @@ print_startup_block() {
         pr) ship="pr, as $(overlay_value GITHUB_ACCOUNT)" ;;
         '') ship=unknown ;;
     esac
-    prompt="$(show_path "$PROMPT_FILE") + "
-    if [ -n "$OVERLAY_FILE" ]; then
-        prompt+=$(show_path "$OVERLAY_FILE")
-    else
-        prompt+="no overlay"
-    fi
+    prompt="no overlay"
+    [ -z "$OVERLAY_FILE" ] || prompt=$(show_path "$OVERLAY_FILE")
+    prompt="$(show_path "$PROMPT_FILE") + $prompt"
     logs=off
     if [ -n "${LOOP_STREAM_LOG:-}" ]; then
         logs=$(show_path "${LOOP_LOG_DIR:-/tmp/loop-sessions}")
