@@ -1,9 +1,10 @@
 """The harness version stamp and the drift warning (lpe-bl1).
 
 bootstrap.sh writes .loop/HARNESS_VERSION. layout.sh and run.sh read it and
-print one line when the clone has newer commits on loop/.
+print one line when the clone has newer commits on the installed files.
 """
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -222,3 +223,78 @@ def function_text(path: Path, name: str) -> str:
 def test_run_sh_and_lib_sh_share_the_same_drift_line():
     lib = ROOT / "skills/dev-env-setup/scripts/lib.sh"
     assert function_text(RUN_SH, "drift_line") == function_text(lib, "drift_line")
+
+
+# lpe-t0w: only commits that change an installed file count as drift.
+
+UPDATE_SH = ROOT / "skills/dev-env-setup/scripts/update.sh"
+LIB_SH = ROOT / "skills/dev-env-setup/scripts/lib.sh"
+INSTALLED_PATHS_RE = r'^HARNESS_PATHS="([^"]*)"$'
+
+
+def update_files() -> list[str]:
+    match = re.search(r'^FILES="([^"]*)"$', UPDATE_SH.read_text(), re.MULTILINE)
+    assert match, "update.sh has no FILES line"
+    return match.group(1).split()
+
+
+def drift_paths(path: Path) -> list[str]:
+    match = re.search(INSTALLED_PATHS_RE, path.read_text(), re.MULTILINE)
+    assert match, f"{path.name} has no HARNESS_PATHS line"
+    return match.group(1).split()
+
+
+def expected_paths(files: list[str]) -> list[str]:
+    return sorted(f"loop/{f}" for f in [*files, "interactive.template.md"])
+
+
+@pytest.mark.parametrize("path", [RUN_SH, LIB_SH], ids=["run.sh", "lib.sh"])
+def test_drift_paths_are_the_installed_files(path):
+    assert sorted(drift_paths(path)) == expected_paths(update_files())
+
+
+def commit_outside_install(clone: Path, rel: str) -> None:
+    target = clone / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("not installed\n")
+    commit_all(clone, f"change {rel}")
+
+
+@pytest.mark.parametrize("rel", ["loop/tests/test_x.py", "loop/README.md"])
+def test_layout_ignores_commits_outside_the_installed_files(tmp_path, rel):
+    clone = make_clone(tmp_path)
+    project = make_project(tmp_path, clone)
+    commit_outside_install(clone, rel)
+    result = run_layout(tmp_path, project)
+    assert "behind" not in result.stdout
+
+
+@pytest.mark.parametrize("rel", ["loop/tests/test_x.py", "loop/README.md"])
+def test_run_sh_ignores_commits_outside_the_installed_files(tmp_path, rel):
+    clone, harness = loop_project(tmp_path)
+    commit = git(clone, "rev-parse", "--short", "HEAD")
+    commit_outside_install(clone, rel)
+    result = run_loop(tmp_path, harness)
+    assert "behind" not in result.stdout
+    assert f"version  {commit} (up to date)" in result.stdout.splitlines()
+
+
+INSTALLED = [
+    "run.sh",
+    "watch.py",
+    "prices.json",
+    "CODER.md",
+    "REVIEWER.md",
+    "interactive.template.md",
+]
+
+
+@pytest.mark.parametrize("name", INSTALLED)
+def test_a_change_to_one_installed_file_is_drift(tmp_path, name):
+    clone, harness = loop_project(tmp_path)
+    target = clone / "loop" / name
+    target.write_text(target.read_text() + "\n")
+    commit_all(clone, f"change {name}")
+    line = "harness is 1 commit behind loop-engineering; run update.sh"
+    assert line in run_loop(tmp_path, harness).stdout
+    assert line in run_layout(tmp_path, harness.parent).stdout

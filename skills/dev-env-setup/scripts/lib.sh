@@ -118,6 +118,13 @@ key_value() {
     sed -n "s/^$2=//p" "$1" 2>/dev/null | head -1
 }
 
+# The files that update.sh installs, as paths in the loop-engineering clone:
+# FILES in skills/dev-env-setup/scripts/update.sh, plus interactive.template.md,
+# which update.sh renders into CLAUDE.md and AGENTS.md. Only a commit that
+# changes one of them counts as drift. A test keeps this list in step with
+# update.sh.
+HARNESS_PATHS="loop/run.sh loop/watch.py loop/prices.json loop/CODER.md loop/REVIEWER.md loop/interactive.template.md"
+
 # The drift line for the stamp FILE, or nothing when the harness is current.
 # A missing stamp or clone, or a commit that the clone lacks, prints nothing.
 # run.sh holds the same text, because it cannot source this file. A test
@@ -127,7 +134,7 @@ drift_line() {
     commit=$(sed -n 's/^commit=//p' "$1" 2>/dev/null | head -1)
     clone=$(sed -n 's/^clone=//p' "$1" 2>/dev/null | head -1)
     [ -n "$commit" ] && [ -d "$clone" ] || return 0
-    count=$(git -C "$clone" rev-list --count "$commit..HEAD" -- loop/ 2>/dev/null) || return 0
+    count=$(git -C "$clone" rev-list --count "$commit..HEAD" -- $HARNESS_PATHS 2>/dev/null) || return 0
     case "$count" in 0) return 0 ;; 1) count="1 commit" ;; *) count="$count commits" ;; esac
     echo "harness is $count behind loop-engineering; run update.sh"
 }

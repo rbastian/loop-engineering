@@ -350,17 +350,25 @@ pin_github_account() {
 }
 pin_github_account
 
-# One line when the loop-engineering clone has newer commits on loop/ than this
-# harness. HARNESS_VERSION beside run.sh names the clone and the commit that
-# bootstrap.sh or update.sh installed. A missing stamp or clone, or a commit
-# that the clone lacks, prints nothing, and no error here stops the loop.
+# The files that update.sh installs, as paths in the loop-engineering clone:
+# FILES in skills/dev-env-setup/scripts/update.sh, plus interactive.template.md,
+# which update.sh renders into CLAUDE.md and AGENTS.md. Only a commit that
+# changes one of them counts as drift. A test keeps this list in step with
+# update.sh.
+HARNESS_PATHS="loop/run.sh loop/watch.py loop/prices.json loop/CODER.md loop/REVIEWER.md loop/interactive.template.md"
+
+# One line when the loop-engineering clone has newer commits on the installed
+# files than this harness. HARNESS_VERSION beside run.sh names the clone and
+# the commit that bootstrap.sh or update.sh installed. A missing stamp or
+# clone, or a commit that the clone lacks, prints nothing, and no error here
+# stops the loop.
 # The same function is in skills/dev-env-setup/scripts/lib.sh.
 drift_line() {
     local commit clone count
     commit=$(sed -n 's/^commit=//p' "$1" 2>/dev/null | head -1)
     clone=$(sed -n 's/^clone=//p' "$1" 2>/dev/null | head -1)
     [ -n "$commit" ] && [ -d "$clone" ] || return 0
-    count=$(git -C "$clone" rev-list --count "$commit..HEAD" -- loop/ 2>/dev/null) || return 0
+    count=$(git -C "$clone" rev-list --count "$commit..HEAD" -- $HARNESS_PATHS 2>/dev/null) || return 0
     case "$count" in 0) return 0 ;; 1) count="1 commit" ;; *) count="$count commits" ;; esac
     echo "harness is $count behind loop-engineering; run update.sh"
 }
@@ -403,7 +411,8 @@ show_path() {
     echo "$path"
 }
 
-# The installed commit and whether the clone has newer commits on loop/.
+# The installed commit and whether the clone has newer commits on the
+# installed files.
 version_text() {
     local stamp="$HARNESS_DIR/HARNESS_VERSION" commit clone short count
     commit=$(sed -n 's/^commit=//p' "$stamp" 2>/dev/null | head -1)
@@ -414,7 +423,7 @@ version_text() {
     fi
     short=$(git -C "$clone" rev-parse --short "$commit" 2>/dev/null) || short="${commit:0:7}"
     # drift_line owns the warning text, so it runs only when there is drift.
-    count=$(git -C "$clone" rev-list --count "$commit..HEAD" -- loop/ 2>/dev/null) || count=""
+    count=$(git -C "$clone" rev-list --count "$commit..HEAD" -- $HARNESS_PATHS 2>/dev/null) || count=""
     case "$count" in
         '') echo "$short" ;;
         0) echo "$short (up to date)" ;;
