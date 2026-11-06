@@ -803,9 +803,21 @@ LINE_STYLES = {
     "thinking": "italic #ffbf00",
 }
 
+# A skill call, and Codex's `codex exec review`, are the protocol's own steps:
+# the default review method and the /simplify pass (--tui only). Styled by
+# where the line comes from, not by its label, so /simplify keeps REVIEW.
+# Bold rather than italic, because italic marks the agent's own words.
+SKILL_STYLE = "bold #af87ff"
+CODEX_REVIEW_RE = re.compile(r"\bcodex exec review\b")
+
 
 def _write(
-    stamp: str | None, phase: str, label: str, detail: str, repeats: int
+    stamp: str | None,
+    phase: str,
+    label: str,
+    detail: str,
+    repeats: int,
+    style: str | None = None,
 ) -> None:
     marker = f"PHASE {phase}" if phase != "-" else "       "
     tail = f"  \u00d7{repeats}" if repeats > 1 else ""
@@ -813,30 +825,35 @@ def _write(
     # keeps the column and leaves it blank: HH:MM:SS is eight wide.
     PINNED.add(
         f"{stamp or '':8}  {marker:9} {label:16} {detail}{tail}",
-        LINE_STYLES.get(label),
+        style,
     )
 
 
-def emit(stamp: str | None, phase: str, label: str, detail: str) -> None:
+def emit(
+    stamp: str | None,
+    phase: str,
+    label: str,
+    detail: str,
+    style: str | None = None,
+) -> None:
     """Print one line, collapsing an identical repeat into a xN counter.
 
     Distinct work must look distinct and repeated work must look repeated —
-    otherwise a reader cannot tell a busy session from a stuck one.
+    otherwise a reader cannot tell a busy session from a stuck one. `style`
+    overrides the label's own --tui style.
     """
-    key = (phase, label, detail)
+    key = (phase, label, detail, style or LINE_STYLES.get(label))
     if key == _last[0]:
         _last[1] += 1
         return
-    if _last[0] is not None and _last[1] > 1:
-        _write(_last[2], *_last[0], _last[1])
-    elif _last[0] is not None:
-        _write(_last[2], *_last[0], 1)
+    flush_pending()
     _last[0], _last[1], _last[2] = key, 1, stamp
 
 
 def flush_pending() -> None:
     if _last[0] is not None:
-        _write(_last[2], *_last[0], _last[1])
+        phase, label, detail, style = _last[0]
+        _write(_last[2], phase, label, detail, _last[1], style)
         _last[0] = None
 
 
@@ -1054,7 +1071,13 @@ def track(event: dict, kind: str) -> None:
     )
 
 
-def tool_line(stamp: str | None, phase: str, label: str, detail: str) -> None:
+def tool_line(
+    stamp: str | None,
+    phase: str,
+    label: str,
+    detail: str,
+    style: str | None = None,
+) -> None:
     """Print one classified tool call, and move the header and phase with it.
 
     Shared by both engines: a Claude tool_use block and a Codex
@@ -1070,7 +1093,7 @@ def tool_line(stamp: str | None, phase: str, label: str, detail: str) -> None:
         not SESSION.announced and SESSION.first and (SESSION.bead or SESSION.tools >= 6)
     ):
         SESSION.header()
-    emit(stamp, phase, label, detail)
+    emit(stamp, phase, label, detail, style)
 
 
 def say(stamp: str | None, text: str) -> None:
@@ -1100,7 +1123,8 @@ def codex_item(stamp: str | None, kind: str, item: dict) -> None:
     if shape == "command_execution":
         command = " ".join((item.get("command") or "").split())
         if kind == "item.started":
-            tool_line(stamp, *classify_command(command))
+            style = SKILL_STYLE if CODEX_REVIEW_RE.search(command) else None
+            tool_line(stamp, *classify_command(command), style)
         elif item.get("exit_code"):
             emit(stamp, "-", "FAILED", f"exit {item['exit_code']}  {command[:80]}")
     elif shape == "agent_message" and kind == "item.completed":
@@ -1143,7 +1167,8 @@ def handle(event: dict) -> None:
 
     for block in event.get("message", {}).get("content") or []:
         if block.get("type") == "tool_use":
-            tool_line(stamp, *classify(block))
+            skill = (block.get("input") or {}).get("skill")
+            tool_line(stamp, *classify(block), SKILL_STYLE if skill else None)
         elif block.get("type") == "text":
             say(stamp, block.get("text") or "")
         elif block.get("type") == "thinking":

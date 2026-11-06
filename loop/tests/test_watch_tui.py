@@ -334,3 +334,90 @@ def test_a_narrow_pane_keeps_the_whole_label(monkeypatch):
     assert row.endswith(" · cc@fw/deepseek-flash-latest[1m]"), row
     assert "20261105-101500.jsonl" not in row
     assert "…" in row
+
+
+# --- skill calls stand out (lpe-f2p) -----------------------------------------
+
+
+def assistant(block: dict) -> dict:
+    return {"type": "assistant", "timestamp": STARTED, "message": {"content": [block]}}
+
+
+def skill(name: str) -> dict:
+    return assistant({"type": "tool_use", "name": "Skill", "input": {"skill": name}})
+
+
+def codex_started(command: str) -> dict:
+    return {
+        "type": "item.started",
+        "item": {"type": "command_execution", "command": command},
+    }
+
+
+def body_line(screen, event: dict) -> tuple[str, str | None]:
+    watch.handle(event)
+    watch.flush_pending()
+    return screen.body[-1]
+
+
+def test_a_code_review_skill_call_has_the_skill_style_from_its_label(screen):
+    text, style = body_line(screen, skill("code-review"))
+
+    assert style == watch.SKILL_STYLE == "bold #af87ff"
+    assert text[watch.LABEL_COLUMN :].startswith("skill")
+    assert "/code-review" in text
+    painted = screen.layout["body"].renderable
+    lines = list(painted.render(screen.live.console, screen.live.console.options))
+    spans = [(span.start, span.end, str(span.style)) for span in lines[-1].spans]
+    assert spans == [(watch.LABEL_COLUMN, len(text), "bold #af87ff")]
+
+
+def test_simplify_keeps_its_review_label_and_phase_and_has_the_skill_style(screen):
+    text, style = body_line(screen, skill("simplify"))
+
+    assert watch.classify(skill("simplify")["message"]["content"][0]) == (
+        "2",
+        "REVIEW",
+        "/simplify",
+    )
+    assert "PHASE 2" in text and "REVIEW" in text
+    assert style == watch.SKILL_STYLE
+    assert watch.SESSION.phase == "PHASE 2 REVIEW"
+
+
+def test_a_codex_exec_review_command_has_the_skill_style(screen):
+    watch.SESSION.engine = "codex"
+
+    text, style = body_line(
+        screen, codex_started("/bin/zsh -lc 'codex exec review --base \"$BASE\"'")
+    )
+
+    assert "codex exec review" in text
+    assert style == watch.SKILL_STYLE
+
+
+@pytest.mark.parametrize(
+    "event, style",
+    [
+        (assistant({"type": "text", "text": "Done."}), watch.LINE_STYLES["says"]),
+        (
+            assistant({"type": "thinking", "thinking": "Hmm."}),
+            watch.LINE_STYLES["thinking"],
+        ),
+        (tool("uv run pytest -q"), None),
+        (tool("codex exec --json 'hi'"), None),
+    ],
+    ids=["says", "thinking", "bash", "codex-exec-not-review"],
+)
+def test_says_thinking_and_ordinary_tool_lines_keep_their_styles(screen, event, style):
+    assert body_line(screen, event)[1] == style
+
+
+def test_plain_mode_prints_a_skill_call_without_escape_codes(capsys, monkeypatch):
+    monkeypatch.setattr(watch, "PINNED", watch.Pinned(enabled=False))
+
+    watch.handle(skill("code-review"))
+    watch.flush_pending()
+
+    out = capsys.readouterr().out
+    assert "/code-review" in out and "\x1b" not in out
