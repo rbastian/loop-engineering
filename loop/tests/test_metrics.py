@@ -76,6 +76,18 @@ def linked_bug(bug_id, original):
     )
 
 
+MERGED_AT = {"mergedAt": "2026-01-01T11:30:00Z"}
+
+
+def merged_bead(notes, *extra, bead_id="lpe-a"):
+    """One bead that started coding at 10:00 and merged at 11:30."""
+    return [
+        bead(bead_id, notes=notes),
+        event(f"{bead_id}.1", bead_id, "2026-01-01T10:00:00Z"),
+        *extra,
+    ]
+
+
 def run_metrics(tmp_path, beads, *, args=(), pr_result=None, gh_fails=False):
     """Run metrics.py in a scratch project with fake bd and gh commands."""
     project = tmp_path / "project"
@@ -142,11 +154,8 @@ def test_json_reports_human_time_lead_time_returns_escapes_and_cost(tmp_path):
         "Session cost: Alice, model, $0.24 est., 2m wall\n"
         "PR opened: #7 https://example.test/pull/7\n"
     )
-    beads = [
-        bead("lpe-a", notes=notes),
-        event("lpe-a.1", "lpe-a", "2026-01-01T10:00:00Z"),
-    ]
-    data = run_json(tmp_path, beads, pr_result={"mergedAt": "2026-01-01T11:30:00Z"})
+    beads = merged_bead(notes)
+    data = run_json(tmp_path, beads, pr_result=MERGED_AT)
 
     row = data["beads"][0]
     assert row["id"] == "lpe-a"
@@ -161,11 +170,7 @@ def test_json_reports_human_time_lead_time_returns_escapes_and_cost(tmp_path):
 # Criterion 2: no Human time note is null, not zero.
 def test_a_bead_without_human_time_is_null(tmp_path):
     notes = "PR opened: #7 https://example.test/pull/7\n"
-    beads = [
-        bead("lpe-a", notes=notes),
-        event("lpe-a.1", "lpe-a", "2026-01-01T10:00:00Z"),
-    ]
-    data = run_json(tmp_path, beads, pr_result={"mergedAt": "2026-01-01T11:30:00Z"})
+    data = run_json(tmp_path, merged_bead(notes), pr_result=MERGED_AT)
 
     assert data["beads"][0]["human_minutes"] is None
     assert data["totals"]["beads_without_human_time"] == 1
@@ -174,12 +179,8 @@ def test_a_bead_without_human_time_is_null(tmp_path):
 # Criterion 3: an escaped bug with a discovered-from dependency.
 def test_an_escaped_bug_counts_one_escape_on_the_original(tmp_path):
     notes = "PR opened: #7 https://example.test/pull/7\n"
-    beads = [
-        bead("lpe-a", notes=notes),
-        event("lpe-a.1", "lpe-a", "2026-01-01T10:00:00Z"),
-        linked_bug("lpe-b", "lpe-a"),
-    ]
-    data = run_json(tmp_path, beads, pr_result={"mergedAt": "2026-01-01T11:30:00Z"})
+    beads = merged_bead(notes, linked_bug("lpe-b", "lpe-a"))
+    data = run_json(tmp_path, beads, pr_result=MERGED_AT)
 
     row = data["beads"][0]
     assert row["id"] == "lpe-a"
@@ -206,11 +207,9 @@ def test_a_bead_without_a_pr_uses_closed_at_and_marks_the_lead_time(tmp_path):
 # Criterion 5: a gh failure warns, exits 0 and leaves the lead time empty.
 def test_a_gh_failure_warns_and_leaves_the_lead_time_empty(tmp_path):
     notes = "PR opened: #7 https://example.test/pull/7\n"
-    beads = [
-        bead("lpe-a", notes=notes),
-        event("lpe-a.1", "lpe-a", "2026-01-01T10:00:00Z"),
-    ]
-    result = run_metrics(tmp_path, beads, args=("--json", "--all"), gh_fails=True)
+    result = run_metrics(
+        tmp_path, merged_bead(notes), args=("--json", "--all"), gh_fails=True
+    )
 
     assert result.returncode == 0
     assert "warning" in result.stderr.lower()
@@ -225,25 +224,13 @@ def test_an_unknown_session_marks_the_cost_with_a_plus(tmp_path):
         "Session cost: cost unknown (fw)\n"
         "PR opened: #7 https://example.test/pull/7\n"
     )
-    beads = [
-        bead("lpe-a", notes=notes),
-        event("lpe-a.1", "lpe-a", "2026-01-01T10:00:00Z"),
-    ]
-    result = run_metrics(
-        tmp_path,
-        beads,
-        args=("--all",),
-        pr_result={"mergedAt": "2026-01-01T11:30:00Z"},
-    )
+    beads = merged_bead(notes)
+    result = run_metrics(tmp_path, beads, args=("--all",), pr_result=MERGED_AT)
 
     assert result.returncode == 0, result.stderr
     assert "$1.45+" in result.stdout
 
-    data = run_json(
-        tmp_path / "json",
-        beads,
-        pr_result={"mergedAt": "2026-01-01T11:30:00Z"},
-    )
+    data = run_json(tmp_path / "json", beads, pr_result=MERGED_AT)
     row = data["beads"][0]
     assert row["cost"] == pytest.approx(1.45)
     assert row["unknown_cost_sessions"] == 1
@@ -259,13 +246,10 @@ def test_the_documents_describe_both_conventions():
 
 # The rest of the design: scope, --since, --all and --by-agent.
 def test_by_default_only_merged_beads_are_shown(tmp_path):
-    beads = [
-        bead("lpe-a", notes="PR opened: #7 u\n"),
-        event("lpe-a.1", "lpe-a", "2026-01-01T10:00:00Z"),
-        bead("lpe-b", notes="PR opened: #8 u\n"),
-        event("lpe-b.1", "lpe-b", "2026-01-01T10:00:00Z"),
-    ]
-    data = run_json(tmp_path, beads, pr_result={"mergedAt": "2026-01-01T11:30:00Z"})
+    beads = merged_bead("PR opened: #7 u\n") + merged_bead(
+        "PR opened: #8 u\n", bead_id="lpe-b"
+    )
+    data = run_json(tmp_path, beads, pr_result=MERGED_AT)
 
     # The fake gh answers the same for both numbers, so both are merged.
     assert {row["id"] for row in data["beads"]} == {"lpe-a", "lpe-b"}
@@ -276,10 +260,7 @@ def test_by_default_only_merged_beads_are_shown(tmp_path):
 
 
 def test_all_shows_an_open_bead_with_blank_cells(tmp_path):
-    beads = [
-        bead("lpe-a", notes="PR opened: #7 u\n"),
-        event("lpe-a.1", "lpe-a", "2026-01-01T10:00:00Z"),
-    ]
+    beads = merged_bead("PR opened: #7 u\n")
     data = run_json(
         tmp_path, beads, args=("--json", "--all"), pr_result={"mergedAt": None}
     )
@@ -291,15 +272,12 @@ def test_all_shows_an_open_bead_with_blank_cells(tmp_path):
 
 
 def test_since_limits_the_report_by_merge_date(tmp_path):
-    beads = [
-        bead("lpe-a", notes="PR opened: #7 u\n"),
-        event("lpe-a.1", "lpe-a", "2026-01-01T10:00:00Z"),
-    ]
+    beads = merged_bead("PR opened: #7 u\n")
     data = run_json(
         tmp_path,
         beads,
         args=("--json", "--since", "2026-01-02"),
-        pr_result={"mergedAt": "2026-01-01T11:30:00Z"},
+        pr_result=MERGED_AT,
     )
     assert data["beads"] == []
 
@@ -310,15 +288,12 @@ def test_by_agent_separates_the_cost(tmp_path):
         "Session cost: Alice, model, $0.50 est., 2m wall\n"
         "PR opened: #7 u\n"
     )
-    beads = [
-        bead("lpe-a", notes=notes),
-        event("lpe-a.1", "lpe-a", "2026-01-01T10:00:00Z"),
-    ]
+    beads = merged_bead(notes)
     result = run_metrics(
         tmp_path,
         beads,
         args=("--json", "--by-agent"),
-        pr_result={"mergedAt": "2026-01-01T11:30:00Z"},
+        pr_result=MERGED_AT,
     )
 
     assert result.returncode == 0, result.stderr

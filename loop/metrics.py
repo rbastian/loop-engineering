@@ -51,12 +51,11 @@ SESSION_COST = "Session cost:"
 
 
 def find_project_file() -> Path | None:
-    """The project overlay, found from the script in loop/ or .loop/."""
+    """The project overlay, beside the installed script or above the source."""
     base = Path(__file__).resolve().parent
-    for folder in (base, *base.parents):
-        for candidate in (folder / ".loop/project.md", folder / "project.md"):
-            if candidate.is_file():
-                return candidate
+    for candidate in (base / "project.md", base.parent / ".loop/project.md"):
+        if candidate.is_file():
+            return candidate
     return None
 
 
@@ -112,7 +111,6 @@ class Github:
     def __init__(self, account: str) -> None:
         self.token = self._token(account)
         self.merged: dict[int, datetime | None] = {}
-        self.warned: set[int] = set()
 
     def _token(self, account: str) -> str | None:
         if not account:
@@ -149,31 +147,22 @@ class Github:
                 timeout=60,
             )
         except (OSError, subprocess.TimeoutExpired) as error:
-            self._warn_once(number, f"gh pr view #{number} failed: {error}")
+            warn(f"gh pr view #{number} failed: {error}")
             self.merged[number] = None
             return None
         if result.returncode != 0:
-            self._warn_once(
-                number, f"gh pr view #{number} failed: {result.stderr.strip()}"
-            )
+            warn(f"gh pr view #{number} failed: {result.stderr.strip()}")
             self.merged[number] = None
             return None
         try:
             payload = json.loads(result.stdout)
         except json.JSONDecodeError as error:
-            self._warn_once(
-                number, f"gh pr view #{number} returned invalid JSON: {error}"
-            )
+            warn(f"gh pr view #{number} returned invalid JSON: {error}")
             self.merged[number] = None
             return None
         merged = parse_time(payload.get("mergedAt"))
         self.merged[number] = merged
         return merged
-
-    def _warn_once(self, number: int, message: str) -> None:
-        if number not in self.warned:
-            self.warned.add(number)
-            warn(message)
 
 
 def loop_events(rows: list[dict]) -> dict[str, list[dict]]:
@@ -241,7 +230,9 @@ def first_coding_event(events: list[dict]) -> datetime | None:
     return min(times) if times else None
 
 
-def build_row(row: dict, events: list[dict], escapes: Counter, github: Github) -> dict:
+def build_row(
+    row: dict, events: list[dict], escapes: Counter, github: Github
+) -> tuple[dict, datetime | None, dict[str, float]]:
     notes = row.get("notes") or ""
     human_times = [int(value) for value in HUMAN_TIME_RE.findall(notes)]
     human = sum(human_times) if human_times else None
@@ -273,9 +264,7 @@ def build_row(row: dict, events: list[dict], escapes: Counter, github: Github) -
         "cost": round(cost, 2),
         "unknown_cost_sessions": unknown,
     }
-    result["_merged"] = merged
-    result["_cost_by_agent"] = cost_by_agent
-    return result
+    return result, merged, cost_by_agent
 
 
 def median(values: list[float]) -> float | None:
@@ -305,23 +294,16 @@ def summarise(rows: list[dict], agents: list[str]) -> tuple[dict, dict]:
         "cost": round(median(costs), 2) if costs else None,
     }
     if agents:
-        totals["cost_by_agent"] = {
-            agent: round(sum(row["_cost_by_agent"].get(agent, 0.0) for row in rows), 2)
+        per_agent = {
+            agent: [row["cost_by_agent"].get(agent, 0.0) for row in rows]
             for agent in agents
         }
+        totals["cost_by_agent"] = {
+            agent: round(sum(values), 2) for agent, values in per_agent.items()
+        }
         medians["cost_by_agent"] = {
-            agent: round(
-                median(
-                    [
-                        row["_cost_by_agent"].get(agent)
-                        for row in rows
-                        if row["_cost_by_agent"].get(agent) is not None
-                    ]
-                )
-                or 0.0,
-                2,
-            )
-            for agent in agents
+            agent: round(median(values) or 0.0, 2)
+            for agent, values in per_agent.items()
         }
     return totals, medians
 
@@ -383,7 +365,7 @@ def print_table(
             str(row["escapes"]),
             fmt_cost(row["cost"], row["unknown_cost_sessions"]),
         ]
-        cells += [fmt_cost(row["_cost_by_agent"].get(agent, 0.0)) for agent in agents]
+        cells += [fmt_cost(row["cost_by_agent"].get(agent, 0.0)) for agent in agents]
         table.add_row(*cells)
 
     human_total = fmt_minutes(totals["human_minutes"])
@@ -400,8 +382,7 @@ def print_table(
         fmt_cost(totals["cost"], totals["unknown_cost_sessions"]),
     ]
     total_cells += [
-        fmt_cost(totals["cost_by_agent"].get(agent, 0.0)) if agents else ""
-        for agent in agents
+        fmt_cost(totals["cost_by_agent"].get(agent, 0.0)) for agent in agents
     ]
     table.add_row(*total_cells, style="bold")
 
@@ -415,8 +396,7 @@ def print_table(
         fmt_cost(medians["cost"]),
     ]
     median_cells += [
-        fmt_cost(medians["cost_by_agent"].get(agent, 0.0)) if agents else ""
-        for agent in agents
+        fmt_cost(medians["cost_by_agent"].get(agent, 0.0)) for agent in agents
     ]
     table.add_row(*median_cells)
 
@@ -457,28 +437,22 @@ def main(argv: list[str] | None = None) -> int:
         bead_id = row.get("id", "")
         if bead_id not in events:
             continue
-        result = build_row(row, events[bead_id], escapes, github)
-        merged = result.pop("_merged")
+        result, merged, cost_by_agent = build_row(row, events[bead_id], escapes, github)
         if not args.all and merged is None:
             continue
         if since is not None and (merged is None or merged.date() < since):
             continue
         if agents:
             result["cost_by_agent"] = {
-                agent: round(result["_cost_by_agent"].get(agent, 0.0), 2)
-                for agent in agents
+                agent: round(cost_by_agent.get(agent, 0.0), 2) for agent in agents
             }
         results.append(result)
 
     totals, medians = summarise(results, agents)
     if args.json:
-        public = [
-            {key: value for key, value in row.items() if not key.startswith("_")}
-            for row in results
-        ]
         print(
             json.dumps(
-                {"beads": public, "totals": totals, "medians": medians}, indent=2
+                {"beads": results, "totals": totals, "medians": medians}, indent=2
             )
         )
         return 0
