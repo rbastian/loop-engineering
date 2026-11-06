@@ -172,8 +172,17 @@ def test_run_sh_prints_the_drift_line_once(tmp_path):
     result = run_loop(tmp_path, harness)
     line = "harness is 1 commit behind loop-engineering; run update.sh"
     assert result.stdout.count(line) == 1, result.stdout
-    assert result.stdout.count("Starting claude session") == 2
-    assert result.stdout.index(line) < result.stdout.index("Starting claude session")
+    commit = git(clone, "rev-parse", "--short", "HEAD~1")
+    assert f"version  {commit} ({line})" in result.stdout.splitlines()
+    assert result.stdout.count("session starts ===") == 2
+    assert result.stdout.index(line) < result.stdout.index("session starts ===")
+
+
+def test_run_sh_shows_a_current_harness_as_up_to_date(tmp_path):
+    clone, harness = loop_project(tmp_path)
+    result = run_loop(tmp_path, harness)
+    commit = git(clone, "rev-parse", "--short", "HEAD")
+    assert f"version  {commit} (up to date)" in result.stdout.splitlines()
 
 
 def unusable_stamp(case: str, tmp_path: Path, clone: Path) -> str | None:
@@ -200,7 +209,8 @@ def test_run_sh_prints_nothing_without_a_usable_stamp(tmp_path, case):
         stamp.write_text(text)
     result = run_loop(tmp_path, harness)
     assert "behind" not in result.stdout
-    assert "Starting claude session" in result.stdout
+    assert "up to date" not in result.stdout
+    assert "session starts ===" in result.stdout
 
 
 def function_text(path: Path, name: str) -> str:

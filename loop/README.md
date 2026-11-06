@@ -226,6 +226,40 @@ Before lpe-wh5, these variables started with `RALPH_`. `run.sh` and `watch.py` r
 
 The default log directory changed from `/tmp/ralph-sessions` to `/tmp/loop-sessions`. The first line of each session log now has the type `loop.session`. `watch.py` also reads the old type `ralph.session`, so it can replay an old log.
 
+### Startup block
+
+After every startup check passes, and before it polls for beads, `run.sh` prints its configuration once. For example, the reviewer on `fw` in `pr` mode prints this block:
+
+```text
+=== Alice (reviewer) ===
+harness  cc@fw/glm-fast-latest[1m]
+ship     pr, as rbastian
+prompt   .loop/REVIEWER.md + .loop/project.md
+logs     /tmp/loop-alice
+timeout  2h
+version  b7e1166 (up to date)
+```
+
+The rows have these values:
+
+| Row | Value |
+|---|---|
+| title | The agent name and its role. The role is `coder` when the name equals `CODER` in the overlay, `reviewer` when it equals `REVIEWER`, and `unknown role` otherwise. |
+| `harness` | The label in the same form as the watcher: `cc/<model>` on `claude`, `codex/<model>` on `codex` (`codex/codex default` with no model), and `cc@fw/<model>` on `fw`. |
+| `ship` | `pr, as <GITHUB_ACCOUNT>` in `pr` mode, `local` in `local` mode, and `unknown` with no `SHIP_MODE`. |
+| `prompt` | The prompt file and the overlay file, or `+ no overlay` when `LOOP_OVERLAY=none`. |
+| `logs` | `LOOP_LOG_DIR`, or `off` without `LOOP_STREAM_LOG`. |
+| `timeout` | `LOOP_SESSION_TIMEOUT`, or `none` for `0`. |
+| `version` | The short commit from `HARNESS_VERSION`, with `up to date` or the drift text. `unknown` without a stamp. |
+
+A path inside the primary checkout (`PRIMARY` in the overlay) shows relative to it. Every other path shows in full. The block never shows `GH_TOKEN` or an API key. `LOOP_PRINT_PROMPT=1` prints only the prompt, without the block.
+
+Each session starts with one line that names the agent, the role and the same label:
+
+```text
+=== 2026-11-05 14:02:11 === Alice (reviewer) on cc@fw/glm-fast-latest[1m]: session starts ===
+```
+
 ### GitHub account
 
 In `pr` mode, `run.sh` pins the GitHub account that the agents use. A wrong active `gh` account then cannot open a pull request or post a comment. At start, before the first session, `run.sh` does these steps:
@@ -319,13 +353,13 @@ Use your configured agent name in place of `Ralph`.
 
 The version stamp `.loop/HARNESS_VERSION` tells `update.sh` which version is installed. The stamp has two lines: `commit=`, the full SHA of the clone's HEAD, and `clone=`, the absolute path of the clone. `bootstrap.sh` and `update.sh` write it. If `loop/` in the clone has uncommitted changes, `bootstrap.sh` adds the line `dirty=1` and prints a warning.
 
-When the clone has newer commits on `loop/` than the stamp, `layout.sh` prints one line, and so does `run.sh` once at start:
+When the clone has newer commits on `loop/` than the stamp, `layout.sh` prints one line:
 
 ```text
 harness is 3 commits behind loop-engineering; run update.sh
 ```
 
-The line is only a warning and never stops a loop. If the stamp is missing, the clone path does not exist, or the clone does not have the stamped commit, `run.sh` prints nothing.
+`run.sh` prints the same text once at start, in the `version` row of its [startup block](#startup-block). The text is only a warning and never stops a loop. If the stamp is missing, the `version` row shows `unknown`. If the clone path does not exist or the clone does not have the stamped commit, the row shows only the short commit.
 
 To update a project, do these steps:
 

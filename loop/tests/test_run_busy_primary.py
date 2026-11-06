@@ -16,7 +16,7 @@ RUN_SH = Path(__file__).parents[1] / "run.sh"
 
 BUSY_BRANCH = "primary checkout busy: on feature"
 BUSY_MODIFIED = "primary checkout busy: modified tracked files"
-STARTED = "Starting claude session"
+STARTED = "session starts ==="
 
 
 def git(repo: Path, *args: str) -> None:
@@ -161,7 +161,7 @@ def test_untracked_files_and_beads_changes_do_not_count_as_busy(tmp_path):
     (primary / "scratch.txt").write_text("untracked\n")
     (primary / ".beads" / "issues.jsonl").write_text('{"changed":1}\n')
     out = run_loop(tmp_path, primary, iterations=1)
-    assert "busy" not in out
+    assert "primary checkout busy" not in out
     assert STARTED in out
 
 
@@ -169,7 +169,7 @@ def test_pr_mode_ignores_a_busy_primary(tmp_path):
     primary = make_primary(tmp_path)
     git(primary, "checkout", "-q", "-b", "feature")
     out = run_loop(tmp_path, primary, ship_mode="pr", iterations=1)
-    assert "busy" not in out
+    assert "primary checkout busy" not in out
     assert STARTED in out
 
 
@@ -177,7 +177,7 @@ def test_coder_ignores_a_busy_primary(tmp_path):
     primary = make_primary(tmp_path)
     git(primary, "checkout", "-q", "-b", "feature")
     out = run_loop(tmp_path, primary, agent="Ralph", iterations=1)
-    assert "busy" not in out
+    assert "primary checkout busy" not in out
     assert STARTED in out
 
 
@@ -185,7 +185,7 @@ def test_no_overlay_skips_the_check(tmp_path):
     primary = make_primary(tmp_path)
     git(primary, "checkout", "-q", "-b", "feature")
     out = run_loop(tmp_path, primary, overlay=False, iterations=1)
-    assert "busy" not in out
+    assert "primary checkout busy" not in out
     assert STARTED in out
 
 
@@ -194,4 +194,4 @@ def test_no_beads_still_prints_no_beads(tmp_path):
     git(primary, "checkout", "-q", "-b", "feature")
     out = run_loop(tmp_path, primary, in_progress=0, ready=0, iterations=1)
     assert "No beads for Alice" in out
-    assert "busy" not in out
+    assert "primary checkout busy" not in out
