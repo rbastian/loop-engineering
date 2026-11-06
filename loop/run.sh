@@ -364,7 +364,94 @@ drift_line() {
     case "$count" in 0) return 0 ;; 1) count="1 commit" ;; *) count="$count commits" ;; esac
     echo "harness is $count behind loop-engineering; run update.sh"
 }
-drift_line "$HARNESS_DIR/HARNESS_VERSION" 2>/dev/null || true
+
+# Where a session runs, in the form of Session.label in watch.py:
+# <harness>[@<provider>]/<model>. A test makes sure that the two agree.
+harness_label() {
+    local harness
+    case "$1" in
+        claude) harness=cc ;;
+        fw) harness=cc@fw ;;
+        *) harness="$1" ;;
+    esac
+    if [ -n "$2" ]; then
+        echo "$harness/$2"
+    elif [ "$1" = codex ]; then
+        echo "$harness/codex default"
+    else
+        echo "$harness/?"
+    fi
+}
+
+# coder or reviewer, from CODER and REVIEWER in the overlay.
+agent_role() {
+    case "$AGENT_NAME" in
+        "$(overlay_value CODER)") echo coder ;;
+        "$(overlay_value REVIEWER)") echo reviewer ;;
+        *) echo "unknown role" ;;
+    esac
+}
+
+# An absolute path, relative to the primary checkout when it is inside it.
+show_path() {
+    local path="$1" primary
+    case "$path" in /*) ;; *) path="$(pwd)/${path#./}" ;; esac
+    primary=$(overlay_value PRIMARY)
+    if [ -n "$primary" ]; then
+        case "$path" in "${primary%/}"/*) path="${path#"${primary%/}"/}" ;; esac
+    fi
+    echo "$path"
+}
+
+# The installed commit and whether the clone has newer commits on loop/.
+version_text() {
+    local stamp="$HARNESS_DIR/HARNESS_VERSION" commit clone short drift
+    commit=$(sed -n 's/^commit=//p' "$stamp" 2>/dev/null | head -1)
+    clone=$(sed -n 's/^clone=//p' "$stamp" 2>/dev/null | head -1)
+    if [ -z "$commit" ]; then
+        echo unknown
+        return 0
+    fi
+    short=$(git -C "$clone" rev-parse --short "$commit" 2>/dev/null) || short="${commit:0:7}"
+    drift=$(drift_line "$stamp" 2>/dev/null) || drift=""
+    if [ -n "$drift" ]; then
+        echo "$short ($drift)"
+    elif [ "$(git -C "$clone" rev-list --count "$commit..HEAD" -- loop/ 2>/dev/null)" = 0 ]; then
+        echo "$short (up to date)"
+    else
+        echo "$short"
+    fi
+}
+
+ROLE=$(agent_role)
+LABEL=$(harness_label "$ENGINE" "$MODEL")
+
+# The configuration, once, after every startup check passed. Never a token.
+print_startup_block() {
+    local ship prompt logs timeout
+    ship=$(overlay_value SHIP_MODE)
+    case "$ship" in
+        pr) ship="pr, as $(overlay_value GITHUB_ACCOUNT)" ;;
+        '') ship=unknown ;;
+    esac
+    prompt="$(show_path "$PROMPT_FILE") + "
+    if [ -n "$OVERLAY_FILE" ]; then
+        prompt+=$(show_path "$OVERLAY_FILE")
+    else
+        prompt+="no overlay"
+    fi
+    logs=off
+    if [ -n "${LOOP_STREAM_LOG:-}" ]; then
+        logs=$(show_path "${LOOP_LOG_DIR:-/tmp/loop-sessions}")
+    fi
+    timeout="$SESSION_TIMEOUT"
+    [ "$SESSION_LIMIT" -gt 0 ] || timeout=none
+    echo "=== $AGENT_NAME ($ROLE) ==="
+    printf '%-9s%s\n' harness "$LABEL" ship "$ship" prompt "$prompt" \
+        logs "$logs" timeout "$timeout" version "$(version_text)"
+    echo ""
+}
+print_startup_block
 
 # The busy reason printed last, so a wait prints its reason once, not every 30s.
 LAST_BUSY=""
@@ -434,7 +521,7 @@ while true; do
                | jq -r '.[].id // empty' 2>/dev/null | tr '\n' ' ') || HELD=""
 
     echo ""
-    echo "=== $(date '+%Y-%m-%d %H:%M:%S') === Starting $ENGINE session (model: ${MODEL:-codex default}) ==="
+    echo "=== $(date '+%Y-%m-%d %H:%M:%S') === $AGENT_NAME ($ROLE) on $LABEL: session starts ==="
     echo "=================================================="
 
     # Built here rather than at startup: $PROMPT is re-read each iteration.

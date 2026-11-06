@@ -13,7 +13,7 @@ from pathlib import Path
 RUN_SH = Path(__file__).parents[1] / "run.sh"
 
 TOKEN = "gho_stubtoken123"
-STARTED = "Starting claude session"
+STARTED = "session starts ==="
 
 
 def write_exe(path: Path, body: str) -> None:
