@@ -115,7 +115,7 @@ In round 2, a finding the coder answered with a `Disputed finding:` note is judg
 
 Exactly one of these ends your session.
 
-In `pr` mode, each path below posts a Markdown comment on the PR. Pass the body with `--body-file -` and a quoted heredoc (`<<'EOF'`). The shell expands nothing inside it, so backticks, `$` and quotes reach GitHub unchanged. Type your name, the round, the sha and every other value into the text yourself. Put code names in backticks. The comment starts with a `## Review by` heading and a short block with the method, the finding counts and the gate result. Then come the sections `### Blocking findings` (a numbered list, left out on a pass), `### Checked`, `### Non-blocking findings` and `### Acceptance evidence` (a table). The bead notes stay plain text, word for word as below.
+In `pr` mode, each path below posts a Markdown comment on the PR. Pass the body with `--body-file -` and a quoted heredoc (`<<'EOF'`). The shell expands nothing inside it, so backticks, `$` and quotes reach GitHub unchanged. Type your name, the round, the sha and every other value into the text yourself. Put code names in backticks. Leave `### Blocking findings` out on a pass. The bead notes stay plain text, word for word as below.
 
 #### Pass in `pr` mode → ready for the human to merge
 

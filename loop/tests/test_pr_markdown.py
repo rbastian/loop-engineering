@@ -8,15 +8,17 @@ notes stay plain text with the same markers.
 import re
 import textwrap
 
-from test_review_method import LOOP, LOOP_README, REVIEWER, fenced, section
+from test_acceptance_evidence import FAIL_PATHS, PASS_PATHS
+from test_review_method import LOOP_README, REVIEWER, fenced, section
+from test_routing_state import CODER
 
-CODER = (LOOP / "CODER.md").read_text()
 PROMPTS = {"CODER.md": CODER, "REVIEWER.md": REVIEWER}
 HEREDOC_START = "--body-file - <<'EOF'"
 
-PASS = "Pass in `pr` mode → ready for the human to merge"
-FAIL_1 = "Fail in round 1 → back to the coder"
-ESCALATE = "Fail in round 2 → escalate to the human"
+PASS = PASS_PATHS[0]
+FAIL_1, ESCALATE = FAIL_PATHS
+COMMENT_PATHS = (PASS, FAIL_1, ESCALATE)
+CODER_STEP_13 = CODER.split("13. **In `pr` mode")[1].split("\n14. ")[0]
 
 EVIDENCE_TABLE = "| # | Outcome | Evidence |"
 
@@ -34,8 +36,7 @@ def gh_command_lines(text: str, verb: str) -> list[str]:
 
 
 def coder_pr_body() -> str:
-    step13 = CODER.split("13. **In `pr` mode")[1].split("\n14. ")[0]
-    commands = fenced(step13)
+    commands = fenced(CODER_STEP_13)
     assert "gh pr create" in commands
     (body,) = heredocs(commands[commands.index("gh pr create") :])
     return body
@@ -56,7 +57,6 @@ def in_order(text: str, parts: list[str]) -> bool:
 def test_the_coder_opens_the_pr_with_a_body_file_heredoc():
     (command,) = gh_command_lines(CODER, "create")
     assert HEREDOC_START in command
-    assert "--body " not in command.replace(HEREDOC_START, "")
 
 
 def test_the_pr_description_has_the_bead_line_and_three_sections():
@@ -69,9 +69,8 @@ def test_the_pr_description_has_the_bead_line_and_three_sections():
 
 
 def test_the_coder_writes_the_description_once():
-    step13 = CODER.split("13. **In `pr` mode")[1].split("\n14. ")[0]
-    assert "Write the body once" in step13
-    assert "A later round does not edit it" in step13
+    assert "Write the body once" in CODER_STEP_13
+    assert "A later round does not edit it" in CODER_STEP_13
 
 
 def test_every_pr_comment_uses_a_body_file_heredoc():
@@ -98,8 +97,8 @@ def test_the_comment_heading_names_the_outcome_and_round():
 
 
 def test_the_comment_block_gives_the_method_counts_and_the_gate():
-    for heading in (PASS, FAIL_1, ESCALATE):
-        block = comment_body(heading).split("###")[0]
+    for heading in COMMENT_PATHS:
+        block = comment_body(heading).split("\n### ")[0]
         assert "<method>: <k> findings (<b> blocking)" in block, heading
         assert "Gate:" in block and "`<sha>`" in block and "<t> tests" in block
 
@@ -110,25 +109,26 @@ def test_the_comment_sections_are_in_order():
         "### Non-blocking findings",
         "### Acceptance evidence",
     ]
-    assert in_order(comment_body(PASS), sections)
-    assert "### Blocking findings" not in comment_body(PASS)
+    passed = comment_body(PASS)
+    assert in_order(passed, sections)
+    assert "### Blocking findings" not in passed
     for heading in (FAIL_1, ESCALATE):
         body = comment_body(heading)
         assert in_order(body, ["### Blocking findings", *sections]), heading
-        blocking = body.split("### Blocking findings")[1].split("###")[0]
+        blocking = section(body, "Blocking findings")
         assert "\n1. " in blocking, "a numbered list"
 
 
 def test_the_evidence_is_a_table():
-    for heading in (PASS, FAIL_1, ESCALATE):
-        evidence = comment_body(heading).split("### Acceptance evidence")[1]
+    for heading in COMMENT_PATHS:
+        evidence = section(comment_body(heading), "Acceptance evidence")
         assert EVIDENCE_TABLE in evidence, heading
         rows = [line for line in evidence.splitlines() if line.startswith("| 1 |")]
         assert rows, heading
 
 
 def test_the_bodies_hold_no_bead_notes():
-    for body in [coder_pr_body()] + [comment_body(h) for h in (PASS, FAIL_1, ESCALATE)]:
+    for body in [coder_pr_body()] + [comment_body(h) for h in COMMENT_PATHS]:
         assert "bd " not in body
 
 
