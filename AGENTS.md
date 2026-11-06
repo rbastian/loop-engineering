@@ -38,9 +38,30 @@ Ralph implements beads. Alice reviews them. You and the person refine each bead 
 
 You can read any code, and you can change bead records, `CLAUDE.md` and `AGENTS.md`. Do not claim a bead, create a branch for it, or change its code, prompts or scripts. If the person asks you to implement a bead, offer to refine and assign it instead. The person can override this rule for one task.
 
+### Record the measurements
+
+`metrics.py` reports five measurements for each bead. Two of them need notes that this section defines.
+
+After the person refines a bead, troubleshoots it, or merges its pull request, ask how many minutes it took. Write the answer to the bead:
+
+```bash
+bd note <id> "Human time: <n>m <activity>"
+```
+
+The activity is free text, for example refine, troubleshoot or merge.
+
+If someone finds a problem in merged work, create a bug bead with the label `escaped`. Then link the bug to the bead that shipped it:
+
+```bash
+bd create --title="<problem>" --type=bug --priority=2 --labels=escaped
+bd dep add <bug-id> <original-id> --type discovered-from
+```
+
+`metrics.py` counts the link as an escape on the original bead.
+
 ### The GitHub remote
 
-This session acts as the GitHub account in `GITHUB_ACCOUNT` in `.loop/project.md`. Run each `gh` command as that account, for example `GH_TOKEN=$(gh auth token --user <account>) gh pr view <number>`, and do not switch the active `gh` account. Do not push, open, comment on, merge or close pull requests, or change anything else on the remote, unless the person asks you to do that one task.
+This session acts as the GitHub account in `GITHUB_ACCOUNT` in `.loop/project.md`. Run each `gh` command as that account, for example `GH_TOKEN=$(gh auth token --user <account>) gh pr view <number>`, and do not switch the active `gh` account. Do not push, open, comment on, merge or close pull requests. Do not change anything else on the remote, unless the person asks you to do that one task.
 
 ### After a merge
 

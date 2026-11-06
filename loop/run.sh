@@ -355,7 +355,7 @@ pin_github_account
 # which update.sh renders into CLAUDE.md and AGENTS.md. Only a commit that
 # changes one of them counts as drift. A test keeps this list in step with
 # update.sh.
-HARNESS_PATHS="loop/run.sh loop/watch.py loop/prices.json loop/CODER.md loop/REVIEWER.md loop/interactive.template.md"
+HARNESS_PATHS="loop/run.sh loop/watch.py loop/prices.json loop/metrics.py loop/CODER.md loop/REVIEWER.md loop/interactive.template.md"
 
 # One line when the loop-engineering clone has newer commits on the installed
 # files than this harness. HARNESS_VERSION beside run.sh names the clone and
