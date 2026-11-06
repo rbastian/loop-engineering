@@ -1,9 +1,10 @@
 """The harness version stamp and the drift warning (lpe-bl1).
 
 bootstrap.sh writes .loop/HARNESS_VERSION. layout.sh and run.sh read it and
-print one line when the clone has newer commits on loop/.
+print one line when the clone has newer commits on the installed files.
 """
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from test_bootstrap_interactive import run_bootstrap
 from test_update import (
     GIT_ENV,
     ROOT,
+    UPDATE,
     advance_clone,
     commit_all,
     git,
@@ -21,6 +23,7 @@ from test_update import (
 
 LAYOUT = ROOT / "skills/dev-env-setup/scripts/layout.sh"
 RUN_SH = ROOT / "loop/run.sh"
+LIB_SH = ROOT / "skills/dev-env-setup/scripts/lib.sh"
 
 
 def stamp_lines(project: Path) -> list[str]:
@@ -220,5 +223,49 @@ def function_text(path: Path, name: str) -> str:
 
 
 def test_run_sh_and_lib_sh_share_the_same_drift_line():
-    lib = ROOT / "skills/dev-env-setup/scripts/lib.sh"
-    assert function_text(RUN_SH, "drift_line") == function_text(lib, "drift_line")
+    assert function_text(RUN_SH, "drift_line") == function_text(LIB_SH, "drift_line")
+
+
+# lpe-t0w: only commits that change an installed file count as drift.
+
+
+def shell_words(path: Path, var: str) -> list[str]:
+    """The words of the line VAR="..." in the shell script PATH."""
+    match = re.search(rf'^{var}="([^"]*)"$', path.read_text(), re.MULTILINE)
+    assert match, f"{path.name} has no {var} line"
+    return match.group(1).split()
+
+
+def installed_paths() -> list[str]:
+    """update.sh FILES plus interactive.template.md, as paths in the clone."""
+    files = [*shell_words(UPDATE, "FILES"), "interactive.template.md"]
+    return sorted(f"loop/{f}" for f in files)
+
+
+@pytest.mark.parametrize("path", [RUN_SH, LIB_SH], ids=["run.sh", "lib.sh"])
+def test_drift_paths_are_the_installed_files(path):
+    assert sorted(shell_words(path, "HARNESS_PATHS")) == installed_paths()
+
+
+def test_commits_outside_the_installed_files_are_not_drift(tmp_path):
+    clone, harness = loop_project(tmp_path)
+    commit = git(clone, "rev-parse", "--short", "HEAD")
+    (clone / "loop/tests").mkdir()
+    (clone / "loop/tests/test_x.py").write_text("not installed\n")
+    commit_all(clone, "change loop/tests/")
+    (clone / "loop/README.md").write_text("not installed\n")
+    commit_all(clone, "change loop/README.md")
+    result = run_loop(tmp_path, harness)
+    assert "behind" not in result.stdout
+    assert f"version  {commit} (up to date)" in result.stdout.splitlines()
+    assert "behind" not in run_layout(tmp_path, harness.parent).stdout
+
+
+@pytest.mark.parametrize("rel", installed_paths())
+def test_a_change_to_one_installed_file_is_drift(tmp_path, rel):
+    clone, harness = loop_project(tmp_path)
+    target = clone / rel
+    target.write_text(target.read_text() + "\n")
+    commit_all(clone, f"change {rel}")
+    line = "harness is 1 commit behind loop-engineering; run update.sh"
+    assert line in run_loop(tmp_path, harness).stdout
