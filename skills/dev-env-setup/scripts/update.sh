@@ -8,9 +8,10 @@
 #
 # Every check runs before any file changes. If one fails, update.sh prints all
 # failures, changes nothing and exits 1. Then it copies run.sh, watch.py,
-# prices.json, CODER.md and REVIEWER.md, refreshes the interactive section of
-# CLAUDE.md and AGENTS.md, writes .loop/HARNESS_VERSION and prints the diff. It never changes
-# .loop/project.md (apart from the ralph/ path rewrite), and it commits nothing.
+# prices.json, metrics.py, CODER.md and REVIEWER.md, refreshes the interactive
+# section of CLAUDE.md and AGENTS.md, writes .loop/HARNESS_VERSION and prints
+# the diff. It never changes .loop/project.md (apart from the ralph/ path
+# rewrite), and it commits nothing.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -38,7 +39,7 @@ for arg in "$@"; do
 done
 [ -n "$PROJECT_ARG" ] || usage
 
-FILES="run.sh watch.py prices.json CODER.md REVIEWER.md"
+FILES="run.sh watch.py prices.json metrics.py CODER.md REVIEWER.md"
 DOCS="CLAUDE.md AGENTS.md"
 
 # Errors that stop update.sh before the checks: nothing to compare against.
@@ -252,7 +253,7 @@ echo "==> update .loop/ from $LOOP_HOME"
 for f in $FILES; do
     cp "$HARNESS/$f" "$DIR/$f"
 done
-chmod +x "$DIR/run.sh" "$DIR/watch.py"
+chmod +x "$DIR/run.sh" "$DIR/watch.py" "$DIR/metrics.py"
 echo "copied $FILES"
 
 SECTION="$TMP/section"
