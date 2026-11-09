@@ -130,6 +130,7 @@ The reviewer parks a bead with a "Review not run: <error>" note when its default
 | `project.template.md` | The template for `.loop/project.md`, the project overlay. |
 | `interactive.template.md` | The template for the interactive section of `CLAUDE.md` and `AGENTS.md`. The section tells an interactive agent to orient a new person, to refine and assign beads, and not to implement them. |
 | `watch.py` | The watcher. It shows a live session log as one line per tool call. |
+| `../skills/dev-env-setup/scripts/queue.sh` | The queue script. It shows one agent's in-progress, ready and blocked beads. |
 | `tests/` | Tests for `watch.py`, `run.sh`, the setup scripts and the prompts. |
 
 ## The project overlay
@@ -193,6 +194,29 @@ LOOP_LOG_DIR=/tmp/<name>-alice-sessions uv run .loop/watch.py --agent Alice --pr
 `--prefix` is the bead prefix from `BEAD_PREFIX` in `.loop/project.md`. With it, the watcher matches only that project's bead IDs. Without it, the watcher matches any prefix, can name the wrong bead, and prints a warning. `run.sh` passes `BEAD_PREFIX` to `watch.py --summary` when it is set.
 
 `LOOP_ENGINE` selects the agent CLI. It takes `claude` (the default) or `codex`. The coder always runs on `claude`, because its prompt uses the `/simplify` skill. The reviewer can run on `codex`, so that a different model family reads the diff. On `codex`, `LOOP_MODEL` has no default, and the review uses `codex exec review`. Before the first headless Codex session, open `codex` once in the primary checkout, trust the project and approve its hooks.
+
+### Agent queues
+
+`layout.sh` puts an agent queue above each loop in the loop tab:
+
+```text
++-------------------+-------------------+
+| coder queue       | reviewer queue    |
++-------------------+-------------------+
+| coder loop        | reviewer loop     |
++-------------------+-------------------+
+```
+
+An agent queue shows the beads assigned to one agent. In progress lists the agent's active beads with their `loop` state labels. Ready next lists the unblocked beads that wait for the agent. Waiting lists the agent's blocked beads and their blockers.
+
+`queue.sh` lives at `skills/dev-env-setup/scripts/queue.sh` in the loop-engineering clone, not in `.loop/`. To run it by hand, start in the project's primary checkout and give the full path to the skill folder:
+
+```bash
+cd /path/to/project
+/path/to/loop-engineering/skills/dev-env-setup/scripts/queue.sh --watch Ralph
+```
+
+Use your coder or reviewer name in place of Ralph. Leave out `--watch` to print the queue once.
 
 ### run.sh variables
 
