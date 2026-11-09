@@ -27,7 +27,19 @@ def test_tools_fw_matches_the_local_launcher_apart_from_its_comment_block():
 
     shipped = FW.read_bytes()
     assert shipped.startswith(b"#!/usr/bin/env python3\n" + COMMENT_BLOCK)
-    assert shipped.replace(COMMENT_BLOCK, b"", 1) == LOCAL_FW.read_bytes()
+    assert shipped.replace(COMMENT_BLOCK, b"", 1) == LOCAL_FW.read_bytes().replace(
+        COMMENT_BLOCK, b"", 1
+    )
+
+
+def test_tools_fw_matches_an_installed_copy_that_retains_comment_block(
+    tmp_path, monkeypatch
+):
+    installed = tmp_path / "fw"
+    installed.write_bytes(FW.read_bytes())
+    monkeypatch.setattr("test_fw.LOCAL_FW", installed)
+
+    test_tools_fw_matches_the_local_launcher_apart_from_its_comment_block()
 
 
 def test_tools_fw_is_executable_and_compiles(tmp_path):
