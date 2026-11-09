@@ -139,9 +139,8 @@ def test_sections_states_ready_order_and_waiting_limit(tmp_path):
 
     assert result.returncode == 0, result.stderr
     headings = ["In progress", "Ready next", "Waiting"]
-    assert [result.stdout.index(heading) for heading in headings] == sorted(
-        result.stdout.index(heading) for heading in headings
-    )
+    positions = [result.stdout.index(heading) for heading in headings]
+    assert positions == sorted(positions)
     assert "progress-1 [loop:returned] Title progress-1" in result.stdout
     assert "progress-2 [loop:review] Title progress-2" in result.stdout
     assert "round:2" not in result.stdout
@@ -225,8 +224,9 @@ def test_watch_colors_bd_only_and_redraws_only_on_change(tmp_path):
     assert result.stdout.count(READY_OLD) == 1
     assert result.stdout.count("ready-3") == 1
     assert (tmp_path / "clears").read_text().splitlines() == ["clear", "clear"]
-    assert len(calls(tmp_path)) == 12
-    assert {call["color"] for call in calls(tmp_path)} == {"1"}
+    bd_calls = calls(tmp_path)
+    assert len(bd_calls) == 12
+    assert {call["color"] for call in bd_calls} == {"1"}
     assert (tmp_path / "shell-colors").read_text().splitlines() == ["unset"] * 3
 
 

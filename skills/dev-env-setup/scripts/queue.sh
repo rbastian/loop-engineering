@@ -18,17 +18,21 @@ fi
 [ "$#" -eq 1 ] || usage
 AGENT="$1"
 
+run_bd() {
+    CLICOLOR_FORCE=1 bd "$@" 2>&1
+}
+
 print_in_progress() {
     local json rendered
     printf 'In progress\n'
-    if ! json="$(CLICOLOR_FORCE=1 bd list --assignee="$AGENT" --status=in_progress --json 2>&1)"; then
+    if ! json="$(run_bd list --assignee="$AGENT" --status=in_progress --json 2>&1)"; then
         printf '%s\n' "$json"
         return 0
     fi
-    if ! rendered="$(printf '%s\n' "$json" | jq -r '
+    if ! rendered="$(jq -r '
         .[] |
         "  \(.id)\(((.labels // []) | map(select(startswith("loop:")) | " [" + . + "]") | join(""))) \(.title)"
-    ' 2>&1)"; then
+    ' <<<"$json" 2>&1)"; then
         printf '%s\n' "$rendered"
         return 0
     fi
@@ -42,7 +46,7 @@ print_in_progress() {
 print_ready() {
     local output
     printf 'Ready next\n'
-    if ! output="$(CLICOLOR_FORCE=1 bd ready --assignee="$AGENT" 2>&1)"; then
+    if ! output="$(run_bd ready --assignee="$AGENT" 2>&1)"; then
         printf '%s\n' "$output"
         return 0
     fi
@@ -55,27 +59,28 @@ print_ready() {
 print_waiting() {
     local assigned blocked rendered failed=0
     printf 'Waiting\n'
-    if ! assigned="$(CLICOLOR_FORCE=1 bd list --assignee="$AGENT" --json 2>&1)"; then
+    if ! assigned="$(run_bd list --assignee="$AGENT" --json 2>&1)"; then
         printf '%s\n' "$assigned"
         failed=1
     fi
-    if ! blocked="$(CLICOLOR_FORCE=1 bd blocked --json 2>&1)"; then
+    if ! blocked="$(run_bd blocked --json 2>&1)"; then
         printf '%s\n' "$blocked"
         failed=1
     fi
     [ "$failed" -eq 0 ] || return 0
     if ! rendered="$(jq -r -n --argjson assigned "$assigned" --argjson blocked "$blocked" '
-        ($assigned | map(.id)) as $ids |
-        [$blocked[] | select(.id as $id | $ids | index($id))] as $waiting |
-        if ($waiting | length) == 0 then
+        ($assigned | map({key: .id, value: true}) | from_entries) as $ids |
+        [$blocked[] | select($ids[.id])] as $waiting |
+        ($waiting | length) as $count |
+        if $count == 0 then
             "(none)"
         else
-            "\($waiting | length) beads",
+            "\($count) beads",
             ($waiting[:3][] |
                 ((.blocked_by // []) | join(", ")) as $blockers |
                 "  \(.id) (blocked by: \($blockers)) \(.title)"),
-            (if ($waiting | length) > 3 then
-                "  ... and \(($waiting | length) - 3) more"
+            (if $count > 3 then
+                "  ... and \($count - 3) more"
             else
                 empty
             end)
