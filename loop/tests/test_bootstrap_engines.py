@@ -105,7 +105,7 @@ def test_skill_asks_the_engine_of_each_agent():
     text = SKILL.read_text()
     assert "The coder's engine" in text
     assert "The reviewer's engine" in text
-    assert "Offer `fw` only if `fw` is on `PATH`" in text
+    assert text.count("If `fw` is on `PATH`, offer it") == 2
     assert "deepseek-flash-latest[1m]" in text
     for var in (
         "LOOP_CODER_ENGINE",

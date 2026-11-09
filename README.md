@@ -2,11 +2,15 @@
 
 **Specify interactively. Implement headlessly.**
 
-loop-engineering runs a coder and a reviewer through a queue of small, specified tasks. You work with an interactive agent to define the work, answer questions and set dependencies. The agents then implement and review it in headless sessions—sessions that run without you answering prompts.
+loop-engineering runs a coder and a reviewer through a queue of small, specified tasks. You work with an interactive agent to define the work, answer questions and set dependencies. The agents then implement and review it in headless sessions. These sessions run without you answering prompts.
 
 [Beads](https://github.com/gastownhall/beads) holds the task graph, specifications and handoff history. A shell loop starts fresh agent sessions, with the role prompts directing each session to work on one bead. By default, reviewed work reaches you as a pull request to approve and merge.
 
-The coder runs on [Claude Code](https://claude.com/claude-code). The reviewer can run on Claude Code or [Codex](https://github.com/openai/codex).
+The coder runs on Claude Code.
+
+The reviewer can run on Claude Code or Codex.
+
+An agent can also run on a Fireworks model through `fw`. See [Running an agent on Fireworks (fw)](loop/README.md#running-an-agent-on-fireworks-fw).
 
 ## Start here
 
@@ -47,7 +51,7 @@ flowchart TD
 
 The diagram shows the default `pr` mode. In `local` mode, the reviewer merges passing work and the human accepts it afterward.
 
-Each agent has its own Git worktree: a separate checkout sharing the repository's Git history. Both loops use the same `run.sh`, with different names and role prompts. Changing a bead's assignee hands it to the next role; the notes carry the context.
+Each agent has its own Git worktree: a separate checkout sharing the repository's Git history. Both loops use the same `run.sh`, with different names and role prompts. Changing a bead's assignee hands it to the next role. The notes carry the context.
 
 The reviewer returns blocking findings to the coder once. A second failed review goes to the human. A rebase does not count as another review round. Non-blocking findings are recorded for human triage.
 
@@ -67,7 +71,7 @@ Every project needs:
 | [uv](https://docs.astral.sh/uv/) | Python setup, project checks and the watcher. |
 | `jq` | Reading JSON in the runner and setup scripts. |
 
-The coder's Claude Code session needs `/simplify`. A Claude Code reviewer also needs `/code-review`; a Codex reviewer uses `codex exec review`.
+The coder's Claude Code session needs `/simplify`. A Claude Code reviewer also needs `/code-review`. A Codex reviewer uses `codex exec review`.
 
 Additional tools depend on your setup:
 
@@ -102,9 +106,9 @@ In an interactive Claude Code session in your target project, inside herdr, run:
 /dev-env-setup
 ```
 
-The skill asks for the bead prefix, ship mode, human assignee, agent names and reviewer engine. It configures Git, uv and Beads, installs the harness as `.loop/`, creates the agent worktrees and starts the loops and watchers. The loops wait until you assign work.
+The skill asks for the bead prefix, ship mode, human assignee, agent names and reviewer engine. It configures Git, uv and Beads, installs the loop as `.loop/`, creates the agent worktrees and starts the loops and watchers. The loops wait until you assign work.
 
-**Before running setup:** bootstrap adds Python development dependencies and runs formatting and lint fixes. The worktree script stages and commits all current changes; in `pr` mode, it also pushes `main` to `origin`. Run it only with changes you intend to include.
+Before setup, bootstrap adds Python development dependencies and runs formatting and lint fixes. The worktree script stages and commits all current changes. In `pr` mode, it also pushes `main` to `origin`. Run it only with changes you intend to include.
 
 For manual installation, see [Install in a project](loop/README.md#install-in-a-project).
 
@@ -130,7 +134,7 @@ For the first ready bead, enter this in your interactive session:
 
 > Read bead `<id>`. Ask me questions about the spec, one round at a time, until you have no questions left. Then update the bead's design field with the final spec.
 
-This is the **spec ritual**. The coder implements against that design; the reviewer checks against it. Each question answered here removes a decision the headless coder would otherwise have to guess.
+This is the **spec ritual**. The coder implements against that design. The reviewer checks against it. Each question answered here removes a decision for the headless coder.
 
 Then assign the bead:
 
@@ -138,7 +142,7 @@ Then assign the bead:
 bd update <id> --assignee=Ralph
 ```
 
-Use your configured coder name if you changed the default. Repeat the spec ritual before assigning each new bead.
+If you changed the default, use your configured coder name. Repeat the spec ritual before assigning each new bead.
 
 ### 5. Review and merge
 
@@ -166,9 +170,9 @@ Set the mode in `.loop/project.md`.
 | Mode | After review passes | Human queue |
 | --- | --- | --- |
 | `pr` (default) | The reviewer hands the PR to the human for approval and merge. The human closes the bead after merging. Use this for shared repositories. | `loop:merge` |
-| `local` | The reviewer merges into `main` in the primary checkout, closes the bead and assigns it to the human for acceptance. Intended for single-user repositories; no remote is required. | `loop:accept` |
+| `local` | The reviewer merges into `main` in the primary checkout, closes the bead and assigns it to the human for acceptance. Intended for single-user repositories. No remote is required. | `loop:accept` |
 
-In either mode, a second failed review sets `loop=escalated` and assigns the unmerged bead to the human. A bead that the coder cannot continue, for example after a gate fails twice, gets `loop=parked` and goes to the human too. The reviewer parks a bead the same way when its default review method cannot run. List each queue with `bd list --label <queue>`. The `loop:accept` beads are already closed, so that queue also needs `--status=closed`:
+In either mode, a second failed review sets `loop=escalated` and assigns the unmerged bead to the human. A bead that the coder cannot continue, for example after a gate fails twice, gets `loop=parked` and goes to the human too. If its default review method cannot run, the reviewer parks a bead the same way. List each queue with `bd list --label <queue>`. The `loop:accept` beads are already closed, so that queue also needs `--status=closed`:
 
 ```bash
 bd list --label loop:merge       # pr mode: reviewed PRs to approve and merge
@@ -184,21 +188,21 @@ In `local` mode, the reviewer waits for the primary checkout to be on `main` wit
 | Path | Purpose |
 | --- | --- |
 | [`loop/`](loop/) | Reusable source: runner, coder and reviewer prompts, project template, watcher and tests. |
-| [`skills/dev-env-setup/`](skills/dev-env-setup/) | Claude Code setup skill and scripts that install the harness into a target project. |
-| [`.loop/`](.loop/) | This repository's installed harness. The repository runs its own loop; reusable harness changes belong in `loop/` or `skills/`. |
+| [`skills/dev-env-setup/`](skills/dev-env-setup/) | Claude Code setup skill and scripts that install the loop into a target project. |
+| [`.loop/`](.loop/) | The installed copy that runs this repository's own loop. Reusable changes belong in `loop/` or `skills/`. |
 
-An installed project's `.loop/project.md` holds its agent names, paths, ship mode, reviewer engine, stack and **gate**—the required validation command. The default gate checks Ruff formatting, Ruff lint and pytest. The runner appends this configuration to each role prompt at the start of every session.
+An installed project's `.loop/project.md` holds its agent names, paths, ship mode, reviewer engine, stack and `gate`, the required validation command. The default gate checks Ruff formatting, Ruff lint and pytest. The runner appends this configuration to each role prompt at the start of every session.
 
-Agent names are configurable. `LOOP_ENGINE` selects the CLI for a loop; `LOOP_MODEL` selects its model. The coder stays on Claude Code because its prompt uses `/simplify`.
+Agent names are configurable. `LOOP_ENGINE` selects the CLI for a loop. `LOOP_MODEL` selects its model. The coder stays on Claude Code because its prompt uses `/simplify`.
 
 ## Operating the loop
 
 The [operating guide](loop/README.md) covers:
 
-- [Starting loops and watchers](loop/README.md#running), including engine, model, log and timeout settings.
+- [Starting loops and watchers](loop/README.md#running), including engine, model, log and timeout configuration.
 - [Session cost notes](loop/README.md#cost-notes). With stream logging enabled, the runner appends available cost and token information to the bead after a completed session. Claude's dollar figure is an API-equivalent estimate, not a bill.
 - [Stopping, restarting and recovering sessions](loop/README.md#stop-and-restart).
-- [Updating an installed harness](loop/README.md#update-an-installed-harness) with `update.sh`. Bootstrap keeps existing harness files and does not upgrade them. `layout.sh` and `run.sh` print a warning when the installed harness is behind the clone.
+- [Updating an installed copy](loop/README.md) with `update.sh`. Bootstrap keeps existing installed files and does not upgrade them. If the installed copy is behind the clone, `layout.sh` and `run.sh` print a warning.
 - [Adding another agent role](loop/README.md#add-an-agent).
 
 ## Safety
@@ -209,9 +213,9 @@ In `pr` mode, the human controls every merge. In `local` mode, the reviewer and 
 
 ## Contributing
 
-Keep documentation aligned with the scripts and role prompts. Reusable harness changes belong in `loop/` or `skills/`; `.loop/` is the installed copy.
+Keep documentation aligned with the scripts and role prompts. Reusable loop changes belong in `loop/` or `skills/`. `.loop/` is the installed copy.
 
-See [Tests](loop/README.md#tests) for the test command. For documentation changes, verify the commands, links and workflow descriptions against the implementation.
+See [Tests](loop/README.md#tests) for the test command. For documentation changes, make sure that the commands, links and workflow descriptions match the implementation.
 
 ## Sources and history
 
@@ -220,5 +224,7 @@ Two writeups shaped this workflow:
 - Steve Yegge, [Introducing Beads](https://steve-yegge.medium.com/introducing-beads-a-coding-agent-memory-system-637d7d92514a): a dependency graph and persistent task records that agents can query across sessions.
 - Geoffrey Huntley, [everything is a ralph loop](https://ghuntley.com/loop/): fresh iterations, with engineering effort spent observing the loop and removing recurring failures.
 
-The original single-agent runner and AI Guild demo material are in commit [`194238a`](https://github.com/rbastian/loop-engineering/tree/194238a). Claude Code reviewed and hardened later versions; the commit history records the fixes.
+The original single-agent runner and AI Guild demo material are in commit [`194238a`](https://github.com/rbastian/loop-engineering/tree/194238a).
+
+Claude Code reviewed and hardened later versions. The commit history records the fixes.
 
