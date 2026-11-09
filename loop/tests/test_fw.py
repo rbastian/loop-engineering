@@ -2,13 +2,15 @@
 
 import json
 import os
-from pathlib import Path
 import py_compile
 import stat
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
+from test_review_method import section
+from test_run_watchdog import write_exe
 
 ROOT = Path(__file__).resolve().parents[2]
 FW = ROOT / "tools" / "fw"
@@ -33,22 +35,15 @@ def test_tools_fw_is_executable_and_compiles(tmp_path):
     py_compile.compile(str(FW), cfile=str(tmp_path / "fw.pyc"), doraise=True)
 
 
-def make_fake_claude(directory):
-    binary = directory / "bin"
+def run_fw_check(tmp_path, api_key):
+    binary = tmp_path / "bin"
     binary.mkdir()
-    claude = binary / "claude"
-    claude.write_text("#!/bin/sh\nexit 0\n")
-    claude.chmod(0o755)
-    return claude
-
-
-def test_fw_check_accepts_a_fake_claude_and_an_api_key(tmp_path):
-    claude = make_fake_claude(tmp_path)
+    write_exe(binary / "claude", "exit 0\n")
     env = os.environ.copy()
-    env["PATH"] = str(tmp_path / "bin")
-    env["FIREWORKS_API_KEY"] = "test-key"
+    env["PATH"] = str(binary)
+    env["FIREWORKS_API_KEY"] = api_key
 
-    result = subprocess.run(
+    return subprocess.run(
         [sys.executable, str(FW), "--model", "test-model", "--check"],
         capture_output=True,
         text=True,
@@ -56,26 +51,19 @@ def test_fw_check_accepts_a_fake_claude_and_an_api_key(tmp_path):
         check=False,
     )
 
+
+def test_fw_check_accepts_a_fake_claude_and_an_api_key(tmp_path):
+    result = run_fw_check(tmp_path, "test-key")
+
     assert result.returncode == 0, result.stderr
     report = json.loads(result.stdout)
-    assert report["claude"] == str(claude)
+    assert report["claude"] == str(tmp_path / "bin" / "claude")
     assert report["model"] == "test-model"
     assert report["keySource"] == "FIREWORKS_API_KEY"
 
 
 def test_fw_check_reports_a_missing_key_when_nexus_is_missing(tmp_path):
-    make_fake_claude(tmp_path)
-    env = os.environ.copy()
-    env["PATH"] = str(tmp_path / "bin")
-    env["FIREWORKS_API_KEY"] = ""
-
-    result = subprocess.run(
-        [sys.executable, str(FW), "--model", "test-model", "--check"],
-        capture_output=True,
-        text=True,
-        env=env,
-        check=False,
-    )
+    result = run_fw_check(tmp_path, "")
 
     assert result.returncode == 2
     assert "fw: Set FIREWORKS_API_KEY" in result.stderr
@@ -92,11 +80,9 @@ def test_setup_skill_offers_to_copy_fw_with_consent():
 
 def test_fw_documentation_covers_configuration_costs_limits_and_trials():
     readme = (ROOT / "loop" / "README.md").read_text()
-    section = readme.split("## Running an agent on Fireworks (fw)", 1)[1].split(
-        "\n## ", 1
-    )[0]
+    text = section(readme, "Running an agent on Fireworks (fw)")
 
-    for text in (
+    for required in (
         "FIREWORKS_API_KEY",
         "tools/fw",
         "prices.json",
@@ -104,7 +90,7 @@ def test_fw_documentation_covers_configuration_costs_limits_and_trials():
         "kimi-k3p1-pro",
         "glm-fast-latest",
     ):
-        assert text in section
+        assert required in text
 
 
 def test_root_readme_links_to_the_fw_documentation():
