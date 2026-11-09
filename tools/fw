@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+# Session-only Fireworks launcher for the loop's fw engine.
+# This repository's copy of ~/.local/bin/fw, copied 2026-11-09.
+"""Launch one foreground Claude Code process through Fireworks."""
+import argparse
+import json
+import os
+from pathlib import Path
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+
+
+def fail(message):
+    print("fw: " + message, file=sys.stderr)
+    raise SystemExit(2)
+
+
+def main():
+    # Require a delimiter so Claude flags and prompt text pass through unchanged.
+    words = sys.argv[1:]
+    split = words.index("--") if "--" in words else len(words)
+    own_args = words[:split]
+    claude_args = words[split + 1:] if split < len(words) else []
+    parser = argparse.ArgumentParser(
+        description="Session-only Fireworks launcher; requires Python 3.9+.",
+        usage="fw --model MODEL [--check] [-- CLAUDE_ARGUMENTS...]",
+    )
+    parser.add_argument("--model", required=True)
+    parser.add_argument("--check", action="store_true",
+                        help="Check dependencies and credentials without calling a model")
+    args = parser.parse_args(own_args)
+    model = args.model.strip()
+    if not model or model.startswith("-") or any(c.isspace() for c in model):
+        fail("Use a single model ID, such as deepseek-flash-latest[1m].")
+    if model == "auto" or model.startswith("auto["):
+        fail("This launcher pins models. Nexus Auto needs a separate routing policy.")
+    reserved = ("--settings", "--model", "--bg", "--background", "--cloud",
+                "--remote-control", "--teleport", "--tmux")
+    for word in claude_args:
+        if word == "--":
+            break
+        if any(word == flag or word.startswith(flag + "=") for flag in reserved):
+            fail("Reserved or unsupported Claude flag: " + word.split("=", 1)[0])
+    claude = shutil.which("claude")
+    if not claude:
+        fail("claude is not on PATH.")
+
+    key = os.environ.get("FIREWORKS_API_KEY", "").strip()
+    source = "FIREWORKS_API_KEY"
+    if not key:
+        nexus = shutil.which("nexus")
+        if not nexus:
+            fail("Set FIREWORKS_API_KEY for this invocation or run nexus login first.")
+        try:
+            result = subprocess.run(
+                [nexus, "key", "export", "--stored-only"],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            fail("Could not retrieve the Nexus key. Run nexus login and retry.")
+        if result.returncode:
+            fail("No usable Nexus key. Run nexus login or supply FIREWORKS_API_KEY.")
+        key = result.stdout.strip()
+        source = "Nexus credential store"
+    if not key or any(c.isspace() for c in key):
+        fail("The Fireworks key is empty or contains whitespace.")
+
+    session_env = {
+        "ANTHROPIC_BASE_URL": "https://api.fireworks.ai/inference",
+        # Authenticate to Fireworks directly, rather than forwarding a Claude login.
+        "ANTHROPIC_AUTH_TOKEN": key,
+        "ANTHROPIC_API_KEY": "",
+        "CLAUDE_CODE_OAUTH_TOKEN": "",
+        "ANTHROPIC_CUSTOM_HEADERS": "X-Title: fw launcher",
+        "ANTHROPIC_MODEL": model,
+        "ENABLE_TOOL_SEARCH": "true",
+        "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
+        "CLAUDE_CODE_DISABLE_EXPLORE_INHERIT_CAP": "1",
+        "CLAUDE_CODE_SUBAGENT_MODEL": model,
+        "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1",
+        "ANTHROPIC_SMALL_FAST_MODEL": model,
+        "CLAUDE_CODE_USE_BEDROCK": "",
+        "CLAUDE_CODE_USE_VERTEX": "",
+        "CLAUDE_CODE_USE_FOUNDRY": "",
+    }
+    for tier in ("OPUS", "SONNET", "HAIKU", "FABLE"):
+        session_env["ANTHROPIC_DEFAULT_" + tier + "_MODEL"] = model
+    settings = {
+        "env": session_env,
+        "model": model,
+        "modelPicker": {"options": [{"model": model, "label": "Fireworks: " + model}]},
+    }
+    if args.check:
+        print(json.dumps({
+            "claude": claude,
+            "endpoint": session_env["ANTHROPIC_BASE_URL"],
+            "model": model,
+            "keySource": source,
+            "scope": "one foreground Claude Code process",
+        }, indent=2))
+        return 0
+
+    # Each launch gets a private directory and settings file, including concurrent runs.
+    with tempfile.TemporaryDirectory(prefix="fw-") as directory:
+        settings_path = Path(directory) / "settings.json"
+        descriptor = os.open(str(settings_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w") as output:
+            json.dump(settings, output)
+        try:
+            child = subprocess.Popen(
+                [claude, "--settings", str(settings_path), "--model", model] + claude_args,
+            )
+        except OSError:
+            fail("Could not start claude.")
+
+        def forward(signum, _frame):
+            if child.poll() is None:
+                try:
+                    child.send_signal(signum)
+                except ProcessLookupError:
+                    pass
+
+        previous = {sig: signal.signal(sig, forward) for sig in (signal.SIGINT, signal.SIGTERM)}
+        try:
+            code = child.wait()
+        finally:
+            for sig, handler in previous.items():
+                signal.signal(sig, handler)
+        return code if code >= 0 else 128 - code
+
+
+if __name__ == "__main__":
+    sys.exit(main())
