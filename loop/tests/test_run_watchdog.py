@@ -31,9 +31,10 @@ def setup_loop(tmp_path: Path, claude_body: str) -> dict[str, str]:
     """Write the fakes and a prompt file. Returns the environment for run.sh.
 
     The fake claude writes its PID to claude.pid before it runs claude_body.
-    The fake sleep passes every call through to the real sleep, except the
-    loop's 30-second pause: there it lists run.sh's other children in
-    children.txt and stops run.sh.
+    The fake sleep creates watchdog-paused before each 5-second pause, so a
+    test can wait for the watchdog's first check. The fake sleep passes every
+    call through to the real sleep, except the loop's 30-second pause: there it
+    lists run.sh's other children in children.txt and stops run.sh.
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -47,6 +48,9 @@ def setup_loop(tmp_path: Path, claude_body: str) -> dict[str, str]:
     write_exe(bin_dir / "claude", 'echo $$ >"$WORK/claude.pid"\n' + claude_body)
     write_exe(
         bin_dir / "sleep",
+        'if [ "$1" = 5 ]; then\n'
+        '  : >"$WORK/watchdog-paused"\n'
+        "fi\n"
         'if [ "$1" = 30 ]; then\n'
         '  ps -A -o ppid= -o pid= -o command= | awk -v p="$PPID" -v me=$$ \\\n'
         "    '$1 == p && $2 != me' >\"$WORK/children.txt\"\n"
@@ -251,8 +255,23 @@ def test_keep_awake_is_off_by_default(tmp_path):
 
 
 def test_a_session_that_ends_before_the_watchdog_fires_is_not_a_timeout(tmp_path):
-    """The clock passes the limit, but the session ends before the next check."""
-    env = setup_loop(tmp_path, 'echo 3700 >"$WORK/offset"\n/bin/sleep 1\nexit 0\n')
+    """The session jumps the clock only after the watchdog's first pause.
+
+    The watchdog-paused marker makes that order deterministic. The clock passes
+    the limit, but the session ends before the next check.
+    """
+    env = setup_loop(
+        tmp_path,
+        "attempts=0\n"
+        'while [ ! -f "$WORK/watchdog-paused" ] && [ "$attempts" -lt 200 ]; do\n'
+        "  /bin/sleep 0.05\n"
+        "  attempts=$((attempts + 1))\n"
+        "done\n"
+        '[ -f "$WORK/watchdog-paused" ] || exit 1\n'
+        'echo 3700 >"$WORK/offset"\n'
+        "/bin/sleep 1\n"
+        "exit 0\n",
+    )
     env["LOOP_SESSION_TIMEOUT"] = "1h"
     result = run_loop(tmp_path, env)
     assert "claude exited with 0" in result.stdout
