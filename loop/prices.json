@@ -26,5 +26,19 @@
     "cached_input": 0.20,
     "output": 10.00,
     "checked": "2026-11-09"
+  },
+  "glm-fast-latest": {
+    "provider": "fireworks",
+    "input": 1.40,
+    "cached_input": 0.26,
+    "output": 4.40,
+    "checked": "2026-11-09"
+  },
+  "accounts/fireworks/models/glm-5p3": {
+    "provider": "fireworks",
+    "input": 1.40,
+    "cached_input": 0.26,
+    "output": 4.40,
+    "checked": "2026-11-09"
   }
 }
