@@ -1,9 +1,10 @@
 #!/bin/bash
-# Start both loops in their own herdr tab, and both watchers and the beads list
-# in the caller's tab:
-#   loop tab:      coder loop | reviewer loop
-#   caller's tab:  coder watcher (1/2)  | reviewer watcher (1/2)   (top third)
-#                  calling pane (2/3)   | Beads (1/3)               (bottom two thirds)
+# Start both loops and their queues in their own herdr tab, and both watchers
+# and the beads list in the caller's tab:
+#   loop tab:      coder queue (1/3) | reviewer queue (1/3)           (top)
+#                  coder loop (2/3)  | reviewer loop (2/3)            (bottom)
+#   caller's tab:  coder watcher (1/2)  | reviewer watcher (1/2)       (top third)
+#                  calling pane (2/3)   | Beads (1/3)                  (bottom two thirds)
 # Usage: layout.sh PROJECT_DIR
 # The agent names and worktree paths come from .loop/project.md.
 # CODER_ENGINE, CODER_MODEL, REVIEWER_ENGINE and REVIEWER_MODEL in
@@ -104,6 +105,12 @@ if herdr pane list --workspace "$HERDR_WORKSPACE_ID" \
     echo "ERROR: this tab already has watcher or Beads panes; close them first"
     exit 1
 fi
+QUEUE_LABEL="$(herdr pane list --workspace "$HERDR_WORKSPACE_ID" \
+    | jq -r 'first(.result.panes[] | select((.label // "") | endswith(" queue")) | .label) // empty')"
+if [ -n "$QUEUE_LABEL" ]; then
+    echo "ERROR: a pane named '$QUEUE_LABEL' already exists in this workspace; close it first"
+    exit 1
+fi
 
 split() { herdr pane split "$1" --direction "$2" --ratio "$3" --cwd "$4" --no-focus | jq -r '.result.pane.pane_id'; }
 
@@ -111,6 +118,13 @@ split() { herdr pane split "$1" --direction "$2" --ratio "$3" --cwd "$4" --no-fo
 TAB=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$CODER_TREE" --label "$LABEL" --no-focus)
 CODER_PANE=$(jq -r '.result.root_pane.pane_id' <<<"$TAB")
 REVIEWER_PANE=$(split "$CODER_PANE" right 0.5 "$REVIEWER_TREE")
+
+# Queues: the new pane takes the bottom two thirds, then the swap moves it
+# above the loop. Pane IDs follow their processes through a swap.
+CODER_QUEUE=$(split "$CODER_PANE" down 0.67 "$PROJECT")
+herdr pane swap --source-pane "$CODER_QUEUE" --target-pane "$CODER_PANE" >/dev/null
+REVIEWER_QUEUE=$(split "$REVIEWER_PANE" down 0.67 "$PROJECT")
+herdr pane swap --source-pane "$REVIEWER_QUEUE" --target-pane "$REVIEWER_PANE" >/dev/null
 
 # Watchers: the split keeps the top third for the caller, then the swap moves
 # the new pane up there. Pane IDs follow their processes through a swap.
@@ -124,6 +138,8 @@ BEADS_PANE=$(split "$HERDR_PANE_ID" right 0.67 "$PROJECT")
 
 herdr pane rename "$CODER_PANE" "$CODER" >/dev/null
 herdr pane rename "$REVIEWER_PANE" "$REVIEWER" >/dev/null
+herdr pane rename "$CODER_QUEUE" "$CODER queue" >/dev/null
+herdr pane rename "$REVIEWER_QUEUE" "$REVIEWER queue" >/dev/null
 herdr pane rename "$CODER_WATCH" "$CODER watcher" >/dev/null
 herdr pane rename "$REVIEWER_WATCH" "$REVIEWER watcher" >/dev/null
 herdr pane rename "$BEADS_PANE" "Beads" >/dev/null
@@ -139,6 +155,11 @@ herdr pane run "$REVIEWER_WATCH" "LOOP_LOG_DIR=$REVIEWER_LOG uv run .loop/watch.
 BEADS_LOOP='clear; prev=; while true; do out=$(CLICOLOR_FORCE=1 bd list --status open,blocked,in_progress 2>&1); if [ "$out" != "$prev" ]; then clear; date "+updated %H:%M:%S"; printf "%s\n" "$out"; prev=$out; fi; sleep 5; done'
 herdr pane run "$BEADS_PANE" "$BEADS_LOOP" >/dev/null
 
+# The queue panes start before the loops. Their split set the working directory
+# to the primary checkout, so bd reads its beads.
+herdr pane run "$CODER_QUEUE" "'$SCRIPT_DIR/queue.sh' --watch $CODER" >/dev/null
+herdr pane run "$REVIEWER_QUEUE" "'$SCRIPT_DIR/queue.sh' --watch $REVIEWER" >/dev/null
+
 # The loops read the primary's harness files, so prompt changes merged to
 # main take effect without touching the worktrees. The quotes keep a model
 # such as deepseek-flash-latest[1m] from being read as a glob.
@@ -148,6 +169,7 @@ herdr pane run "$REVIEWER_PANE" \
     "LOOP_ENGINE=$REVIEWER_ENGINE LOOP_MODEL='$REVIEWER_MODEL' LOOP_STREAM_LOG=1 LOOP_SHOW_BEAD=1 LOOP_LOG_DIR=$REVIEWER_LOG $PROJECT/.loop/run.sh $REVIEWER $PROJECT/.loop/REVIEWER.md" >/dev/null
 
 echo "opened tab '$LABEL'"
+echo "  $CODER queue: $CODER_QUEUE   $REVIEWER queue: $REVIEWER_QUEUE"
 echo "  $CODER: $CODER_PANE ($CODER_ENGINE)   $REVIEWER: $REVIEWER_PANE ($REVIEWER_ENGINE)"
 echo "watchers in this tab"
 echo "  $CODER watcher: $CODER_WATCH   $REVIEWER watcher: $REVIEWER_WATCH   Beads: $BEADS_PANE"
