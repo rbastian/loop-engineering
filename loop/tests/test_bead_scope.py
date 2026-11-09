@@ -1,10 +1,7 @@
 """Coder edits stay within the bead, and the reviewer enforces that (lpe-byd)."""
 
-from pathlib import Path
-
-LOOP = Path(__file__).parents[1]
-CODER = (LOOP / "CODER.md").read_text()
-REVIEWER = (LOOP / "REVIEWER.md").read_text()
+from test_review_method import REVIEWER
+from test_routing_state import CODER
 
 
 def test_coder_hard_rules_limit_changes_to_the_bead():
