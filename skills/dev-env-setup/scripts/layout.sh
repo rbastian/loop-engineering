@@ -99,14 +99,14 @@ if herdr tab list --workspace "$HERDR_WORKSPACE_ID" \
     echo "ERROR: a tab named '$LABEL' already exists in this workspace; close it first"
     exit 1
 fi
-if herdr pane list --workspace "$HERDR_WORKSPACE_ID" \
-    | jq -e --arg t "$HERDR_TAB_ID" \
-        '.result.panes[] | select(.tab_id == $t and (.label // "" | endswith(" watcher") or . == "Beads"))' >/dev/null; then
+PANES="$(herdr pane list --workspace "$HERDR_WORKSPACE_ID")"
+if jq -e --arg t "$HERDR_TAB_ID" \
+    '.result.panes[] | select(.tab_id == $t and (.label // "" | endswith(" watcher") or . == "Beads"))' \
+    >/dev/null <<<"$PANES"; then
     echo "ERROR: this tab already has watcher or Beads panes; close them first"
     exit 1
 fi
-QUEUE_LABEL="$(herdr pane list --workspace "$HERDR_WORKSPACE_ID" \
-    | jq -r 'first(.result.panes[] | select((.label // "") | endswith(" queue")) | .label) // empty')"
+QUEUE_LABEL="$(jq -r 'first(.result.panes[] | select((.label // "") | endswith(" queue")) | .label) // empty' <<<"$PANES")"
 if [ -n "$QUEUE_LABEL" ]; then
     echo "ERROR: a pane named '$QUEUE_LABEL' already exists in this workspace; close it first"
     exit 1
@@ -155,7 +155,7 @@ herdr pane run "$REVIEWER_WATCH" "LOOP_LOG_DIR=$REVIEWER_LOG uv run .loop/watch.
 BEADS_LOOP='clear; prev=; while true; do out=$(CLICOLOR_FORCE=1 bd list --status open,blocked,in_progress 2>&1); if [ "$out" != "$prev" ]; then clear; date "+updated %H:%M:%S"; printf "%s\n" "$out"; prev=$out; fi; sleep 5; done'
 herdr pane run "$BEADS_PANE" "$BEADS_LOOP" >/dev/null
 
-# The queue panes start before the loops. Their split set the working directory
+# The queue panes start before the loops. Their splits set the working directory
 # to the primary checkout, so bd reads its beads.
 herdr pane run "$CODER_QUEUE" "'$SCRIPT_DIR/queue.sh' --watch $CODER" >/dev/null
 herdr pane run "$REVIEWER_QUEUE" "'$SCRIPT_DIR/queue.sh' --watch $REVIEWER" >/dev/null
