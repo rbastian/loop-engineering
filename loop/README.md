@@ -128,8 +128,9 @@ The reviewer parks a bead with a "Review not run: <error>" note when its default
 | `CODER.md` | The coder's prompt: the loop protocol for the coder role. |
 | `REVIEWER.md` | The reviewer's prompt: the loop protocol for the reviewer role. |
 | `project.template.md` | The template for `.loop/project.md`, the project overlay. |
-| `interactive.template.md` | The template for the interactive section of `CLAUDE.md` and `AGENTS.md`. The section tells an interactive agent to orient a new person, to refine and assign beads, and not to implement them. |
+| `interactive.template.md` | The template for the interactive section of `CLAUDE.md` and `AGENTS.md`. The section tells an interactive agent to orient a new person, to refine and assign beads, and not to implement them. It also defines how to record the human time and the escaped bugs. |
 | `watch.py` | The watcher. It shows a live session log as one line per tool call. |
+| `metrics.py` | The workload report. It shows the human time, lead time, review returns, escapes and token cost of each bead. |
 | `tests/` | Tests for `watch.py`, `run.sh`, the setup scripts and the prompts. |
 
 ## The project overlay
@@ -155,7 +156,7 @@ The `dev-env-setup` skill in `../skills/dev-env-setup` does the setup. See the r
 
 To set up a project by hand, follow these steps:
 
-1. Copy `run.sh`, `watch.py`, `prices.json`, `CODER.md` and `REVIEWER.md` into the project as `.loop/`.
+1. Copy `run.sh`, `watch.py`, `prices.json`, `metrics.py`, `CODER.md` and `REVIEWER.md` into the project as `.loop/`.
 2. Copy `project.template.md` to `.loop/project.md` and fill every `{{...}}` placeholder.
 3. Add `extend-exclude = [".loop"]` under `[tool.ruff]` in `pyproject.toml`, so that the gate does not lint the harness. pytest skips folders that start with a dot.
 4. Fill the placeholders in `interactive.template.md` and put the result into `CLAUDE.md` and `AGENTS.md`, after the first H1 heading and before the beads blocks.
@@ -297,6 +298,30 @@ The dollar figure is Claude Code's API-equivalent estimate, not a bill. Codex on
 
 A missing cost note never stops the loop. The note needs `uv` to run `watch.py`. Agents route on the state dimensions, not on notes, so a cost note never changes what a session does.
 
+### Workload metrics
+
+`metrics.py` reports five measurements for each bead:
+
+- Human time: the sum of the `Human time: <n>m <activity>` notes.
+- Lead time: the time from the first `State change: loop → coding` event to the merge.
+- Review returns: the number of `Review round <n> failed:` notes.
+- Escapes: the number of bug beads with the label `escaped` and a `discovered-from` dependency on the bead.
+- Token cost: the sum of the `Session cost:` notes of both agents.
+
+Run it in the primary checkout:
+
+```bash
+uv run .loop/metrics.py
+```
+
+By default, the table shows the beads with a merged pull request. The `--all` option also shows beads in flight, with blank cells where data is missing. The `--since YYYY-MM-DD` option limits the report to beads merged on or after that date. The `--json` option prints the same data as JSON, and `--by-agent` separates the coder's cost from the reviewer's.
+
+The script reads the queue with `bd list --all --json`. It reads each pull request with `gh pr view <n> --json mergedAt`, as the account in `GITHUB_ACCOUNT`. If `gh` fails, the script prints a warning, leaves the lead time blank and continues.
+
+The lead time comes from the merge time of the pull request. A bead with no pull request, as in `local` mode, uses its close time, and the cell has a `*`. A `Session cost:` note with no dollar figure, for example `cost unknown (fw)`, marks the cost with a `+`.
+
+The interactive section of `CLAUDE.md` and `AGENTS.md` defines the two recording conventions. The agent asks the person for the minutes of a refine, troubleshoot or merge, then writes a `Human time:` note. When someone finds a problem in merged work, the agent creates a bug bead. The bead has the label `escaped` and a `discovered-from` dependency on the original bead.
+
 ## Operations
 
 ### Stop and restart
@@ -349,7 +374,7 @@ Use your configured agent name in place of `Ralph`.
 
 ### Update an installed harness
 
-`bootstrap.sh` keeps the files that `.loop/` already holds, so a rerun does not install newer copies of the runner, the watcher or the prompts. `update.sh` in the setup skill does the update. It copies `run.sh`, `watch.py`, `prices.json`, `CODER.md` and `REVIEWER.md` from `loop/` in your loop-engineering clone into `.loop/`. It never changes `.loop/project.md`, and it commits nothing.
+`bootstrap.sh` keeps the files that `.loop/` already holds, so a rerun does not install newer copies of the runner, the watcher or the prompts. `update.sh` in the setup skill does the update. It copies `run.sh`, `watch.py`, `prices.json`, `metrics.py`, `CODER.md` and `REVIEWER.md` from `loop/` in your loop-engineering clone into `.loop/`. It never changes `.loop/project.md`, and it commits nothing.
 
 The version stamp `.loop/HARNESS_VERSION` tells `update.sh` which version is installed. The stamp has two lines: `commit=`, the full SHA of the clone's HEAD, and `clone=`, the absolute path of the clone. `bootstrap.sh` and `update.sh` write it. If `loop/` in the clone has uncommitted changes, `bootstrap.sh` adds the line `dirty=1` and prints a warning.
 

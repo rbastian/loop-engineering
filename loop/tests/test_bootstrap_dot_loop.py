@@ -12,6 +12,7 @@ FILES = (
     "run.sh",
     "watch.py",
     "prices.json",
+    "metrics.py",
     "CODER.md",
     "REVIEWER.md",
     "project.md",

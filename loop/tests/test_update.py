@@ -14,7 +14,7 @@ from test_bootstrap_interactive import BEGIN, END
 
 ROOT = Path(__file__).parents[2]
 UPDATE = ROOT / "skills/dev-env-setup/scripts/update.sh"
-FILES = ("run.sh", "watch.py", "CODER.md", "REVIEWER.md", "prices.json")
+FILES = ("run.sh", "watch.py", "CODER.md", "REVIEWER.md", "prices.json", "metrics.py")
 CLONE_FILES = FILES + (
     "project.template.md",
     "interactive.template.md",

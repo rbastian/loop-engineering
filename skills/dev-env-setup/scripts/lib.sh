@@ -123,7 +123,7 @@ key_value() {
 # which update.sh renders into CLAUDE.md and AGENTS.md. Only a commit that
 # changes one of them counts as drift. A test keeps this list in step with
 # update.sh.
-HARNESS_PATHS="loop/run.sh loop/watch.py loop/prices.json loop/CODER.md loop/REVIEWER.md loop/interactive.template.md"
+HARNESS_PATHS="loop/run.sh loop/watch.py loop/prices.json loop/metrics.py loop/CODER.md loop/REVIEWER.md loop/interactive.template.md"
 
 # The drift line for the stamp FILE, or nothing when the harness is current.
 # A missing stamp or clone, or a commit that the clone lacks, prints nothing.

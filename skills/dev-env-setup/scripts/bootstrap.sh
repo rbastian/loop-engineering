@@ -112,7 +112,7 @@ done
 for tool in "${TOOLS[@]}"; do
     command -v "$tool" >/dev/null 2>&1 || { echo "ERROR: $tool not found"; missing=1; }
 done
-for f in run.sh watch.py prices.json CODER.md REVIEWER.md project.template.md interactive.template.md; do
+for f in run.sh watch.py prices.json metrics.py CODER.md REVIEWER.md project.template.md interactive.template.md; do
     [ -f "$HARNESS/$f" ] || { echo "ERROR: $HARNESS/$f not found (set LOOP_HOME)"; missing=1; }
 done
 [ "$missing" -eq 0 ] || exit 1
@@ -256,7 +256,7 @@ mkdir -p .loop
 # CODER.md and REVIEWER.md hold only the loop protocol, so they copy unchanged.
 # The project facts go in .loop/project.md, which run.sh appends to each prompt.
 KEPT=0
-for f in run.sh watch.py prices.json CODER.md REVIEWER.md; do
+for f in run.sh watch.py prices.json metrics.py CODER.md REVIEWER.md; do
     if [ -f ".loop/$f" ]; then
         echo ".loop/$f exists; keeping it"
         KEPT=1
@@ -265,7 +265,7 @@ for f in run.sh watch.py prices.json CODER.md REVIEWER.md; do
         echo "copied .loop/$f"
     fi
 done
-chmod +x .loop/run.sh .loop/watch.py
+chmod +x .loop/run.sh .loop/watch.py .loop/metrics.py
 # The stamp names the clone commit that the files came from. update.sh and the
 # drift warning read it. Kept files may be older than the clone, so a stamp is
 # written only when bootstrap.sh copied every file.
