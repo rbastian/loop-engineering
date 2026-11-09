@@ -262,10 +262,9 @@ def test_a_session_that_ends_before_the_watchdog_fires_is_not_a_timeout(tmp_path
     """
     env = setup_loop(
         tmp_path,
-        "attempts=0\n"
-        'while [ ! -f "$WORK/watchdog-paused" ] && [ "$attempts" -lt 200 ]; do\n'
+        "for _ in {1..200}; do\n"
+        '  [ -f "$WORK/watchdog-paused" ] && break\n'
         "  /bin/sleep 0.05\n"
-        "  attempts=$((attempts + 1))\n"
         "done\n"
         '[ -f "$WORK/watchdog-paused" ] || exit 1\n'
         'echo 3700 >"$WORK/offset"\n'
