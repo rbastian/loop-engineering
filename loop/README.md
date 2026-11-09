@@ -21,7 +21,7 @@ The ship mode is a setting in `.loop/project.md`. It has two values.
 3. If the review passes, the reviewer sets `loop=merge` and assigns the bead to the human.
 4. The human approves and merges the pull request, then runs `bd close <id>` and `bd set-state <id> loop=done`.
 
-The reviewer comments but does not approve. The agents act as the GitHub account in `GITHUB_ACCOUNT` in `.loop/project.md`, usually the human's own account, and GitHub does not let an account approve its own pull request. Any CI on the pull request runs in addition to the gate.
+The reviewer comments but does not approve. The agents act as the GitHub account in `GITHUB_ACCOUNT` in `.loop/project.md`, usually the human's own account. GitHub does not let an account approve its own pull request. Any CI on the pull request runs in addition to the gate.
 
 `.loop/project.md` also holds the one list of the remote actions that each role can do in `pr` mode, under "Remote actions in `pr` mode". An action that is not on the list is not allowed.
 
@@ -31,7 +31,7 @@ The reviewer comments but does not approve. The agents act as the GitHub account
 
 In `pr` mode the coder's pull request description and the reviewer's pull request comments are Markdown. Each agent passes the text with `--body-file -` and a quoted heredoc (`<<'EOF'`). The shell expands nothing inside a quoted heredoc, so backticks, `$` and quotes reach GitHub unchanged. The agent types the bead ID, the round and the sha into the text itself. The bead notes stay plain text with the same markers, because the routing, the watchers and `run.sh` read them.
 
-The coder writes the description once, when it opens the pull request. It has a bead line, a summary, one bullet per changed file or area, and one checklist line per acceptance criterion:
+When it opens the pull request, the coder writes the description once. It has a bead line, a summary, one bullet per changed file or area, and one checklist line per acceptance criterion:
 
 ```markdown
 Bead: lpe-415
@@ -91,11 +91,11 @@ An agent reads a value with `bd state <id> loop` and sets one with `bd set-state
 
 The notes stay the human-readable log, with the same markers as before, for example "Returned to Ralph after review round 1". `watch.py` and the human read them. No agent routes on them.
 
-This table is the one source for the `loop` values. `CODER.md` and `REVIEWER.md` must agree with it, and `tests/test_routing_state.py` fails if they do not.
+This table is the one source for the `loop` values. `CODER.md` and `REVIEWER.md` must agree with it. If they do not, `tests/test_routing_state.py` fails.
 
 | `loop` value | Set by | When | Assignee after | Status |
 |---|---|---|---|---|
-| `coding` | coder | At claim (Phase 1 step 3), and when it resumes a bead in state `parked`, `escalated` or `blocked`. A bead in state `returned` or `rebase` keeps that state until the handoff at step 14. | coder | `in_progress` |
+| `coding` | coder | The coder sets it at claim (Phase 1 step 3). When the coder resumes a bead in state `parked`, `escalated` or `blocked`, the coder also sets it. A bead in state `returned` or `rebase` keeps that state until the handoff at step 14. | coder | `in_progress` |
 | `review` | coder | At handoff (step 14) after new work or after it addresses review findings | reviewer | `in_progress` |
 | `rebased` | coder | At handoff after a rebase only | reviewer | `in_progress` |
 | `returned` | reviewer | Round 1 failed | coder | `in_progress` |
@@ -104,13 +104,13 @@ This table is the one source for the `loop` values. `CODER.md` and `REVIEWER.md`
 | `merge` | reviewer | `pr` mode, review passed | human | `in_progress` |
 | `accept` | reviewer | `local` mode, merged and closed | human | `closed` |
 | `escalated` | reviewer | Round 2 or later failed | human | `in_progress` |
-| `parked` | coder or reviewer | The coder: gate fails twice at step 12, push or `gh` fails at step 13, no code written at step 10, or design unclear. The reviewer: Review not run, because its default review method cannot run. | human | `in_progress` when a branch with work exists. `open` with the branch deleted for no code written and design unclear. |
+| `parked` | coder or reviewer | The coder: gate fails twice at step 12, push or `gh` fails at step 13, no code written at step 10, or design unclear. The reviewer: Review not run, because its default review method cannot run. | human | If a branch with work exists, use `in_progress`. For no code written or an unclear design, use `open` with the branch deleted. |
 | `blocked` | coder | Gate fails on `main` (broken main), beside the dependency on the `broken-main` bug bead | coder | `open` |
 | `done` | human | After the merge and `bd close` in `pr` mode, or after acceptance in `local` mode | unchanged | `closed` |
 
 The `round` dimension follows these rules:
 
-1. When the reviewer takes a bead in state `review`, it sets `round=<n>` with n = round + 1, and writes the "Review round <n> started" note.
+1. When the reviewer takes a bead in state `review`, it sets `round=<n>` with n = round + 1. It writes the "Review round <n> started" note.
 2. When the reviewer takes a bead in state `rebased`, it keeps the round. It makes sure that the diff still shows what it reviewed, runs the gate again and goes to the outcome. It writes no new "started" note.
 3. A failed round 1 sets `loop=returned`. A failed round 2 or later sets `loop=escalated`.
 4. When the coder resumes a bead from `escalated`, it sets `round=0`, so that the next review is round 1 with one bounce available. No other resume resets the round.
@@ -118,7 +118,7 @@ The `round` dimension follows these rules:
 
 A parked or escalated bead goes to the human, so `run.sh` does not wake the coder for it. To resume it, add a note that tells the coder what to do, then run `bd update <id> --assignee=<coder>`. The coder reads your newest note, sets `loop=coding` and continues. A parked bead with status `open` becomes ready and goes through Phase 1, which reuses an existing `feat/` branch.
 
-The reviewer parks a bead with a "Review not run: <error>" note when its default review method cannot run. Fix the cause, then run `bd update <id> --assignee=<reviewer>`. The reviewer runs the same round again.
+If its default review method cannot run, the reviewer parks a bead with a "Review not run: <error>" note. Fix the cause, then run `bd update <id> --assignee=<reviewer>`. The reviewer runs the same round again.
 
 ## Files
 
@@ -130,6 +130,7 @@ The reviewer parks a bead with a "Review not run: <error>" note when its default
 | `project.template.md` | The template for `.loop/project.md`, the project overlay. |
 | `interactive.template.md` | The template for the interactive section of `CLAUDE.md` and `AGENTS.md`. The section tells an interactive agent to orient a new person, to refine and assign beads, and not to implement them. |
 | `watch.py` | The watcher. It shows a live session log as one line per tool call. |
+| `../skills/dev-env-setup/scripts/queue.sh` | The queue script. It shows one agent's in-progress, ready and blocked beads. |
 | `tests/` | Tests for `watch.py`, `run.sh`, the setup scripts and the prompts. |
 
 ## The project overlay
@@ -157,7 +158,7 @@ To set up a project by hand, follow these steps:
 
 1. Copy `run.sh`, `watch.py`, `prices.json`, `CODER.md` and `REVIEWER.md` into the project as `.loop/`.
 2. Copy `project.template.md` to `.loop/project.md` and fill every `{{...}}` placeholder.
-3. Add `extend-exclude = [".loop"]` under `[tool.ruff]` in `pyproject.toml`, so that the gate does not lint the harness. pytest skips folders that start with a dot.
+3. Add `extend-exclude = [".loop"]` under `[tool.ruff]` in `pyproject.toml`, so that the gate does not lint the installed loop. pytest skips folders that start with a dot.
 4. Fill the placeholders in `interactive.template.md` and put the result into `CLAUDE.md` and `AGENTS.md`, after the first H1 heading and before the beads blocks.
 5. In `pr` mode, make sure that the repository has an `origin` remote, that `main` is on it, and that `gh` is authenticated.
 6. Create the worktrees from the primary checkout:
@@ -190,9 +191,32 @@ LOOP_LOG_DIR=/tmp/<name>-ralph-sessions uv run .loop/watch.py --agent Ralph --pr
 LOOP_LOG_DIR=/tmp/<name>-alice-sessions uv run .loop/watch.py --agent Alice --prefix <prefix> --tui
 ```
 
-`--prefix` is the bead prefix from `BEAD_PREFIX` in `.loop/project.md`. With it, the watcher matches only that project's bead IDs. Without it, the watcher matches any prefix, can name the wrong bead, and prints a warning. `run.sh` passes `BEAD_PREFIX` to `watch.py --summary` when it is set.
+`--prefix` is the bead prefix from `BEAD_PREFIX` in `.loop/project.md`. With it, the watcher matches only that project's bead IDs. Without it, the watcher matches any prefix, can name the wrong bead, and prints a warning. If `BEAD_PREFIX` is set, `run.sh` passes it to `watch.py --summary`.
 
 `LOOP_ENGINE` selects the agent CLI. It takes `claude` (the default) or `codex`. The coder always runs on `claude`, because its prompt uses the `/simplify` skill. The reviewer can run on `codex`, so that a different model family reads the diff. On `codex`, `LOOP_MODEL` has no default, and the review uses `codex exec review`. Before the first headless Codex session, open `codex` once in the primary checkout, trust the project and approve its hooks.
+
+### Agent queues
+
+`layout.sh` puts an agent queue above each loop in the loop tab:
+
+```text
++-------------------+-------------------+
+| coder queue       | reviewer queue    |
++-------------------+-------------------+
+| coder loop        | reviewer loop     |
++-------------------+-------------------+
+```
+
+An agent queue shows the beads assigned to one agent. In progress lists the agent's active beads with their `loop` state labels. Ready next lists the unblocked beads that wait for the agent. Waiting lists the agent's blocked beads and their blockers.
+
+`queue.sh` lives at `skills/dev-env-setup/scripts/queue.sh` in the loop-engineering clone, not in `.loop/`. To run it by hand, start in the project's primary checkout and give the full path to the skill folder:
+
+```bash
+cd /path/to/project
+/path/to/loop-engineering/skills/dev-env-setup/scripts/queue.sh --watch Ralph
+```
+
+Use your coder or reviewer name in place of Ralph. Leave out `--watch` to print the queue once.
 
 ### run.sh variables
 
@@ -208,7 +232,7 @@ LOOP_LOG_DIR=/tmp/<name>-alice-sessions uv run .loop/watch.py --agent Alice --pr
 | `LOOP_OVERLAY` | The overlay file. The default is `project.md` beside the prompt file. `none` turns it off. |
 | `LOOP_PRINT_PROMPT=1` | Print the combined prompt and exit. |
 
-Every agent uses the same variables. `LOOP_ENGINE` and `LOOP_REVIEWER_ENGINE` are different settings. `LOOP_ENGINE` is the engine of one `run.sh` process, and `layout.sh` sets it for each loop. `LOOP_CODER_ENGINE` and `LOOP_REVIEWER_ENGINE` are inputs to `bootstrap.sh`, which writes them into `.loop/project.md` as `CODER_ENGINE` and `REVIEWER_ENGINE`. `layout.sh` reads them and the two model fields back, and passes each agent's values to its `run.sh` as `LOOP_ENGINE` and `LOOP_MODEL`.
+Every agent uses the same variables. `LOOP_ENGINE` and `LOOP_REVIEWER_ENGINE` are different variables. `LOOP_ENGINE` is the engine of one `run.sh` process, and `layout.sh` sets it for each loop. `LOOP_CODER_ENGINE` and `LOOP_REVIEWER_ENGINE` are inputs to `bootstrap.sh`, which writes them into `.loop/project.md` as `CODER_ENGINE` and `REVIEWER_ENGINE`. `layout.sh` reads them and the two model fields back, and passes each agent's values to its `run.sh` as `LOOP_ENGINE` and `LOOP_MODEL`.
 
 Before lpe-wh5, these variables started with `RALPH_`. `run.sh` and `watch.py` read only the `LOOP_` names. If you set an old name, the loop uses the default value and does not warn you. Rename each old variable that you set:
 
@@ -244,10 +268,10 @@ The rows have these values:
 
 | Row | Value |
 |---|---|
-| title | The agent name and its role. The role is `coder` when the name equals `CODER` in the overlay, `reviewer` when it equals `REVIEWER`, and `unknown role` otherwise. |
+| title | The agent name and its role. If the name equals `CODER` in the overlay, the role is `coder`. If it equals `REVIEWER`, the role is `reviewer`. Otherwise, the role is `unknown role`. |
 | `harness` | The label in the same form as the watcher: `cc/<model>` on `claude`, `codex/<model>` on `codex` (`codex/codex default` with no model), and `cc@fw/<model>` on `fw`. |
 | `ship` | `pr, as <GITHUB_ACCOUNT>` in `pr` mode, `local` in `local` mode, and `unknown` with no `SHIP_MODE`. |
-| `prompt` | The prompt file and the overlay file, or `+ no overlay` when `LOOP_OVERLAY=none`. |
+| `prompt` | The prompt file and the overlay file. If `LOOP_OVERLAY=none`, the value is `+ no overlay`. |
 | `logs` | `LOOP_LOG_DIR`, or `off` without `LOOP_STREAM_LOG`. |
 | `timeout` | `LOOP_SESSION_TIMEOUT`, or `none` for `0`. |
 | `version` | The short commit from `HARNESS_VERSION`, with `up to date` or the drift text. `unknown` without a stamp. |
@@ -279,13 +303,13 @@ The limit counts wall-clock time, including time while the Mac sleeps. If the Ma
 
 ### Cost notes
 
-An agent cannot record what its own session cost. The cost arrives in the session's closing event, after the agent has exited. So `run.sh` records it. When `LOOP_STREAM_LOG=1` is set, `run.sh` reads the finished log with `watch.py --summary` and appends one note to the bead:
+An agent cannot record what its own session cost. The cost arrives in the session's closing event, after the agent exits. So `run.sh` records it. When `LOOP_STREAM_LOG=1` is set, `run.sh` reads the finished log with `watch.py --summary` and appends one note to the bead:
 
 ```text
 Session cost: Ralph, cc/claude-opus-5-5, $1.84 est., 12m30s wall, 41 turns, 18.2k out, 3.1k think, 412k ctx
 ```
 
-The second field is the harness label, `<harness>[@<provider>]/<model>`. The harness is the agent CLI: `cc` for Claude Code and `codex` for Codex. The `@<provider>` part shows only when the requests go to a provider that is not the CLI's own, for example `cc@fw/deepseek-flash-latest[1m]` for the `fw` engine on Fireworks. The watcher shows the same label in its header and on the `── session ──` line. Notes written before lpe-6v6.6 show the model alone, for example `claude-opus-5-5`. A tool that reads cost notes must accept both forms.
+The second field is the label `<harness>[@<provider>]/<model>`. Its first part is the agent CLI: `cc` for Claude Code and `codex` for Codex. If the requests go to a provider that is not the CLI's own, the label includes `@<provider>`. For example, `cc@fw/deepseek-flash-latest[1m]` names the `fw` engine on Fireworks. The watcher shows the same label in its header and on the `── session ──` line. Notes written before lpe-6v6.6 show the model alone, for example `claude-opus-5-5`. A tool that reads cost notes must accept both forms.
 
 The dollar figure is Claude Code's API-equivalent estimate, not a bill. Codex on a ChatGPT plan reports tokens and no dollar figure, and the note says so. Each session of a bead adds one note: the coder's rounds, the reviewer's rounds and any rebase. The sum of the notes is what the bead cost.
 
@@ -318,7 +342,7 @@ Stop both the shell loop and its headless session before restarting. Ctrl-C on a
    pgrep -P 12345
    ```
 
-   Match the directory to the coder or reviewer worktree in `.loop/project.md`. Inspect the parent process if necessary. Record the child process IDs and inspect their children too before stopping the session. The list can include unrelated interactive sessions or agents from other projects.
+   Match the directory to the coder or reviewer worktree in `.loop/project.md`. If necessary, inspect the parent process. Record the child process IDs and inspect their children too before stopping the session. The list can include unrelated interactive sessions or agents from other projects.
 4. Stop only the identified old session and any remaining child processes. For each identified process, replace `12345` with its process ID:
 
    ```bash
@@ -327,7 +351,7 @@ Stop both the shell loop and its headless session before restarting. Ctrl-C on a
 
 5. Repeat the process checks. Make sure that no shell loop, agent session or child process from the old loops remains before restarting. Do not stop unrelated sessions.
 
-For a Herdr restart, then close the project's loop tab, both watcher panes and the Beads pane. Closing panes alone does not confirm that their sessions stopped. `layout.sh` refuses to start while that tab or those panes exist. From a Herdr pane that fills its tab, run the setup skill's layout script:
+For a Herdr restart, close the project's loop tab, both watcher panes and the Beads pane. Closing panes alone does not show that their sessions stopped. `layout.sh` refuses to start while that tab or those panes exist. From a Herdr pane that fills its tab, run the setup skill's layout script:
 
 ```bash
 /path/to/loop-engineering/skills/dev-env-setup/scripts/layout.sh /path/to/project
@@ -347,11 +371,11 @@ uv run .loop/watch.py --agent Ralph --prefix <prefix> --file /path/to/session.js
 
 Use your configured agent name in place of `Ralph`.
 
-### Update an installed harness
+### Update an installed `harness`
 
 `bootstrap.sh` keeps the files that `.loop/` already holds, so a rerun does not install newer copies of the runner, the watcher or the prompts. `update.sh` in the setup skill does the update. It copies `run.sh`, `watch.py`, `prices.json`, `CODER.md` and `REVIEWER.md` from `loop/` in your loop-engineering clone into `.loop/`. It never changes `.loop/project.md`, and it commits nothing.
 
-The version stamp `.loop/HARNESS_VERSION` tells `update.sh` which version is installed. The stamp has two lines: `commit=`, the full SHA of the clone's HEAD, and `clone=`, the absolute path of the clone. `bootstrap.sh` and `update.sh` write it. If `loop/` in the clone has uncommitted changes, `bootstrap.sh` adds the line `dirty=1` and prints a warning.
+The version stamp `.loop/HARNESS_VERSION` tells `update.sh` which version is installed. The stamp has two lines: `commit=`, the full SHA of the clone's HEAD, and `clone=`, the absolute path of the clone. `bootstrap.sh` and `update.sh` write it. If `loop/` in the clone contains uncommitted changes, `bootstrap.sh` adds the line `dirty=1` and prints a warning.
 
 When the clone has newer commits on `loop/` than the stamp, `layout.sh` prints one line:
 
@@ -381,7 +405,7 @@ To update a project, do these steps:
 
 - A loop of the project runs: a `run.sh` process whose arguments name the project's `.loop/` or `ralph/`, or whose working directory is one of the project's worktrees. `update.sh` never stops a process.
 - The install has an old `PROMPT.md` or `ALICE.md`. Migrate them by hand.
-- `loop/` in the clone has uncommitted changes. Commit or stash them in the clone first.
+- `loop/` in the clone contains uncommitted changes. Commit or stash them in the clone first.
 - `.loop/project.md` lacks a `KEY=` line that `loop/project.template.md` has. `update.sh` prints each key and what it means. Add the keys, then run `update.sh` again.
 - A `KEY=` line in `.loop/project.md` still holds a `{{...}}` placeholder, or `CODER`, `REVIEWER` or `HUMAN` is empty.
 - An installed file differs from the same file at the stamped commit: a local edit. `update.sh` prints each diff. Move the edit into `loop/` in the clone, or run `update.sh --force` to overwrite it.
@@ -394,20 +418,20 @@ To update a project, do these steps:
 
 ### Move routing state from notes to bd state
 
-Before lpe-0y3, the agents routed on the last marker in the bead notes, and the human queues were the labels `merge`, `accept` and `escalated`. The new prompts route only on the `loop` and `round` dimensions, and they have no fallback to note markers. Before you restart the loops on the new prompts, set the state of each bead that is in flight:
+Before lpe-0y3, the agents routed on the last marker in the bead notes. The human queues were the labels `merge`, `accept` and `escalated`. The new prompts route only on the `loop` and `round` dimensions, and they have no fallback to note markers. Before you restart the loops on the new prompts, set the state of each bead that is in flight:
 
 1. Stop both loops and their sessions with the procedure under [Stop and restart](#stop-and-restart).
 2. List the in-flight beads: `bd list --status=in_progress`, and the beads with the old labels: `bd list --label merge`, `bd list --label accept` and `bd list --label escalated`.
 3. For each bead, read its last note marker and set `loop` from the table under [Routing state](#routing-state). For example, "Returned to Ralph after review round 1" becomes `loop=returned`, and "Review passed, awaiting merge" becomes `loop=merge-wait`.
 4. For each bead that the reviewer saw, set `round` to the number in its newest "Review round <n> started" note: `bd set-state <id> round=<n>`.
 5. Replace each old label with its state: run `bd set-state <id> loop=<value>`, then `bd label remove <id> <old label>`.
-6. Update the installed prompts as in [Update an installed harness](#update-an-installed-harness), then restart the loops.
+6. Update the installed prompts as described above, then restart the loops.
 
 ### Move an install from ralph/ to .loop/
 
-Before lpe-wh5, `bootstrap.sh` installed the harness into `ralph/`. It now installs into `.loop/`. If a project has `ralph/` and no `.loop/`, `update.sh` moves the install and then updates it in the same run:
+Before lpe-wh5, `bootstrap.sh` installed the loop into `ralph/`. It now installs into `.loop/`. If a project has `ralph/` and no `.loop/`, `update.sh` moves the install and then updates it in the same run:
 
-1. It runs every check from [Update an installed harness](#update-an-installed-harness) against `ralph/`. If a check fails, it stops before the move.
+1. It runs every check from the update instructions against `ralph/`. If a check fails, it stops before the move.
 2. It moves the folder with `git mv ralph .loop`.
 3. It changes each `ralph/` path in `.loop/project.md` to `.loop/`.
 4. It prints each line outside the interactive section of `CLAUDE.md` and `AGENTS.md` that still names `ralph/`. Change those lines by hand. The interactive section itself gets the new text.
@@ -420,16 +444,16 @@ Then exclude `.loop` from ruff, as in step 3 of [Install in a project](#install-
 
 - The coder implements and the reviewer reviews. In `pr` mode the human approves and merges. In `local` mode the reviewer merges and the human accepts.
 - The reviewer's default method always runs on every branch: the `/code-review` skill at high effort on `claude`, or `codex exec review` on `codex`. The Project section only adds checks to it. The `Review summary:` note gives the number of findings that the default method returned.
-- The reviewer checks each acceptance criterion itself. A coder's note alone is not evidence. Before the `Review summary:` note, the reviewer writes one `Acceptance evidence:` note, with one entry per criterion. Each entry is verified (with the test, command or line that shows it), trusted (the reviewer cannot repeat the check, and names the coder's note that reports the result) or not verified. A criterion that is not verified is a blocking finding. In `pr` mode the pull request comment carries the same list as a table, one row per criterion.
+- The reviewer checks each acceptance criterion itself. A coder's note alone is not evidence. Before the `Review summary:` note, the reviewer writes one `Acceptance evidence:` note, with one entry per criterion. Each entry is verified, trusted or not verified. A verified entry names the test, command or line that supports it. If the reviewer cannot repeat the check, a trusted entry names the coder's note that reports the result. A criterion that is not verified is a blocking finding. In `pr` mode the pull request comment carries the same list as a table, one row per criterion.
 - If the reviewer finds a blocking problem, it returns the bead to the coder once. After a second failed round, it escalates the bead to the human.
 - The human has these queues. Each queue is a `loop` state label, and `bd list --label <label>` lists it. The `loop:accept` beads are closed, so list that queue with `bd list --label loop:accept --status=closed`:
   - `loop:merge` (`pr` mode): reviewed pull requests that wait for approval and merge. After the merge, run `bd close <id>` and `bd set-state <id> loop=done`.
-  - `loop:accept` (`local` mode): merged work that waits for acceptance. Run `bd set-state <id> loop=done` when satisfied, or reopen the bead.
+  - `loop:accept` (`local` mode): merged work that waits for acceptance. If you are satisfied, run `bd set-state <id> loop=done`. Otherwise, reopen the bead.
   - `loop:escalated`: unmerged work where the coder and the reviewer disagree. Read the findings and disputes, add a note with your decision, and assign the bead back to the coder.
-  - `loop:parked`: work that the coder cannot continue, for example a gate that fails twice, a failed push or an unclear design. Read the coder's note, fix the cause or add a note, and assign the bead back to the coder. The reviewer also parks a bead when its default review method cannot run. For a `Review not run:` note, fix the cause and assign the bead back to the reviewer.
-  - `broken-main`: a bug bead that says `main` fails the gate. The coder files it (or reuses an open one), assigns it to the human, makes its own bead depend on it, sets `loop=blocked` and puts its bead back to `open`. A bead with an open dependency is not ready, so the coder sleeps. When the human fixes `main` and closes the bug bead, each blocked bead becomes ready again.
+  - `loop:parked`: work that the coder cannot continue, for example a gate that fails twice, a failed push or an unclear design. Read the coder's note, fix the cause or add a note, and assign the bead back to the coder. If its default review method cannot run, the reviewer also parks a bead. For a `Review not run:` note, fix the cause and assign the bead back to the reviewer.
+  - `broken-main`: a bug bead that says `main` fails the gate. The coder files it or reuses an open one. The coder assigns it to the human and makes its own bead depend on it. The coder sets `loop=blocked` and puts its bead back to `open`. A bead with an open dependency is not ready, so the coder sleeps. When the human fixes `main` and closes the bug bead, each blocked bead becomes ready again.
 - The rule for closing a bead is that its code must be on `main`. A dependent bead becomes ready only after its blocker closes. In `pr` mode, the human closes the bead after the merge. In `local` mode, the reviewer closes it at the merge.
-- The primary checkout belongs to the human. In `pr` mode no agent runs commands in it. In `local` mode, the reviewer first makes sure that it is on `main` with no modified or staged tracked files. Then the reviewer merges there. If it is not, the reviewer sets `loop=merge-wait` and keeps the bead. `run.sh` waits for a clean primary before it starts the next reviewer session, and prints "primary checkout busy: <reason>; waiting to start <reviewer>".
+- The primary checkout belongs to the human. In `pr` mode no agent runs commands in it. In `local` mode, the reviewer first makes sure that it is on `main` with no modified or staged tracked files. Then the reviewer merges there. If it is not, the reviewer sets `loop=merge-wait` and keeps the bead. `run.sh` waits for a clean primary before it starts the next reviewer session, and prints `primary checkout busy: <reason>; waiting to start <reviewer>`.
 - Bead notes are an append-only log for humans. The `loop` and `round` state tells where the bead stands. Use `bd note`, not `bd update --notes`, on a live bead. In `pr` mode the pull request comments copy the review, but the bead notes stay the record.
 - Assign a bead to the coder only after the spec ritual: "Read bead `<id>`. Ask me questions about the spec, one round at a time, until you have no questions left. Then update the bead's design field with the final spec." The reviewer reviews against the same design field.
 - The loop runs headless with `--dangerously-skip-permissions`. Keep beads small. In `local` mode, the reviewer and the gate are the only checks before `main`.
