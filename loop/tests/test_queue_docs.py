@@ -23,8 +23,14 @@ def test_both_docs_show_the_queue_panes_above_the_loops():
 
 
 def test_the_readme_explains_each_queue_section():
-    for section in ("In progress", "Ready next", "Waiting"):
-        assert section in README
+    queue_guide = README.split("### Agent queues\n", 1)[1].split("\n### ", 1)[0]
+    for section, meaning in (
+        ("In progress", "active beads"),
+        ("Ready next", "unblocked beads"),
+        ("Waiting", "blocked beads"),
+    ):
+        assert section in queue_guide
+        assert meaning in queue_guide
 
 
 def test_the_docs_locate_queue_sh_in_the_skill_folder():
@@ -35,7 +41,5 @@ def test_the_docs_locate_queue_sh_in_the_skill_folder():
 
 
 def test_the_readme_shows_how_to_run_queue_sh_by_hand():
-    assert (
-        "/path/to/loop-engineering/skills/dev-env-setup/scripts/queue.sh --watch Ralph"
-        in README
-    )
+    assert "cd /path/to/project" in README
+    assert "/skills/dev-env-setup/scripts/queue.sh --watch" in README
