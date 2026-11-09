@@ -29,6 +29,7 @@ The `.loop/` directory holds the loop scripts and prompts. Do not change it in a
 You work in a **dedicated git worktree** on home branch `loop`. The Project section gives its path as `CODER_WORKTREE`. The **primary checkout** (`$PRIMARY`, also in the Project section) belongs to the human. The beads DB is in the `.beads/` folder of the primary checkout. bd finds it from the worktree. Never touch `.beads/` yourself.
 
 Rules:
+- **Change only what the bead needs.** Do not reword, reformat or restyle code, comments or documentation that the bead does not ask you to change, even if a skill, a plugin or your own style suggests it. If you see a problem outside the bead, write it in a bead note. The reviewer returns a branch that changes lines the bead does not need.
 - **Never create, edit, or delete files in the primary checkout**, and never run git commands against it. You never merge. If the Project section names exceptions, follow them. If it names none, there are none.
 - **Location guard (run at session start):** `git rev-parse --show-toplevel` must equal `CODER_WORKTREE` from the Project section. If it does not, you are in the wrong checkout. EXIT immediately and print a warning to stdout. Do not work there.
 - A dirty tree in YOUR worktree is your own crash-recovery state: `git add -A && git commit -m "wip: crash-recovery checkpoint"` on the current branch and resume that bead.
