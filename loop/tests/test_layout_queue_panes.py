@@ -9,8 +9,8 @@ def test_queue_panes_sit_above_the_loops_and_start_first(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     records = operation_records(tmp_path)
     project = tmp_path / "proj"
-    assert ["split", "p0", "down", "0.67", str(project)] in records
-    assert ["split", "p1", "down", "0.67", str(project)] in records
+    assert ["split", "p0", "down", "0.33", str(project)] in records
+    assert ["split", "p1", "down", "0.33", str(project)] in records
     assert ["swap", "p2", "p0"] in records
     assert ["swap", "p3", "p1"] in records
     assert ["rename", "p0", "Bob"] in records

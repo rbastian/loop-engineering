@@ -119,11 +119,12 @@ TAB=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$CODER_TREE" --l
 CODER_PANE=$(jq -r '.result.root_pane.pane_id' <<<"$TAB")
 REVIEWER_PANE=$(split "$CODER_PANE" right 0.5 "$REVIEWER_TREE")
 
-# Queues: the new pane takes the bottom two thirds, then the swap moves it
-# above the loop. Pane IDs follow their processes through a swap.
-CODER_QUEUE=$(split "$CODER_PANE" down 0.67 "$PROJECT")
+# Queues: each split keeps the top third for the loop, and the new queue pane
+# takes the bottom two thirds. The swap moves the queue above the loop.
+# Pane IDs follow their processes through a swap.
+CODER_QUEUE=$(split "$CODER_PANE" down 0.33 "$PROJECT")
 herdr pane swap --source-pane "$CODER_QUEUE" --target-pane "$CODER_PANE" >/dev/null
-REVIEWER_QUEUE=$(split "$REVIEWER_PANE" down 0.67 "$PROJECT")
+REVIEWER_QUEUE=$(split "$REVIEWER_PANE" down 0.33 "$PROJECT")
 herdr pane swap --source-pane "$REVIEWER_QUEUE" --target-pane "$REVIEWER_PANE" >/dev/null
 
 # Watchers: the split keeps the top third for the caller, then the swap moves
