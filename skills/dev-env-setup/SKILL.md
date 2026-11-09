@@ -45,7 +45,7 @@ Use your coder or reviewer name in place of Ralph. Leave out `--watch` to print 
 
 `bootstrap.sh` takes the names, the ship mode, the engines, the models and the GitHub account from ten variables: `LOOP_CODER`, `LOOP_REVIEWER`, `LOOP_HUMAN`, `LOOP_SHIP_MODE`, `LOOP_CODER_ENGINE`, `LOOP_CODER_MODEL`, `LOOP_REVIEWER_ENGINE`, `LOOP_REVIEWER_MODEL` and `LOOP_GITHUB_ACCOUNT`. It writes them into `.loop/project.md`. `worktrees.sh` and `layout.sh` read them back from that file, so `.loop/project.md` is the one place to change them.
 
-The loop source is `loop/` in the same repository. `bootstrap.sh` finds it from its own location, also through the `~/.claude/skills` symlink. To use another copy, set `LOOP_HOME` to that repository's root.
+The harness source is `loop/` in the same repository. `bootstrap.sh` finds it from its own location, also through the `~/.claude/skills` symlink. To use another copy, set `LOOP_HOME` to that repository's root.
 
 ## Procedure
 

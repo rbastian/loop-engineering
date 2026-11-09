@@ -158,7 +158,7 @@ To set up a project by hand, follow these steps:
 
 1. Copy `run.sh`, `watch.py`, `prices.json`, `CODER.md` and `REVIEWER.md` into the project as `.loop/`.
 2. Copy `project.template.md` to `.loop/project.md` and fill every `{{...}}` placeholder.
-3. Add `extend-exclude = [".loop"]` under `[tool.ruff]` in `pyproject.toml`, so that the gate does not lint the installed loop. pytest skips folders that start with a dot.
+3. Add `extend-exclude = [".loop"]` under `[tool.ruff]` in `pyproject.toml`, so that the gate does not lint the harness. pytest skips folders that start with a dot.
 4. Fill the placeholders in `interactive.template.md` and put the result into `CLAUDE.md` and `AGENTS.md`, after the first H1 heading and before the beads blocks.
 5. In `pr` mode, make sure that the repository has an `origin` remote, that `main` is on it, and that `gh` is authenticated.
 6. Create the worktrees from the primary checkout:
@@ -371,7 +371,7 @@ uv run .loop/watch.py --agent Ralph --prefix <prefix> --file /path/to/session.js
 
 Use your configured agent name in place of `Ralph`.
 
-### Update an installed `harness`
+### Update an installed harness
 
 `bootstrap.sh` keeps the files that `.loop/` already holds, so a rerun does not install newer copies of the runner, the watcher or the prompts. `update.sh` in the setup skill does the update. It copies `run.sh`, `watch.py`, `prices.json`, `CODER.md` and `REVIEWER.md` from `loop/` in your loop-engineering clone into `.loop/`. It never changes `.loop/project.md`, and it commits nothing.
 
@@ -425,13 +425,13 @@ Before lpe-0y3, the agents routed on the last marker in the bead notes. The huma
 3. For each bead, read its last note marker and set `loop` from the table under [Routing state](#routing-state). For example, "Returned to Ralph after review round 1" becomes `loop=returned`, and "Review passed, awaiting merge" becomes `loop=merge-wait`.
 4. For each bead that the reviewer saw, set `round` to the number in its newest "Review round <n> started" note: `bd set-state <id> round=<n>`.
 5. Replace each old label with its state: run `bd set-state <id> loop=<value>`, then `bd label remove <id> <old label>`.
-6. Update the installed prompts as described above, then restart the loops.
+6. Update the installed prompts as in [Update an installed harness](#update-an-installed-harness), then restart the loops.
 
 ### Move an install from ralph/ to .loop/
 
-Before lpe-wh5, `bootstrap.sh` installed the loop into `ralph/`. It now installs into `.loop/`. If a project has `ralph/` and no `.loop/`, `update.sh` moves the install and then updates it in the same run:
+Before lpe-wh5, `bootstrap.sh` installed the harness into `ralph/`. It now installs into `.loop/`. If a project has `ralph/` and no `.loop/`, `update.sh` moves the install and then updates it in the same run:
 
-1. It runs every check from the update instructions against `ralph/`. If a check fails, it stops before the move.
+1. It runs every check from [Update an installed harness](#update-an-installed-harness) against `ralph/`. If a check fails, it stops before the move.
 2. It moves the folder with `git mv ralph .loop`.
 3. It changes each `ralph/` path in `.loop/project.md` to `.loop/`.
 4. It prints each line outside the interactive section of `CLAUDE.md` and `AGENTS.md` that still names `ralph/`. Change those lines by hand. The interactive section itself gets the new text.
