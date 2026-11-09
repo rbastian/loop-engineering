@@ -333,8 +333,6 @@ The watcher labels an fw session `cc@fw/<model>`. The fw session logs report 0 t
 
 An fw session cannot use claude.ai connectors. Claude Code prints an `unrecognized_model` warning for a Fireworks model.
 
-### Trial results
-
 The recommended reviewer model is `glm-fast-latest[1m]` (GLM 5.3). In the reviewer trial (`lpe-6v6.5`), it made no protocol errors and missed no blocking finding. Each review cost about $0.45. Its reviews catch fewer non-blocking details than a Claude review.
 
 In the coder trial (`lpe-6v6.7`), `deepseek-flash-latest[1m]` worked. It cost about a quarter of the Opus cost. One session needed 311 small turns.
