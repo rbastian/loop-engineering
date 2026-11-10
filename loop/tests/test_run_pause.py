@@ -90,6 +90,7 @@ def test_ctrl_c_stops_the_loop(tmp_path):
         # Ctrl+C sends SIGINT to the whole foreground process group.
         os.killpg(proc.pid, signal.SIGINT)
         proc.wait(timeout=5)
+        assert proc.returncode == 130
     finally:
         if proc.poll() is None:
             os.killpg(proc.pid, signal.SIGKILL)
