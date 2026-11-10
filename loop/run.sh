@@ -40,6 +40,9 @@
 #   Any failure stops the loop with exit 1 before the first session.
 set -euo pipefail
 
+# Exit on Ctrl-C during startup and pauses as well as during an agent session.
+trap 'exit 130' INT
+
 AGENT_NAME="${1:-Ralph}"
 PROMPT_FILE="${2:-CODER.md}"
 SESSION_TIMEOUT="${LOOP_SESSION_TIMEOUT:-2h}"
@@ -218,7 +221,8 @@ run_session() {
     trap interrupt_session INT TERM HUP
     wait "$SESSION_PGID" 2>/dev/null
     SESSION_EXIT=$?
-    trap - INT TERM HUP
+    trap 'exit 130' INT
+    trap - TERM HUP
     [ -n "$WATCHDOG_PGID" ] || return 0
     # A watchdog that fired finishes its KILL grace period and exits 124.
     kill -TERM -- "-$WATCHDOG_PGID" 2>/dev/null
