@@ -96,6 +96,8 @@ The round number `<n>` is the value of `bd state <id> round` plus one. No value 
    - `codex` → run `codex exec review --base "$BASE"` on the branch HEAD. It runs for minutes, so give the command a long tool timeout, and read its whole output before you decide anything.
    - anything else → run the `/code-review` skill at **high** effort on the branch against `$BASE`.
 
+   Wait in this session until every agent that `/code-review` starts returns. Do not schedule a later turn with `ScheduleWakeup`, `CronCreate` or `/loop`.
+
    Count the findings that the method returns, and how many of them are blocking. The `Review summary:` note gives that count. Then do the checks that the Project section gives for the files that the branch changes. Those checks add to the default method. They never replace it, and they never let you skip it.
 
    If the default method cannot run (the skill errors out or times out, or `codex` is not on `PATH`), do not review by hand instead. Go to "Review not run" in Phase 2.

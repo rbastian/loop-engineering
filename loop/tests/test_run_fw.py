@@ -15,6 +15,7 @@ from test_run_watchdog import alive, claude_pid, run_loop, setup_loop, write_exe
 FW_MODEL = "deepseek-flash-latest[1m]"
 FW_ERROR = "fw: FIREWORKS_API_KEY is not set"
 STREAM_FLAGS = ["--verbose", "--output-format", "stream-json"]
+DISALLOWED_TOOL_ARGS = ["--disallowedTools", "ScheduleWakeup", "CronCreate"]
 
 
 def setup_fw(tmp_path, session_body: str = "exit 0\n") -> dict[str, str]:
@@ -65,6 +66,7 @@ def test_an_fw_session_runs_claude_code_through_fw(tmp_path, stream_log):
         "-p",
         "code",
         "--dangerously-skip-permissions",
+        *DISALLOWED_TOOL_ARGS,
         *(STREAM_FLAGS if stream_log else []),
     ]
     assert lines_of(tmp_path / "fw.checks") == ["--model", FW_MODEL, "--check"]
