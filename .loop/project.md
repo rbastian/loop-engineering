@@ -14,11 +14,14 @@ Do not change `.loop/`. It is the installed copy that runs this loop, and the hu
 CODER=Ralph
 REVIEWER=Alice
 HUMAN=Rob Bastian
-REVIEWER_ENGINE=claude
+CODER_ENGINE=fw
+CODER_MODEL=accounts/fireworks/models/kimi-k3p1-pro[1m]
+REVIEWER_ENGINE=fw
+REVIEWER_MODEL=glm-fast-latest[1m]
 BEAD_PREFIX=lpe
 ```
 
-`$CODER` is the agent that implements beads. `$REVIEWER` is the agent that reviews them. Each name is the bead assignee that the agent's loop polls for. `$HUMAN` is the bd assignee for the human's queues: merge approval, acceptance and escalation. `REVIEWER_ENGINE` is the CLI that the reviewer's loop runs on: `claude` or `codex`. The coder always runs on `claude`. `BEAD_PREFIX` is the prefix of every bead ID in this project, and the watchers match bead IDs with it.
+`$CODER` is the agent that implements beads. `$REVIEWER` is the agent that reviews them. Each name is the bead assignee that the agent's loop polls for. `$HUMAN` is the bd assignee for the human's queues: merge approval, acceptance and escalation. `BEAD_PREFIX` is the prefix of every bead ID in this project, and the watchers match bead IDs with it.
 
 ## Ship mode
 
