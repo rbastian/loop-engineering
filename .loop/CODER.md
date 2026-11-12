@@ -29,6 +29,7 @@ The `.loop/` directory holds the loop scripts and prompts. Do not change it in a
 You work in a **dedicated git worktree** on home branch `loop`. The Project section gives its path as `CODER_WORKTREE`. The **primary checkout** (`$PRIMARY`, also in the Project section) belongs to the human. The beads DB is in the `.beads/` folder of the primary checkout. bd finds it from the worktree. Never touch `.beads/` yourself.
 
 Rules:
+- **Change only what the bead needs.** Do not reword, reformat or restyle code, comments or documentation that the bead does not ask you to change, even if a skill, a plugin or your own style suggests it. If you see a problem outside the bead, write it in a bead note. The reviewer returns a branch that changes lines the bead does not need.
 - **Never create, edit, or delete files in the primary checkout**, and never run git commands against it. You never merge. If the Project section names exceptions, follow them. If it names none, there are none.
 - **Location guard (run at session start):** `git rev-parse --show-toplevel` must equal `CODER_WORKTREE` from the Project section. If it does not, you are in the wrong checkout. EXIT immediately and print a warning to stdout. Do not work there.
 - A dirty tree in YOUR worktree is your own crash-recovery state: `git add -A && git commit -m "wip: crash-recovery checkpoint"` on the current branch and resume that bead.
@@ -143,9 +144,25 @@ bd list --assignee="$CODER" --status=in_progress
     - No PR yet → open it, then record it:
       ```bash
       gh pr create --base main --head <branch> --title "feat: <description> [<bead-id>]" \
-        --body "Bead: <bead-id>. <one paragraph: what changed and why>"
+        --body-file - <<'EOF'
+      Bead: <bead-id>
+
+      ## Summary
+
+      <two or three sentences: what changed and why>
+
+      ## Changes
+
+      - `<file or area>`: <what changed>
+
+      ## Acceptance criteria
+
+      - [x] <k>. <criterion, short> (<evidence: test name or command>)
+      - [ ] <k>. <criterion, short> (not checked: <reason>)
+      EOF
       bd note <id> "PR opened: #<number> <url>"
       ```
+      The body is Markdown. Write one bullet per changed file or area under `## Changes`, with the file names in backticks. Write one checklist line per acceptance criterion, numbered as in the bead. Use `- [x]` with the evidence for a criterion that you checked, and `- [ ]` with the reason for a criterion that you could not check. The quoted heredoc (`<<'EOF'`) sends backticks, `$` and quotes to GitHub unchanged, because the shell expands nothing inside it. Type the bead ID and every other value into the text yourself. Write the body once, when you open the PR. A later round does not edit it, because editing a PR is not on your list of remote actions.
     - The PR already exists → the push updated it. Do not open a second one.
     - Push or `gh` fails → park the bead with `$HUMAN` and EXIT. Do not hand off a branch the reviewer cannot see on the PR.
       ```bash

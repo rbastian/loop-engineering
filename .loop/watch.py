@@ -38,9 +38,10 @@ import re
 import subprocess
 import sys
 import time
-from collections import deque
+from collections import Counter, deque
 from datetime import datetime
 from pathlib import Path
+from typing import ClassVar
 
 LOG_DIR = Path(os.environ.get("LOOP_LOG_DIR", "/tmp/loop-sessions"))
 # The loop being watched. Resolved once, by main, from --agent or LOG_DIR.
@@ -161,12 +162,94 @@ def bead_in(command: str) -> str | None:
 # must replace the session's figure instead of adding to it.
 COSTS: dict = {}
 
-# The Codex sessions this watcher has followed, by log name. They are counted
-# apart from COSTS rather than stored there at 0: a ChatGPT plan reports no
-# per-session figure, and a zero would divide the dollar total over sessions
-# that never contributed to it. A set for the same reason COSTS is a mapping —
-# one log must count once however many times its lines are read.
-CODEX_SESSIONS: set = set()
+# The engines with no dollar figure to trust, and what each one says in its
+# place: on the session's footer, in its bead note, and in the watcher total.
+# Codex on a ChatGPT plan reports no per-session figure. fw runs Claude Code on
+# a Fireworks model, and Claude Code has no price for one (it warns
+# unrecognized_model), so its total_cost_usd is wrong.
+UNPRICED = {
+    "codex": {
+        "footer": "no cost (ChatGPT plan)",
+        "note": "no cost reported (ChatGPT plan)",
+        "total": "Codex sessions (no cost)",
+    },
+    "fw": {
+        "footer": "cost unknown (fw)",
+        "note": "cost unknown (fw)",
+        "total": "fw sessions (cost unknown)",
+    },
+}
+
+# The UNPRICED engines that watch.py prices itself from prices.json: the
+# provider of their entries, and its name in the cost note. A session of one
+# of these whose every model has a price goes into COSTS like a Claude one.
+ESTIMATED = {"fw": ("fireworks", "Fireworks")}
+
+# Per-million-token prices by model ID, for the engines whose own figure is
+# wrong or missing. It sits beside watch.py, so update.sh installs both.
+PRICES_PATH = Path(__file__).with_name("prices.json")
+# prices.json once read, or None before the first lookup. A file that is
+# missing or unreadable reads as {}, so it warns once and prices nothing.
+PRICES: dict | None = None
+# One trailing bracketed suffix on a model ID, such as [1m] for a long context.
+MODEL_SUFFIX = re.compile(r"\[[^\[\]]*\]$")
+
+
+def load_prices() -> dict:
+    global PRICES
+    if PRICES is None:
+        try:
+            prices = json.loads(PRICES_PATH.read_text(encoding="utf-8"))
+            if not isinstance(prices, dict):
+                raise TypeError("not a JSON object")
+        except (OSError, ValueError, TypeError) as error:
+            print(
+                f"watch: cannot read {PRICES_PATH} ({error}); every estimated"
+                " cost is unknown",
+                file=sys.stderr,
+            )
+            prices = {}
+        PRICES = prices
+    return PRICES
+
+
+def estimate(
+    provider: str, model: str, *, inputs=0, cached=0, written=0, output=0
+) -> tuple[float, str] | None:
+    """What one model's tokens cost at `provider`'s prices, and the price date.
+
+    The counts are separate: `inputs` holds no cache reads, as Anthropic and
+    Fireworks' Anthropic endpoint count it, so each token is billed once at
+    its own rate. A cache write bills at cache_write, or at the input rate
+    when the entry has none. None when the model, or its base ID without a
+    bracketed suffix, has no entry for the provider, or the entry is
+    malformed.
+    """
+    prices = load_prices()
+    entry = prices.get(model)
+    if entry is None:
+        entry = prices.get(MODEL_SUFFIX.sub("", model))
+    if not isinstance(entry, dict) or entry.get("provider") != provider:
+        return None
+    try:
+        rates = [
+            (inputs, entry["input"]),
+            (cached, entry["cached_input"]),
+            (written, entry.get("cache_write", entry["input"])),
+            (output, entry["output"]),
+        ]
+        dollars = sum(count * rate for count, rate in rates) / 1_000_000
+    except (KeyError, TypeError):
+        return None
+    return dollars, str(entry.get("checked", "?"))
+
+
+# The sessions of an UNPRICED engine this watcher has followed: log name to
+# engine. Those without a figure in COSTS are counted apart rather than stored
+# there at 0, as a zero would divide the dollar total over sessions that never
+# contributed to it. A mapping for the same reason COSTS is one: one log must
+# count once however many times its lines are read.
+UNPRICED_SESSIONS: dict = {}
 
 
 def watcher_cost() -> str:
@@ -174,12 +257,17 @@ def watcher_cost() -> str:
 
     The account signs in through claude.ai rather than with an API key, so
     total_cost_usd is Claude Code's API-equivalent estimate and not a bill.
-    Everything built on it is labelled `est.` for that reason. Codex sessions
-    run on a ChatGPT plan and are counted beside the figure, not inside it.
+    Everything built on it is labelled `est.` for that reason. The sessions of
+    an UNPRICED engine with no estimate are counted beside the figure, not
+    inside it.
     """
     total = f"watcher ${sum(COSTS.values()):.2f} est. over {len(COSTS)} sessions"
-    if CODEX_SESSIONS:
-        total += f" · {len(CODEX_SESSIONS)} Codex sessions (no cost)"
+    counts = Counter(
+        engine for name, engine in UNPRICED_SESSIONS.items() if name not in COSTS
+    )
+    for engine, labels in UNPRICED.items():
+        if counts[engine]:
+            total += f" · {counts[engine]} {labels['total']}"
     return total
 
 
@@ -226,6 +314,9 @@ class Session:
         self.title = ""
         self.looked_up = None
         self.model = ""
+        # The date of the prices behind an estimated cost, for an engine that
+        # watch.py prices itself (ESTIMATED).
+        self.prices_of = None
         # Which agent CLI wrote this log, from its `loop.session` line. A log
         # without one was written before run.sh had engines, so it is Claude's.
         self.engine = "claude"
@@ -243,6 +334,25 @@ class Session:
         # event of any sort. `finished` is the pair read together.
         self.result_at = None
         self.last_kind = ""
+
+    # The harness of each engine, for `label`: the agent CLI that wrote the
+    # log, then @<provider> when the requests go to a provider that is not the
+    # CLI's own. cc is Claude Code and fw is Fireworks, short for the
+    # half-width watcher panes. A later engine adds one entry here.
+    HARNESS: ClassVar[dict[str, str]] = {
+        "claude": "cc",
+        "codex": "codex",
+        "fw": "cc@fw",
+    }
+
+    @property
+    def label(self) -> str:
+        """Where the session runs, <harness>[@<provider>]/<model>.
+
+        For example cc/claude-opus-5-5 or cc@fw/deepseek-flash-latest[1m]. An
+        engine missing from HARNESS shows its own name as the harness.
+        """
+        return f"{self.HARNESS.get(self.engine, self.engine)}/{self.model_label}"
 
     @property
     def model_label(self) -> str:
@@ -310,12 +420,12 @@ class Session:
         """The counters line. Cost comes last on purpose: the pinned footer is
         cut to the pane's columns, and a narrow pane should lose the cost
         rather than the elapsed time and the turns."""
-        if self.engine == "codex":
-            cost = "no cost (ChatGPT plan)"
-        elif self.cost is None:
-            cost = "session cost at end"
-        else:
+        if self.cost is not None:
             cost = f"session ${self.cost:.2f} est."
+        elif self.engine in UNPRICED:
+            cost = UNPRICED[self.engine]["footer"]
+        else:
+            cost = "session cost at end"
         ctx = f"{self.context / 1000:.0f}k ctx"
         # Codex reports its cached input beside the rest; the Claude path
         # sums cache reads into `context` instead, so it has no share to
@@ -374,19 +484,22 @@ class Session:
         if shown:
             self.title = shown[0].split("\u00b7", 1)[-1].split("[")[0].strip()
 
-    def header_lines(self) -> list[str]:
-        """The two header rows, shared by the plain header and the --tui pane."""
+    def header_lines(self, width: int | None = None) -> list[str]:
+        """The two header rows, shared by the plain header and the --tui pane.
+
+        The label ends the second row and stays whole: in a pane narrower
+        than the row, the session name is shortened first.
+        """
         title = f" {AGENT} \u00b7 {self.bead or 'no bead yet'}"
         if self.title:
             title += f" \u00b7 {self.title}"
         started = self.first.astimezone().strftime("%H:%M:%S") if self.first else "?"
-        return [
-            title,
-            (
-                f" session {self.name} \u00b7 started {started}"
-                f" \u00b7 model {self.model_label}"
-            ),
-        ]
+        tail = f" \u00b7 started {started} \u00b7 {self.label}"
+        head = f" session {self.name}"
+        if width is not None and len(head) + len(tail) > width:
+            # Shorten the part before the label, and keep the label whole.
+            head = head[: max(width - len(tail) - 1, 0)] + "\u2026"
+        return [title, head + tail]
 
     def header(self) -> None:
         """The one-shot plain-stream header (non-TUI mode)."""
@@ -410,6 +523,27 @@ class Session:
 
 
 SESSION = Session()
+
+# The --tui style of the @<provider> part of the label, so that a session
+# routed to another provider stands out.
+PROVIDER_STYLE = "bold magenta"
+
+
+def header_rows(width: int | None = None) -> list:
+    """The header rows as Rich Text for --tui, with the provider styled."""
+    from rich.text import Text
+
+    rows = [
+        Text(row, no_wrap=True, overflow="ellipsis")
+        for row in SESSION.header_lines(width)
+    ]
+    label = SESSION.label
+    harness = label.split("/", 1)[0]
+    if "@" in harness:
+        # The label ends the row whole, so its place is counted from the end.
+        base = len(rows[1].plain) - len(label)
+        rows[1].stylize(PROVIDER_STYLE, base + harness.index("@"), base + len(harness))
+    return rows
 
 
 class Pinned:
@@ -459,7 +593,7 @@ class Pinned:
             return styled
 
         def header(console, options):
-            yield Group(Rule(), *map(line, SESSION.header_lines()), Rule())
+            yield Group(Rule(), *header_rows(options.max_width), Rule())
 
         def footer(console, options):
             yield Group(
@@ -669,9 +803,21 @@ LINE_STYLES = {
     "thinking": "italic #ffbf00",
 }
 
+# A skill call, and Codex's `codex exec review`, are the protocol's own steps:
+# the default review method and the /simplify pass (--tui only). Styled by
+# where the line comes from, not by its label, so /simplify keeps REVIEW.
+# Bold rather than italic, because italic marks the agent's own words.
+SKILL_STYLE = "bold #af87ff"
+CODEX_REVIEW_RE = re.compile(r"\bcodex exec review\b")
+
 
 def _write(
-    stamp: str | None, phase: str, label: str, detail: str, repeats: int
+    stamp: str | None,
+    phase: str,
+    label: str,
+    detail: str,
+    repeats: int,
+    style: str | None = None,
 ) -> None:
     marker = f"PHASE {phase}" if phase != "-" else "       "
     tail = f"  \u00d7{repeats}" if repeats > 1 else ""
@@ -679,30 +825,35 @@ def _write(
     # keeps the column and leaves it blank: HH:MM:SS is eight wide.
     PINNED.add(
         f"{stamp or '':8}  {marker:9} {label:16} {detail}{tail}",
-        LINE_STYLES.get(label),
+        style,
     )
 
 
-def emit(stamp: str | None, phase: str, label: str, detail: str) -> None:
+def emit(
+    stamp: str | None,
+    phase: str,
+    label: str,
+    detail: str,
+    style: str | None = None,
+) -> None:
     """Print one line, collapsing an identical repeat into a xN counter.
 
     Distinct work must look distinct and repeated work must look repeated —
-    otherwise a reader cannot tell a busy session from a stuck one.
+    otherwise a reader cannot tell a busy session from a stuck one. `style`
+    overrides the label's own --tui style.
     """
-    key = (phase, label, detail)
+    key = (phase, label, detail, style or LINE_STYLES.get(label))
     if key == _last[0]:
         _last[1] += 1
         return
-    if _last[0] is not None and _last[1] > 1:
-        _write(_last[2], *_last[0], _last[1])
-    elif _last[0] is not None:
-        _write(_last[2], *_last[0], 1)
+    flush_pending()
     _last[0], _last[1], _last[2] = key, 1, stamp
 
 
 def flush_pending() -> None:
     if _last[0] is not None:
-        _write(_last[2], *_last[0], _last[1])
+        phase, label, detail, style = _last[0]
+        _write(_last[2], phase, label, detail, _last[1], style)
         _last[0] = None
 
 
@@ -751,15 +902,47 @@ def close(event: dict) -> None:
     The finish time is not read here: `track` takes it from the last
     timestamped event for both engines' closing events.
     """
-    cost = event.get("total_cost_usd")
-    if isinstance(cost, (int, float)):
-        COSTS[SESSION.name] = float(cost)
-    models = (event.get("modelUsage") or {}).values()
-    output = sum(
-        model.get("outputTokens") or 0 for model in models if isinstance(model, dict)
-    )
+    usage = {
+        model: tokens
+        for model, tokens in (event.get("modelUsage") or {}).items()
+        if isinstance(tokens, dict)
+    }
+    if SESSION.engine in ESTIMATED:
+        # An fw session runs Claude Code, but its figure is wrong: see UNPRICED.
+        estimate_session(ESTIMATED[SESSION.engine][0], usage)
+    elif SESSION.engine not in UNPRICED:
+        cost = event.get("total_cost_usd")
+        if isinstance(cost, (int, float)):
+            COSTS[SESSION.name] = float(cost)
+    output = sum(tokens.get("outputTokens") or 0 for tokens in usage.values())
     if output:
         SESSION.output = output
+
+
+def estimate_session(provider: str, usage: dict) -> None:
+    """Price the session from its modelUsage, or leave it without a figure.
+
+    Every model in it must have a price: a figure that leaves out a subagent's
+    model would read as the whole session's. The note gives the oldest price
+    date of the models it used. A later closing event replaces the figure, as
+    it does in COSTS for Claude.
+    """
+    priced = [
+        estimate(
+            provider,
+            model,
+            inputs=tokens.get("inputTokens") or 0,
+            cached=tokens.get("cacheReadInputTokens") or 0,
+            written=tokens.get("cacheCreationInputTokens") or 0,
+            output=tokens.get("outputTokens") or 0,
+        )
+        for model, tokens in usage.items()
+    ]
+    if priced and None not in priced:
+        COSTS[SESSION.name] = sum(dollars for dollars, _ in priced)
+        SESSION.prices_of = min(checked for _, checked in priced)
+    else:
+        COSTS.pop(SESSION.name, None)
 
 
 def start_line(event: dict) -> None:
@@ -774,8 +957,8 @@ def start_line(event: dict) -> None:
     """
     SESSION.engine = event.get("engine") or "claude"
     SESSION.model = event.get("model") or ""
-    if SESSION.engine == "codex":
-        CODEX_SESSIONS.add(SESSION.name)
+    if SESSION.engine in UNPRICED:
+        UNPRICED_SESSIONS[SESSION.name] = SESSION.engine
     raw = event.get("started")
     if not raw:
         return
@@ -790,7 +973,7 @@ def close_codex(event: dict) -> None:
 
     The Claude counterpart of `close`, minus the money — a ChatGPT plan
     reports no per-session figure, so nothing goes into COSTS and the session
-    is counted in CODEX_SESSIONS instead.
+    is counted in UNPRICED_SESSIONS instead.
 
     `codex exec` runs one turn per session, but the usage is that turn's
     rather than the thread's, so output and reasoning accumulate. Input is a
@@ -888,7 +1071,13 @@ def track(event: dict, kind: str) -> None:
     )
 
 
-def tool_line(stamp: str | None, phase: str, label: str, detail: str) -> None:
+def tool_line(
+    stamp: str | None,
+    phase: str,
+    label: str,
+    detail: str,
+    style: str | None = None,
+) -> None:
     """Print one classified tool call, and move the header and phase with it.
 
     Shared by both engines: a Claude tool_use block and a Codex
@@ -904,7 +1093,7 @@ def tool_line(stamp: str | None, phase: str, label: str, detail: str) -> None:
         not SESSION.announced and SESSION.first and (SESSION.bead or SESSION.tools >= 6)
     ):
         SESSION.header()
-    emit(stamp, phase, label, detail)
+    emit(stamp, phase, label, detail, style)
 
 
 def say(stamp: str | None, text: str) -> None:
@@ -934,7 +1123,8 @@ def codex_item(stamp: str | None, kind: str, item: dict) -> None:
     if shape == "command_execution":
         command = " ".join((item.get("command") or "").split())
         if kind == "item.started":
-            tool_line(stamp, *classify_command(command))
+            style = SKILL_STYLE if CODEX_REVIEW_RE.search(command) else None
+            tool_line(stamp, *classify_command(command), style)
         elif item.get("exit_code"):
             emit(stamp, "-", "FAILED", f"exit {item['exit_code']}  {command[:80]}")
     elif shape == "agent_message" and kind == "item.completed":
@@ -950,7 +1140,7 @@ def handle(event: dict) -> None:
         # A Claude log announces itself with its init event, as it always has.
         # A Codex log has no such event, so its session line is the marker.
         if SESSION.engine == "codex":
-            emit(stamp, "-", SESSION_MARK, SESSION.model_label)
+            emit(stamp, "-", SESSION_MARK, SESSION.label)
         return
     if kind in ("item.started", "item.completed"):
         codex_item(stamp, kind, event.get("item") or {})
@@ -970,14 +1160,15 @@ def handle(event: dict) -> None:
         emit(stamp, "-", "rate limit", f"{info.get('status', '?')} — {used}")
         return
     if kind == "system" and event.get("subtype") == "init":
-        emit(stamp, "-", SESSION_MARK, SESSION.model_label)
+        emit(stamp, "-", SESSION_MARK, SESSION.label)
         return
     if kind != "assistant":
         return
 
     for block in event.get("message", {}).get("content") or []:
         if block.get("type") == "tool_use":
-            tool_line(stamp, *classify(block))
+            skill = (block.get("input") or {}).get("skill")
+            tool_line(stamp, *classify(block), SKILL_STYLE if skill else None)
         elif block.get("type") == "text":
             say(stamp, block.get("text") or "")
         elif block.get("type") == "thinking":
@@ -1089,10 +1280,19 @@ def cost_note(summary: dict) -> str:
     Worded so it can never be read as a status marker: CODER.md and REVIEWER.md
     route on the last marker in a bead's notes, and this note lands after the
     agent's own. Codex on a ChatGPT plan reports tokens and no dollar figure,
-    and says so rather than printing $0.00.
+    and says so rather than printing $0.00. Claude Code has no price for the
+    Fireworks model of an fw session, so its figure is left out (UNPRICED).
     """
-    if summary["engine"] == "codex":
-        cost = "no cost reported (ChatGPT plan)"
+    engine = summary["engine"]
+    if engine in ESTIMATED and summary["cost"] is not None:
+        cost = (
+            f"${summary['cost']:.2f} est."
+            f" ({ESTIMATED[engine][1]} prices of {summary['prices_of']})"
+        )
+    elif engine in UNPRICED:
+        cost = UNPRICED[engine]["note"]
+        if engine in ESTIMATED:
+            cost += ", model not in prices.json"
     elif summary["cost"] is None:
         cost = "no cost reported"
     else:
@@ -1100,7 +1300,7 @@ def cost_note(summary: dict) -> str:
     ctx = f"{summary['context'] / 1000:.0f}k ctx"
     if summary["cached"]:
         ctx += f" ({summary['cached'] / 1000:.0f}k cached)"
-    parts = [summary["agent"], summary["model"], cost]
+    parts = [summary["agent"], summary["label"], cost]
     if summary["elapsed"] != "?":
         parts.append(f"{summary['elapsed']} wall")
     parts += [
@@ -1139,7 +1339,9 @@ def summarize(path: Path) -> dict:
         "agent": AGENT,
         "engine": SESSION.engine,
         "model": SESSION.model_label,
+        "label": SESSION.label,
         "cost": SESSION.cost,
+        "prices_of": SESSION.prices_of,
         "elapsed": SESSION.elapsed(),
         "turns": SESSION.turns,
         "output": SESSION.output,

@@ -19,11 +19,14 @@
 #   LOOP_SESSION_TIMEOUT Max wall-clock time per session (default: 2h): a whole
 #                        number with an optional suffix s, m, h or d. 0 means no
 #                        limit. Time while the Mac sleeps counts too.
-#   LOOP_ENGINE          Which agent CLI runs each session: claude (default)
-#                        or codex. Any other value stops the loop at startup.
+#   LOOP_ENGINE          Which agent CLI runs each session: claude (default),
+#                        codex, or fw (Claude Code on a Fireworks model, through
+#                        the fw launcher). Any other value stops the loop at
+#                        startup.
 #   LOOP_MODEL           Model for each session. Defaults to claude-opus-5-5 on
 #                        the claude engine; on codex it has no default, and an
 #                        unset one means the default model of the ChatGPT plan.
+#                        fw needs it, for example deepseek-flash-latest[1m].
 #   LOOP_OVERLAY         Project overlay appended to the prompt (default:
 #                        project.md beside PROMPT_FILE; "none" disables it).
 #   LOOP_PRINT_PROMPT=1  Print the combined prompt and exit.
@@ -37,6 +40,9 @@
 #   Any failure stops the loop with exit 1 before the first session.
 set -euo pipefail
 
+# Exit on Ctrl-C during startup and pauses as well as during an agent session.
+trap 'exit 130' INT
+
 AGENT_NAME="${1:-Ralph}"
 PROMPT_FILE="${2:-CODER.md}"
 SESSION_TIMEOUT="${LOOP_SESSION_TIMEOUT:-2h}"
@@ -48,8 +54,12 @@ ENGINE="${LOOP_ENGINE:-claude}"
 case "$ENGINE" in
     claude) MODEL="${LOOP_MODEL:-claude-opus-5-5}" ;;
     codex) MODEL="${LOOP_MODEL:-}" ;;
+    fw)
+        MODEL="${LOOP_MODEL:-}"
+        [ -n "$MODEL" ] || { echo "ERROR: LOOP_ENGINE=fw needs LOOP_MODEL, for example deepseek-flash-latest[1m]"; exit 1; }
+        ;;
     *)
-        echo "ERROR: LOOP_ENGINE must be claude or codex (got: $ENGINE)"
+        echo "ERROR: LOOP_ENGINE must be claude, codex or fw (got: $ENGINE)"
         exit 1
         ;;
 esac
@@ -108,6 +118,21 @@ fi
 if ! command -v jq >/dev/null 2>&1; then
     echo "ERROR: jq is required (brew install jq)"
     exit 1
+fi
+
+# fw starts Claude Code against the Fireworks endpoint. Its --check makes
+# sure that the key and the model are set up, calls no model and costs no
+# tokens. Its output is discarded when it passes.
+if [ "$ENGINE" = "fw" ]; then
+    if ! command -v fw >/dev/null 2>&1; then
+        echo "ERROR: LOOP_ENGINE=fw needs fw on PATH (usually ~/.local/bin/fw)"
+        exit 1
+    fi
+    if ! FW_ERROR=$(fw --model "$MODEL" --check 2>&1 >/dev/null); then
+        echo "ERROR: fw --model $MODEL --check failed:"
+        echo "$FW_ERROR"
+        exit 1
+    fi
 fi
 
 KEEP_AWAKE=""
@@ -196,7 +221,8 @@ run_session() {
     trap interrupt_session INT TERM HUP
     wait "$SESSION_PGID" 2>/dev/null
     SESSION_EXIT=$?
-    trap - INT TERM HUP
+    trap 'exit 130' INT
+    trap - TERM HUP
     [ -n "$WATCHDOG_PGID" ] || return 0
     # A watchdog that fired finishes its KILL grace period and exits 124.
     kill -TERM -- "-$WATCHDOG_PGID" 2>/dev/null
@@ -328,21 +354,113 @@ pin_github_account() {
 }
 pin_github_account
 
-# One line when the loop-engineering clone has newer commits on loop/ than this
-# harness. HARNESS_VERSION beside run.sh names the clone and the commit that
-# bootstrap.sh or update.sh installed. A missing stamp or clone, or a commit
-# that the clone lacks, prints nothing, and no error here stops the loop.
+# The files that update.sh installs, as paths in the loop-engineering clone:
+# FILES in skills/dev-env-setup/scripts/update.sh, plus interactive.template.md,
+# which update.sh renders into CLAUDE.md and AGENTS.md. Only a commit that
+# changes one of them counts as drift. A test keeps this list in step with
+# update.sh.
+HARNESS_PATHS="loop/run.sh loop/watch.py loop/prices.json loop/CODER.md loop/REVIEWER.md loop/interactive.template.md"
+
+# One line when the loop-engineering clone has newer commits on the installed
+# files than this harness. HARNESS_VERSION beside run.sh names the clone and
+# the commit that bootstrap.sh or update.sh installed. A missing stamp or
+# clone, or a commit that the clone lacks, prints nothing, and no error here
+# stops the loop.
 # The same function is in skills/dev-env-setup/scripts/lib.sh.
 drift_line() {
     local commit clone count
     commit=$(sed -n 's/^commit=//p' "$1" 2>/dev/null | head -1)
     clone=$(sed -n 's/^clone=//p' "$1" 2>/dev/null | head -1)
     [ -n "$commit" ] && [ -d "$clone" ] || return 0
-    count=$(git -C "$clone" rev-list --count "$commit..HEAD" -- loop/ 2>/dev/null) || return 0
+    count=$(git -C "$clone" rev-list --count "$commit..HEAD" -- $HARNESS_PATHS 2>/dev/null) || return 0
     case "$count" in 0) return 0 ;; 1) count="1 commit" ;; *) count="$count commits" ;; esac
     echo "harness is $count behind loop-engineering; run update.sh"
 }
-drift_line "$HARNESS_DIR/HARNESS_VERSION" 2>/dev/null || true
+
+# Where a session runs, in the form of Session.label in watch.py:
+# <harness>[@<provider>]/<model>. A test makes sure that the two agree.
+harness_label() {
+    local harness
+    case "$1" in
+        claude) harness=cc ;;
+        fw) harness=cc@fw ;;
+        *) harness="$1" ;;
+    esac
+    if [ -n "$2" ]; then
+        echo "$harness/$2"
+    elif [ "$1" = codex ]; then
+        echo "$harness/codex default"
+    else
+        echo "$harness/?"
+    fi
+}
+
+# coder or reviewer, from CODER and REVIEWER in the overlay.
+agent_role() {
+    case "$AGENT_NAME" in
+        "$(overlay_value CODER)") echo coder ;;
+        "$(overlay_value REVIEWER)") echo reviewer ;;
+        *) echo "unknown role" ;;
+    esac
+}
+
+# An absolute path, relative to the primary checkout when it is inside it.
+show_path() {
+    local path="$1" primary
+    case "$path" in /*) ;; *) path="$(pwd)/${path#./}" ;; esac
+    primary=$(overlay_value PRIMARY)
+    if [ -n "$primary" ]; then
+        case "$path" in "${primary%/}"/*) path="${path#"${primary%/}"/}" ;; esac
+    fi
+    echo "$path"
+}
+
+# The installed commit and whether the clone has newer commits on the
+# installed files.
+version_text() {
+    local stamp="$HARNESS_DIR/HARNESS_VERSION" commit clone short count
+    commit=$(sed -n 's/^commit=//p' "$stamp" 2>/dev/null | head -1)
+    clone=$(sed -n 's/^clone=//p' "$stamp" 2>/dev/null | head -1)
+    if [ -z "$commit" ]; then
+        echo unknown
+        return 0
+    fi
+    short=$(git -C "$clone" rev-parse --short "$commit" 2>/dev/null) || short="${commit:0:7}"
+    # drift_line owns the warning text, so it runs only when there is drift.
+    count=$(git -C "$clone" rev-list --count "$commit..HEAD" -- $HARNESS_PATHS 2>/dev/null) || count=""
+    case "$count" in
+        '') echo "$short" ;;
+        0) echo "$short (up to date)" ;;
+        *) echo "$short ($(drift_line "$stamp" 2>/dev/null))" ;;
+    esac
+}
+
+ROLE=$(agent_role)
+LABEL=$(harness_label "$ENGINE" "$MODEL")
+
+# The configuration, once, after every startup check passed. Never a token.
+print_startup_block() {
+    local ship prompt logs timeout
+    ship=$(overlay_value SHIP_MODE)
+    case "$ship" in
+        pr) ship="pr, as $(overlay_value GITHUB_ACCOUNT)" ;;
+        '') ship=unknown ;;
+    esac
+    prompt="no overlay"
+    [ -z "$OVERLAY_FILE" ] || prompt=$(show_path "$OVERLAY_FILE")
+    prompt="$(show_path "$PROMPT_FILE") + $prompt"
+    logs=off
+    if [ -n "${LOOP_STREAM_LOG:-}" ]; then
+        logs=$(show_path "${LOOP_LOG_DIR:-/tmp/loop-sessions}")
+    fi
+    timeout="$SESSION_TIMEOUT"
+    [ "$SESSION_LIMIT" -gt 0 ] || timeout=none
+    echo "=== $AGENT_NAME ($ROLE) ==="
+    printf '%-9s%s\n' harness "$LABEL" ship "$ship" prompt "$prompt" \
+        logs "$logs" timeout "$timeout" version "$(version_text)"
+    echo ""
+}
+print_startup_block
 
 # The busy reason printed last, so a wait prints its reason once, not every 30s.
 LAST_BUSY=""
@@ -412,13 +530,14 @@ while true; do
                | jq -r '.[].id // empty' 2>/dev/null | tr '\n' ' ') || HELD=""
 
     echo ""
-    echo "=== $(date '+%Y-%m-%d %H:%M:%S') === Starting $ENGINE session (model: ${MODEL:-codex default}) ==="
+    echo "=== $(date '+%Y-%m-%d %H:%M:%S') === $AGENT_NAME ($ROLE) on $LABEL: session starts ==="
     echo "=================================================="
 
     # Built here rather than at startup: $PROMPT is re-read each iteration.
     # One array for both call sites below. claude needs two flags to emit the
     # JSONL that codex exec --json emits on its own, so only it reads
-    # $LOOP_STREAM_LOG here.
+    # $LOOP_STREAM_LOG here. fw runs Claude Code and passes everything after
+    # -- to it, but it sets the model itself and rejects --model there.
     if [ "$ENGINE" = "codex" ]; then
         AGENT_CMD=(codex exec --json --dangerously-bypass-approvals-and-sandbox)
         if [ -n "$MODEL" ]; then
@@ -426,7 +545,12 @@ while true; do
         fi
         AGENT_CMD+=("$PROMPT")
     else
-        AGENT_CMD=(claude -p "$PROMPT" --model "$MODEL" --dangerously-skip-permissions)
+        if [ "$ENGINE" = "fw" ]; then
+            AGENT_CMD=(fw --model "$MODEL" -- -p "$PROMPT")
+        else
+            AGENT_CMD=(claude -p "$PROMPT" --model "$MODEL")
+        fi
+        AGENT_CMD+=(--dangerously-skip-permissions)
         if [ -n "${LOOP_STREAM_LOG:-}" ]; then
             AGENT_CMD+=(--verbose --output-format stream-json)
         fi
