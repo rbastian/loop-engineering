@@ -65,6 +65,9 @@ def test_an_fw_session_runs_claude_code_through_fw(tmp_path, stream_log):
         "-p",
         "code",
         "--dangerously-skip-permissions",
+        "--disallowedTools",
+        "ScheduleWakeup",
+        "CronCreate",
         *(STREAM_FLAGS if stream_log else []),
     ]
     assert lines_of(tmp_path / "fw.checks") == ["--model", FW_MODEL, "--check"]
