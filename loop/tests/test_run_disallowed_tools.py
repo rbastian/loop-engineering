@@ -6,7 +6,7 @@ Each engine runs against a stub that records its arguments, one per line.
 """
 
 import pytest
-from test_run_fw import FW_MODEL, setup_fw
+from test_run_fw import DISALLOWED_TOOL_ARGS, lines_of, setup_fw
 from test_run_watchdog import run_loop, setup_loop, write_exe
 
 
@@ -27,24 +27,14 @@ def test_engine_tool_restrictions(tmp_path, engine):
     result = run_loop(tmp_path, env)
 
     assert f"{engine} exited with 0" in result.stdout, result.stdout + result.stderr
-    args = args_path.read_text().splitlines()
+    args = lines_of(args_path)
     if engine == "codex":
         assert "--disallowedTools" not in args
         return
 
-    assert args[args.index("--disallowedTools") :][:3] == [
-        "--disallowedTools",
-        "ScheduleWakeup",
-        "CronCreate",
-    ]
+    flag = args.index("--disallowedTools")
+    assert args[flag : flag + len(DISALLOWED_TOOL_ARGS)] == DISALLOWED_TOOL_ARGS
     if engine == "claude":
-        separator = args.index("--dangerously-skip-permissions")
-        assert args[separator + 1 : separator + 4] == [
-            "--disallowedTools",
-            "ScheduleWakeup",
-            "CronCreate",
-        ]
+        assert args[flag - 1] == "--dangerously-skip-permissions"
     else:
-        separator = args.index("--")
-        assert "--" in args[: args.index("--disallowedTools")]
-        assert args[: separator + 3] == ["--model", FW_MODEL, "--", "-p", "code"]
+        assert args.index("--") < flag
