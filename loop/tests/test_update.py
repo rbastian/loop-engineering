@@ -23,6 +23,18 @@ def listed_files(path: Path) -> tuple[str, ...]:
 
 
 FILES = listed_files(ROOT / "loop/harness-files")
+
+
+def assert_installed(clone: Path, project: Path, names) -> None:
+    """Each named file in .loop/ matches the clone, and a .sh or .py file
+    is executable."""
+    for f in names:
+        installed = project / ".loop" / f
+        assert installed.read_bytes() == (clone / "loop" / f).read_bytes(), f
+        if f.endswith((".sh", ".py")):
+            assert installed.stat().st_mode & 0o111, f
+
+
 CLONE_FILES = FILES + (
     "project.template.md",
     "interactive.template.md",
@@ -172,11 +184,7 @@ def test_update_one_commit_behind(tmp_path):
     result = run_update(tmp_path, clone, project)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    for f in FILES:
-        assert (project / ".loop" / f).read_bytes() == (clone / "loop" / f).read_bytes()
-    for f in FILES:
-        if f.endswith((".sh", ".py")):
-            assert (project / ".loop" / f).stat().st_mode & 0o111, f
+    assert_installed(clone, project, FILES)
     assert (project / ".loop/project.md").read_bytes() == md_before
     claude = (project / "CLAUDE.md").read_text()
     assert claude == CLAUDE_HEAD + rendered_section(clone) + CLAUDE_TAIL
@@ -561,11 +569,7 @@ def test_installs_a_listed_file_that_dot_loop_lacks(tmp_path):
     result = run_update(tmp_path, clone, project)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    for f in FILES:
-        installed = project / ".loop" / f
-        assert installed.read_bytes() == (clone / "loop" / f).read_bytes(), f
-        if f.endswith((".sh", ".py")):
-            assert installed.stat().st_mode & 0o111, f
+    assert_installed(clone, project, FILES)
     assert "copied " + " ".join(FILES) in result.stdout
 
 
@@ -598,8 +602,6 @@ def test_one_line_in_the_clone_list_installs_a_new_file(tmp_path):
     result = run_update(tmp_path, clone, project)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    extra = project / ".loop/extra.sh"
-    assert extra.read_bytes() == (clone / "loop/extra.sh").read_bytes()
-    assert extra.stat().st_mode & 0o111
+    assert_installed(clone, project, ["extra.sh"])
     listing = project / ".loop/harness-files"
     assert listing.read_bytes() == (clone / "loop/harness-files").read_bytes()

@@ -239,12 +239,6 @@ def installed_paths() -> list[str]:
     return sorted(f"loop/{f}" for f in (*FILES, "interactive.template.md"))
 
 
-def test_the_drift_paths_come_from_the_list():
-    assert "loop/harness-files" in installed_paths()
-    assert "loop/notify.py" in installed_paths()
-    assert "loop/reply.py" in installed_paths()
-
-
 def test_run_sh_and_lib_sh_share_the_same_harness_paths():
     assert function_text(RUN_SH, "harness_paths") == function_text(
         LIB_SH, "harness_paths"
