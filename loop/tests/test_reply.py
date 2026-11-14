@@ -53,6 +53,11 @@ def save():
 
 
 command, bead_id = args[0], args[1] if len(args) > 1 else ""
+if command in state.get("raw", {{}}):
+    print(state["raw"][command])
+    sys.exit(0)
+if command == "list" and command in state.get("fail", {{}}):
+    fail(state["fail"][command])
 if command == "list" and "--parent" in args:
     parent = args[args.index("--parent") + 1]
     print(json.dumps(state.get("events", {{}}).get(parent, [])))
@@ -160,7 +165,7 @@ class Bd:
         self.state_path = tmp_path / "bd-state.json"
         self.log_path = tmp_path / "bd-log.jsonl"
         self.log_path.write_text("")
-        self.state = {"beads": {}, "events": {}, "fail": {}}
+        self.state = {"beads": {}, "events": {}, "fail": {}, "raw": {}}
         self.save()
         monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
         monkeypatch.setenv("FAKE_BD_STATE", str(self.state_path))
@@ -188,6 +193,10 @@ class Bd:
 
     def fail(self, command: str, text: str) -> None:
         self.state["fail"][command] = text
+        self.save()
+
+    def print_raw(self, command: str, text: str) -> None:
+        self.state["raw"][command] = text
         self.save()
 
     def bead(self, bead_id) -> dict:
@@ -533,6 +542,36 @@ def test_a_failed_note_assigns_nothing(telegram, home, bd, project, reader):
     ((text, _),) = answers(telegram)
     assert text.startswith("demo lpe-f2: the note failed:")
     assert "Nothing changed." in text
+
+
+@pytest.mark.parametrize(
+    ("command", "output", "error"),
+    [
+        ("list", None, "Error: database is locked"),
+        ("list", "not json", None),
+        ("show", "not json", None),
+        ("show", "[]", None),
+    ],
+)
+def test_a_failed_bead_read_answers_and_changes_nothing(
+    telegram, home, bd, project, reader, command, output, error
+):
+    bd.add("lpe-f4", "parked", events=[("parked", "Review not run")])
+    if error:
+        bd.fail(command, error)
+    else:
+        bd.print_raw(command, output)
+    record(home, 89, "lpe-f4", project, "parked")
+    telegram.updates = [update(1, "go", reply_to=89)]
+    reader().poll()
+    assert bd.writes() == []
+    assert bd.bead("lpe-f4")["assignee"] == HUMAN
+    ((text, reply_to),) = answers(telegram)
+    assert reply_to == 501
+    assert text.startswith(f"demo lpe-f4: bd {command} failed:")
+    assert text.endswith("Nothing changed.")
+    if error:
+        assert error in text
 
 
 def test_answers_use_no_parse_mode(telegram, home, bd, project, reader):

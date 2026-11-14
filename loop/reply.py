@@ -235,7 +235,7 @@ class Reader:
         human = names["HUMAN"]
         try:
             (bead,) = json.loads(run_bd(["show", bead_id, "--json"], primary))
-        except BdFailed as err:
+        except (BdFailed, ValueError) as err:
             return f"{head}: bd show failed: {err}. Nothing changed."
         state = notify.labels_of(bead).get("loop")
         assignee = bead.get("assignee") or ""
@@ -244,9 +244,12 @@ class Reader:
                 f"{head}: not waiting for a decision (state {state},"
                 f" assignee {assignee}). Nothing changed."
             )
-        agent, note = choose_agent(
-            text, names, state, lambda: parked_reason(bead_id, primary)
-        )
+        try:
+            agent, note = choose_agent(
+                text, names, state, lambda: parked_reason(bead_id, primary)
+            )
+        except (BdFailed, ValueError) as err:
+            return f"{head}: bd list failed: {err}. Nothing changed."
         try:
             run_bd(
                 ["note", bead_id, f"Decision from {human} (Telegram): {note}"],
