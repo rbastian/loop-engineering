@@ -1,6 +1,6 @@
 ---
 name: dev-env-setup
-description: "Set up a new project for the multi-agent loop, with a coder agent (default Ralph) and a reviewer agent (default Alice). The coder runs on Claude Code or on fw (Claude Code on a Fireworks model). The reviewer runs on Claude Code, Codex or fw. It sets up git, a uv project with ruff and pytest, and beads. It copies run.sh, watch.py, prices.json, CODER.md and REVIEWER.md from the loop/ folder of the loop-engineering repository into .loop/. It writes .loop/project.md with the agent names, the human who approves merges, the engine and the model of each agent, and the ship mode: pull requests by default, local merge for a repository with one user. Then it creates two git worktrees and starts both loops in a herdr tab, with both watchers in the calling tab. Use it to set up a development environment or bootstrap a project for the agent loop. Use it to start the agent loop in a new repository."
+description: "Set up a new project for the multi-agent loop, with a coder agent (default Ralph) and a reviewer agent (default Alice). The coder runs on Claude Code or on fw (Claude Code on a Fireworks model). The reviewer runs on Claude Code, Codex or fw. It sets up git, a uv project with ruff and pytest, and beads. It copies run.sh, watch.py, notify.py, prices.json, CODER.md and REVIEWER.md from the loop/ folder of the loop-engineering repository into .loop/. It writes .loop/project.md with the agent names, the human who approves merges, the engine and the model of each agent, and the ship mode: pull requests by default, local merge for a repository with one user. Then it creates two git worktrees and starts both loops in a herdr tab, with both watchers in the calling tab. Use it to set up a development environment or bootstrap a project for the agent loop. Use it to start the agent loop in a new repository."
 ---
 
 # Development environment setup
@@ -25,11 +25,11 @@ The scripts in `scripts/` do the mechanical work. Each script is safe to run twi
 `layout.sh` arranges the loop tab like this:
 
 ```text
-+-------------------+-------------------+
-| coder queue       | reviewer queue    |
-+-------------------+-------------------+
-| coder loop        | reviewer loop     |
-+-------------------+-------------------+
++-------------------+----------------+----------+
+| coder queue       | reviewer queue | notifier |
++-------------------+----------------+----------+
+| coder loop        | reviewer loop             |
++-------------------+---------------------------+
 ```
 
 An agent queue shows the beads assigned to one agent. In progress lists the agent's active beads with their `loop` state labels. Ready next lists the unblocked beads that wait for the agent. Waiting lists the agent's blocked beads and their blockers.
@@ -68,7 +68,19 @@ The harness source is `loop/` in the same repository. `bootstrap.sh` finds it fr
 7. Run `worktrees.sh`. It commits all files, pushes `main` in `pr` mode, then creates both worktrees.
 8. If the reviewer runs on Codex, ask the user to open `codex` once in the primary checkout, trust the project and approve its hooks. A headless Codex session cannot do this step. Wait for the user's reply before you continue.
 9. Run `layout.sh`. It needs `HERDR_ENV=1`. If the skill does not run inside herdr, stop and give the user the command to run from a herdr pane.
-10. Report the ship mode, the engine and the model of each agent, and the loop tab name. Report the seven pane IDs. Report the log directories `/tmp/<name>-<coder>-sessions` and `/tmp/<name>-<reviewer>-sessions`, with the agent names in lowercase. Remind the user that the loops find no work until a bead gets the spec ritual and an assignment to the coder. Tell the user that an interactive Claude Code or Codex session in the project explains the loop and helps with the jobs of the human. Point the user to "From specification to beads" in the loop-engineering README for the breakdown of a specification into beads. In `pr` mode, also tell the user that beads with the state label `loop:merge` wait for them: approve and merge the pull request, then run `bd close <id>` and `bd set-state <id> loop=done`.
+10. Report the ship mode, the engine and the model of each agent, and the loop tab name. Report the eight pane IDs. Tell the user that the `notifier` pane sends Telegram messages only after the setup in "Telegram messages" below. Report the log directories `/tmp/<name>-<coder>-sessions` and `/tmp/<name>-<reviewer>-sessions`, with the agent names in lowercase. Remind the user that the loops find no work until a bead gets the spec ritual and an assignment to the coder. Tell the user that an interactive Claude Code or Codex session in the project explains the loop and helps with the jobs of the human. Point the user to "From specification to beads" in the loop-engineering README for the breakdown of a specification into beads. In `pr` mode, also tell the user that beads with the state label `loop:merge` wait for them: approve and merge the pull request, then run `bd close <id>` and `bd set-state <id> loop=done`.
+
+## Telegram messages
+
+The `notifier` pane in the loop tab runs `.loop/notify.py` in the primary checkout, under `direnv exec .` when direnv is on `PATH`. It sends short Telegram messages to the human: escalations, blocked beads, pull requests that are ready to merge, stalls and progress. The notifier only sends. It reads no replies. Without the two variables below, the pane prints that notifications are off and exits. To turn the messages on, tell the user to do these steps:
+
+1. In Telegram, open a chat with @BotFather, send `/newbot` and follow its questions. BotFather gives a bot token.
+2. Send any message to the new bot, so that the bot gets a chat with the user.
+3. Open `https://api.telegram.org/bot<token>/getUpdates` in a browser, with the token in place of `<token>`. Copy the number at `message.chat.id`. That number is the chat ID.
+4. Export `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in a git-ignored `.envrc` in the primary checkout. If direnv is installed, run `direnv allow` once in the primary checkout, so that `direnv exec` loads the file. Without direnv, export the two variables in the shell that starts herdr.
+5. Restart the notifier: press Ctrl-C in the `notifier` pane if it still runs, then run `direnv exec . uv run .loop/notify.py` there, or `uv run .loop/notify.py` without direnv.
+
+The token gives control of the bot. Do not commit it, and do not paste it into a bead or a chat.
 
 ## Facts the scripts depend on
 
@@ -80,6 +92,6 @@ The harness source is `loop/` in the same repository. `bootstrap.sh` finds it fr
 - `run.sh` appends `.loop/project.md` to the prompt at each session. `LOOP_OVERLAY` points it at another file, and `LOOP_OVERLAY=none` runs the prompt alone.
 - The loops read `CODER.md`, `REVIEWER.md` and `project.md` from the primary checkout, not from the worktrees. Prompt changes merged to `main` take effect at the next session.
 - In `pr` mode, the reviewer comments on the pull request but does not approve it. The agents act as the account in `GITHUB_ACCOUNT`, usually the human's own account. GitHub does not let an account approve its own pull request. `.loop/project.md` lists the remote actions of each role under "Remote actions in `pr` mode".
-- If a tab named `<name> loop` already exists, `layout.sh` refuses to run. If the calling tab already has watcher panes or a Beads pane, it also refuses to run. To restart, close the loop tab, both watcher panes and the Beads pane first.
+- If a tab named `<name> loop` already exists, `layout.sh` refuses to run. If the calling tab already has watcher panes or a Beads pane, it also refuses to run. If a pane named `notifier` exists anywhere in the workspace, it also refuses to run. To restart, close the loop tab, both watcher panes and the Beads pane first. The `notifier` pane is in the loop tab, so it closes with that tab.
 - `layout.sh` splits the calling pane, so the watchers take one third of that pane's height, not of the whole tab. The Beads pane takes one third of the width of the calling pane that remains below the watchers. Run it from a pane that fills the tab.
 - The Beads pane runs `CLICOLOR_FORCE=1 bd list --status open,blocked,in_progress` every 5 seconds. It redraws only after the output changes. When the pane captures the output of `bd`, `bd` turns color off. CLICOLOR_FORCE=1 keeps the colors of `bd`. The header line shows the time of the last change, not the time of the last check.

@@ -11,6 +11,7 @@ from test_bootstrap_interactive import existing_repo, run_bootstrap
 FILES = (
     "run.sh",
     "watch.py",
+    "notify.py",
     "prices.json",
     "CODER.md",
     "REVIEWER.md",
@@ -27,6 +28,7 @@ def test_a_new_project_gets_dot_loop_and_one_ruff_exclude(tmp_path):
     result = run_bootstrap(tmp_path, project)
     for f in FILES:
         assert (project / ".loop" / f).is_file(), f
+    assert (project / ".loop/notify.py").stat().st_mode & 0o111
     assert not (project / "ralph").exists()
     assert "ralph/" not in result.stdout
     assert ".loop/project.md" in result.stdout
