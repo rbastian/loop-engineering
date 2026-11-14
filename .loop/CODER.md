@@ -101,7 +101,7 @@ bd list --assignee="$CODER" --status=in_progress
 
 ### Phase 2 — Clean
 
-8. Run the project's format commands, then the gate, and fix anything they flag (both are in the Project section). If a failure may not come from your change, follow "Gate fails on `$BASE`" below. Then run `/simplify` to review the code.
+8. Run the project's format commands, then the gate, and fix anything they flag (both are in the Project section). If a failure may not come from your change, follow "Gate fails on `$BASE`" below. Then run `/simplify` to review the code. Wait in this session until every agent that `/simplify` starts returns. Do not schedule a later turn with `ScheduleWakeup`, `CronCreate` or `/loop`.
 
    **Findings `/simplify` declines to apply** (out of scope, changes a public contract, needs a design decision) go into the bead's notes — `bd note <id> "Declined /simplify findings: ..."` — NOT into new beads. Review findings are never filed as beads; the reviewer reads them in the review and the human triages them from the notes.
 
