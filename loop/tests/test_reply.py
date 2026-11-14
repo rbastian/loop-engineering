@@ -56,7 +56,7 @@ command, bead_id = args[0], args[1] if len(args) > 1 else ""
 if command in state.get("raw", {{}}):
     print(state["raw"][command])
     sys.exit(0)
-if command == "list" and command in state.get("fail", {{}}):
+if command in state.get("fail", {{}}):
     fail(state["fail"][command])
 if command == "list" and "--parent" in args:
     parent = args[args.index("--parent") + 1]
@@ -65,8 +65,6 @@ if command == "list" and "--parent" in args:
 bead = state["beads"].get(bead_id)
 if bead is None:
     fail(f"Error: no issue found matching {{bead_id!r}}")
-if command in state.get("fail", {{}}):
-    fail(state["fail"][command])
 if command == "show":
     print(json.dumps([{{"id": bead_id, **bead}}]))
 elif command == "note":
@@ -545,22 +543,19 @@ def test_a_failed_note_assigns_nothing(telegram, home, bd, project, reader):
 
 
 @pytest.mark.parametrize(
-    ("command", "output", "error"),
+    ("command", "how", "output"),
     [
-        ("list", None, "Error: database is locked"),
-        ("list", "not json", None),
-        ("show", "not json", None),
-        ("show", "[]", None),
+        ("list", "fail", "Error: database is locked"),
+        ("list", "print_raw", "not json"),
+        ("show", "print_raw", "not json"),
+        ("show", "print_raw", "[]"),
     ],
 )
 def test_a_failed_bead_read_answers_and_changes_nothing(
-    telegram, home, bd, project, reader, command, output, error
+    telegram, home, bd, project, reader, command, how, output
 ):
     bd.add("lpe-f4", "parked", events=[("parked", "Review not run")])
-    if error:
-        bd.fail(command, error)
-    else:
-        bd.print_raw(command, output)
+    getattr(bd, how)(command, output)
     record(home, 89, "lpe-f4", project, "parked")
     telegram.updates = [update(1, "go", reply_to=89)]
     reader().poll()
@@ -570,8 +565,8 @@ def test_a_failed_bead_read_answers_and_changes_nothing(
     assert reply_to == 501
     assert text.startswith(f"demo lpe-f4: bd {command} failed:")
     assert text.endswith("Nothing changed.")
-    if error:
-        assert error in text
+    if how == "fail":
+        assert output in text
 
 
 def test_answers_use_no_parse_mode(telegram, home, bd, project, reader):
