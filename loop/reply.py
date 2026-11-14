@@ -55,7 +55,6 @@ POLL_TIMEOUT = 30
 # The HTTP timeout must be longer than the long-poll timeout.
 HTTP_TIMEOUT = 40
 RETRY_SECONDS = 5
-DECISIONS = notify.DECISIONS
 ASK = "Reply to a decision message to answer a bead."
 EVENT_TITLE = "State change: loop → parked"
 REASON_RE = re.compile(r"^Reason: (.*)$", re.MULTILINE)
@@ -165,22 +164,20 @@ class Reader:
         self.poll_timeout = poll_timeout
         self.log = log
         self.offset_path = notify.state_dir() / "offset"
-
-    def load_offset(self) -> int | None:
+        self.offset_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            return int(self.offset_path.read_text().strip())
+            self.offset: int | None = int(self.offset_path.read_text().strip())
         except (OSError, ValueError):
-            return None
+            self.offset = None
 
     def save_offset(self, offset: int) -> None:
-        self.offset_path.parent.mkdir(parents=True, exist_ok=True)
+        self.offset = offset
         self.offset_path.write_text(f"{offset}\n")
 
     def updates_request(self) -> dict:
         request = {"timeout": self.poll_timeout, "allowed_updates": ["message"]}
-        offset = self.load_offset()
-        if offset is not None:
-            request["offset"] = offset
+        if self.offset is not None:
+            request["offset"] = self.offset
         return request
 
     def poll(self) -> bool:
@@ -190,15 +187,14 @@ class Reader:
         if not result.ok:
             return False
         for update in result.result if isinstance(result.result, list) else []:
-            if not isinstance(update, dict) or not isinstance(
-                update.get("update_id"), int
-            ):
+            uid = update.get("update_id") if isinstance(update, dict) else None
+            if not isinstance(uid, int):
                 continue
             try:
                 self.handle(update.get("message"))
             except Exception as err:  # noqa: BLE001 - one bad update must not stop the reader
-                self.log(f"update {update['update_id']} failed: {type(err).__name__}")
-            self.save_offset(update["update_id"] + 1)
+                self.log(f"update {uid} failed: {type(err).__name__}")
+            self.save_offset(uid + 1)
         return True
 
     def answer(self, message: dict, text: str) -> None:
@@ -243,7 +239,7 @@ class Reader:
             return f"{head}: bd show failed: {err}. Nothing changed."
         state = notify.labels_of(bead).get("loop")
         assignee = bead.get("assignee") or ""
-        if state not in DECISIONS or assignee != human:
+        if state not in notify.DECISIONS or assignee != human:
             return (
                 f"{head}: not waiting for a decision (state {state},"
                 f" assignee {assignee}). Nothing changed."

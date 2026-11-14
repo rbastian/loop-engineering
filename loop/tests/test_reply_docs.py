@@ -4,17 +4,17 @@ the Telegram reply reader (lpe-kri)."""
 import re
 from pathlib import Path
 
+from test_review_method import LOOP_README, REVIEWER, section
+
 LOOP = Path(__file__).parents[1]
 ROOT = LOOP.parent
-REVIEWER = (LOOP / "REVIEWER.md").read_text()
-LOOP_README = (LOOP / "README.md").read_text()
 README = (ROOT / "README.md").read_text()
 SKILL = (ROOT / "skills/dev-env-setup/SKILL.md").read_text()
 
 
 def phase0_routes() -> list[str]:
     """The route bullets of REVIEWER.md Phase 0, each with its sub-bullets."""
-    phase0 = REVIEWER.split("### Phase 0", 1)[1].split("### Phase 1", 1)[0]
+    phase0 = section(REVIEWER, "Phase 0 — Resume check (ALWAYS FIRST)")
     return re.split(r"\n  - (?=\*\*)", phase0)[1:]
 
 
