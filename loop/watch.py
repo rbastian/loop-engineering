@@ -749,6 +749,8 @@ FILE_VERBS = {
     "Write": "write",
     "NotebookEdit": "write",
 }
+# The file tools that change a file, so move the phase.
+CHANGE_TOOLS = {"Edit", "MultiEdit", "Write", "NotebookEdit"}
 
 
 def classify(block: dict) -> tuple[str, str, str]:
@@ -760,13 +762,15 @@ def classify(block: dict) -> tuple[str, str, str]:
         root = SESSION.cwd.rstrip("/") + "/"
         rel = path.removeprefix(root) if SESSION.cwd else path
         verb = FILE_VERBS.get(name, name.lower())
-        # Only a change moves the phase. A read, like a shell read, does not.
-        phase = "1" if verb in ("edit", "write") else "-"
         if rel.startswith("tests/"):
-            return phase, f"{verb} tests", rel
-        if rel.startswith(("src/", "scripts/")):
-            return phase, f"{verb} code", rel
-        return "-", f"{verb} file", rel
+            kind = "tests"
+        elif rel.startswith(("src/", "scripts/")):
+            kind = "code"
+        else:
+            kind = "file"
+        # Only a change moves the phase. A read, like a shell read, does not.
+        phase = "1" if name in CHANGE_TOOLS and kind != "file" else "-"
+        return phase, f"{verb} {kind}", rel
 
     if skill := args.get("skill"):
         return (

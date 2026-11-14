@@ -110,11 +110,14 @@ def isolated(monkeypatch):
     watch.use_prefix(None)
 
 
-def init_line(model: str = MODEL) -> str:
+def init_line(model: str = MODEL, cwd: str | None = None) -> str:
     """The session-start event. It carries the model and, as the live logs
     confirm, no timestamp — the start time comes from the first assistant
-    event instead."""
-    return json.dumps({"type": "system", "subtype": "init", "model": model})
+    event instead. A live one also carries the working directory."""
+    event = {"type": "system", "subtype": "init", "model": model}
+    if cwd is not None:
+        event["cwd"] = cwd
+    return json.dumps(event)
 
 
 # The 2026-10-05 input: an edit of this file whose text quotes a commit.
@@ -1725,7 +1728,6 @@ def test_a_sibling_directory_with_the_same_prefix_stays_absolute(in_worktree):
 
 
 def test_the_working_directory_comes_from_the_init_event():
-    init = {"type": "system", "subtype": "init", "model": MODEL, "cwd": WORKTREE}
-    watch.track(init, "system")
+    watch.track(json.loads(init_line(cwd=WORKTREE)), "system")
     block = file_tool("Edit", f"{WORKTREE}/src/app.py")
     assert watch.classify(block) == ("1", "edit code", "src/app.py")
