@@ -1685,7 +1685,12 @@ def test_a_read_is_a_read_and_moves_no_phase(in_worktree, path, expected):
 
 @pytest.mark.parametrize(
     ("name", "verb"),
-    [("Edit", "edit"), ("MultiEdit", "edit"), ("Write", "write"), ("NotebookEdit", "write")],
+    [
+        ("Edit", "edit"),
+        ("MultiEdit", "edit"),
+        ("Write", "write"),
+        ("NotebookEdit", "write"),
+    ],
 )
 @pytest.mark.parametrize(
     ("path", "phase", "kind"),
