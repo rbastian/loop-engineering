@@ -135,6 +135,7 @@ If its default review method cannot run, the reviewer parks a bead with a "Revie
 | `watch.py` | The watcher. It shows a live session log as one line per tool call. |
 | `notify.py` | The notifier. It sends short Telegram messages to the human about the loop. |
 | `reply.py` | The reply reader. It turns the human's Telegram replies to decision messages into bead notes and assignments. |
+| `harness-files` | The one list of the files that `bootstrap.sh` and `update.sh` copy into `.loop/`, one name per line. A new harness file needs one line in this list and no other change. |
 | `../skills/dev-env-setup/scripts/queue.sh` | The queue script. It shows one agent's in-progress, ready and blocked beads. |
 | `tests/` | Tests for `watch.py`, `run.sh`, the setup scripts and the prompts. |
 
@@ -161,7 +162,7 @@ The `dev-env-setup` skill in `../skills/dev-env-setup` does the setup. See the r
 
 To set up a project by hand, follow these steps:
 
-1. Copy `run.sh`, `watch.py`, `notify.py`, `reply.py`, `prices.json`, `CODER.md` and `REVIEWER.md` into the project as `.loop/`.
+1. Copy each file that `harness-files` lists into the project as `.loop/`. The list names itself, so copy `harness-files` too.
 2. Copy `project.template.md` to `.loop/project.md` and fill every `{{...}}` placeholder.
 3. Add `extend-exclude = [".loop"]` under `[tool.ruff]` in `pyproject.toml`, so that the gate does not lint the harness. pytest skips folders that start with a dot.
 4. Fill the placeholders in `interactive.template.md` and put the result into `CLAUDE.md` and `AGENTS.md`, after the first H1 heading and before the beads blocks.
@@ -424,11 +425,11 @@ Use your configured agent name in place of `Ralph`.
 
 ### Update an installed harness
 
-`bootstrap.sh` keeps the files that `.loop/` already holds, so a rerun does not install newer copies of the runner, the watcher or the prompts. `update.sh` in the setup skill does the update. It copies `run.sh`, `watch.py`, `prices.json`, `CODER.md` and `REVIEWER.md` from `loop/` in your loop-engineering clone into `.loop/`. It never changes `.loop/project.md`, and it commits nothing.
+`bootstrap.sh` keeps the files that `.loop/` already holds, so a rerun does not install newer copies of the runner, the watcher or the prompts. `update.sh` in the setup skill does the update. It copies each file that `loop/harness-files` in your loop-engineering clone lists from `loop/` into `.loop/`. A file that is new in the list gets installed. It never changes `.loop/project.md`, and it commits nothing.
 
 The version stamp `.loop/HARNESS_VERSION` tells `update.sh` which version is installed. The stamp has two lines: `commit=`, the full SHA of the clone's HEAD, and `clone=`, the absolute path of the clone. `bootstrap.sh` and `update.sh` write it. If `loop/` in the clone contains uncommitted changes, `bootstrap.sh` adds the line `dirty=1` and prints a warning.
 
-When the clone has newer commits on `loop/` than the stamp, `layout.sh` prints one line:
+When the clone has newer commits on `loop/` than the stamp, `layout.sh` prints one line. Only a commit to a file that `.loop/harness-files` lists, or to `loop/interactive.template.md`, counts. If `.loop/harness-files` is missing, every commit under `loop/` counts, and `update.sh` installs the list:
 
 ```text
 harness is 3 commits behind loop-engineering; run update.sh

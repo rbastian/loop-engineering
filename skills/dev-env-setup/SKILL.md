@@ -22,6 +22,8 @@ The scripts in `scripts/` do the mechanical work. Each script is safe to run twi
 | `queue.sh [--watch] AGENT` | one agent's beads, grouped into In progress, Ready next and Waiting sections |
 | `update.sh PROJECT_DIR [--force]` | Updates an installed loop from the clone's current `loop/`. A failed check leaves the install unchanged. See `loop/README.md` for instructions |
 
+`loop/harness-files` in the clone is the one list of the files that `bootstrap.sh` and `update.sh` copy into `.loop/`. `run.sh` and `layout.sh` read the installed copy to find drift. A new harness file needs one line in that list and no other change.
+
 `layout.sh` arranges the loop tab like this:
 
 ```text
