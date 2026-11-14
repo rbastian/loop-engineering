@@ -110,11 +110,14 @@ def isolated(monkeypatch):
     watch.use_prefix(None)
 
 
-def init_line(model: str = MODEL) -> str:
+def init_line(model: str = MODEL, cwd: str | None = None) -> str:
     """The session-start event. It carries the model and, as the live logs
     confirm, no timestamp — the start time comes from the first assistant
-    event instead."""
-    return json.dumps({"type": "system", "subtype": "init", "model": model})
+    event instead. A live one also carries the working directory."""
+    event = {"type": "system", "subtype": "init", "model": model}
+    if cwd is not None:
+        event["cwd"] = cwd
+    return json.dumps(event)
 
 
 # The 2026-10-05 input: an edit of this file whose text quotes a commit.
@@ -1650,3 +1653,81 @@ def test_a_wide_header_keeps_the_whole_session_name():
 
     assert row == session.header_lines()[1]
     assert "20261105-101500.jsonl" in row
+
+
+# --- a file tool says what it did to the file -------------------------------
+#
+# The todo-open-1 watcher showed `write file .../Todo-CLI-Spec-v0.1.md` on
+# 2026-11-13 for a Read: every tool with a file_path was a write unless it was
+# Edit, and only the agents repository's worktree names were shortened.
+
+WORKTREE = "/Users/rob/github.com/todo-open-1-ralph"
+
+
+def file_tool(name: str, path: str) -> dict:
+    return {"type": "tool_use", "name": name, "input": {"file_path": path}}
+
+
+@pytest.fixture
+def in_worktree(monkeypatch):
+    """The session's working directory, as its init event gives it."""
+    monkeypatch.setattr(watch.SESSION, "cwd", WORKTREE)
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        ("src/app.py", ("-", "read code", "src/app.py")),
+        ("tests/test_app.py", ("-", "read tests", "tests/test_app.py")),
+        ("Todo-CLI-Spec-v0.1.md", ("-", "read file", "Todo-CLI-Spec-v0.1.md")),
+    ],
+)
+def test_a_read_is_a_read_and_moves_no_phase(in_worktree, path, expected):
+    assert watch.classify(file_tool("Read", f"{WORKTREE}/{path}")) == expected
+
+
+@pytest.mark.parametrize(
+    ("name", "verb"),
+    [
+        ("Edit", "edit"),
+        ("MultiEdit", "edit"),
+        ("Write", "write"),
+        ("NotebookEdit", "write"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("path", "phase", "kind"),
+    [
+        ("src/app.py", "1", "code"),
+        ("scripts/setup.sh", "1", "code"),
+        ("tests/test_app.py", "1", "tests"),
+        ("README.md", "-", "file"),
+    ],
+)
+def test_a_change_keeps_its_phase(in_worktree, name, verb, path, phase, kind):
+    assert watch.classify(file_tool(name, f"{WORKTREE}/{path}")) == (
+        phase,
+        f"{verb} {kind}",
+        path,
+    )
+
+
+def test_an_unknown_file_tool_shows_its_own_name(in_worktree):
+    block = file_tool("LSP", f"{WORKTREE}/src/app.py")
+    assert watch.classify(block) == ("-", "lsp code", "src/app.py")
+
+
+def test_a_path_outside_the_worktree_stays_absolute(in_worktree):
+    block = file_tool("Read", "/Users/rob/.claude/CLAUDE.md")
+    assert watch.classify(block) == ("-", "read file", "/Users/rob/.claude/CLAUDE.md")
+
+
+def test_a_sibling_directory_with_the_same_prefix_stays_absolute(in_worktree):
+    path = f"{WORKTREE}-old/src/app.py"
+    assert watch.classify(file_tool("Read", path)) == ("-", "read file", path)
+
+
+def test_the_working_directory_comes_from_the_init_event():
+    watch.track(json.loads(init_line(cwd=WORKTREE)), "system")
+    block = file_tool("Edit", f"{WORKTREE}/src/app.py")
+    assert watch.classify(block) == ("1", "edit code", "src/app.py")

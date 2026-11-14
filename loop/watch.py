@@ -314,6 +314,9 @@ class Session:
         self.title = ""
         self.looked_up = None
         self.model = ""
+        # The session's working directory, the worktree root, from its init
+        # event. File tool paths are shown relative to it.
+        self.cwd = ""
         # The date of the prices behind an estimated cost, for an engine that
         # watch.py prices itself (ESTIMATED).
         self.prices_of = None
@@ -738,19 +741,36 @@ def _read_detail(command: str) -> str:
     return files
 
 
+# The verb a file tool shows. A tool not named here shows its own name.
+FILE_VERBS = {
+    "Read": "read",
+    "Edit": "edit",
+    "MultiEdit": "edit",
+    "Write": "write",
+    "NotebookEdit": "write",
+}
+# The file tools that change a file, so move the phase.
+CHANGE_TOOLS = {"Edit", "MultiEdit", "Write", "NotebookEdit"}
+
+
 def classify(block: dict) -> tuple[str, str, str]:
     """(phase, label, detail) for one tool_use block."""
     name = block.get("name", "?")
     args = block.get("input") or {}
 
     if path := args.get("file_path"):
-        rel = path.split("/agents-ralph/")[-1].split("/agents/")[-1]
-        verb = "edit" if name == "Edit" else "write"
+        root = SESSION.cwd.rstrip("/") + "/"
+        rel = path.removeprefix(root) if SESSION.cwd else path
+        verb = FILE_VERBS.get(name, name.lower())
         if rel.startswith("tests/"):
-            return "1", f"{verb} tests", rel
-        if rel.startswith(("src/", "scripts/")):
-            return "1", f"{verb} code", rel
-        return "-", f"{verb} file", rel
+            kind = "tests"
+        elif rel.startswith(("src/", "scripts/")):
+            kind = "code"
+        else:
+            kind = "file"
+        # Only a change moves the phase. A read, like a shell read, does not.
+        phase = "1" if name in CHANGE_TOOLS and kind != "file" else "-"
+        return phase, f"{verb} {kind}", rel
 
     if skill := args.get("skill"):
         return (
@@ -1044,6 +1064,7 @@ def track(event: dict, kind: str) -> None:
         return
     if kind == "system" and event.get("subtype") == "init":
         SESSION.model = event.get("model", "")
+        SESSION.cwd = event.get("cwd", "")
     if kind == "system" and event.get("subtype") == "thinking_tokens":
         SESSION.thinking += event.get("estimated_tokens_delta") or 0
     if kind == "result":
