@@ -36,7 +36,7 @@ def test_the_escalated_route_keeps_the_round_and_writes_the_resumed_note():
     assert "Do not run `bd set-state <id> round`" in route
     assert (
         'bd note <id> "Review round <n> resumed after decision from $HUMAN:'
-        " <branch> @ $(git rev-parse --short <branch>)\"" in route
+        ' <branch> @ $(git rev-parse --short <branch>)"' in route
     )
     assert "round=" not in route
 
