@@ -130,6 +130,7 @@ If its default review method cannot run, the reviewer parks a bead with a "Revie
 | `project.template.md` | The template for `.loop/project.md`, the project overlay. |
 | `interactive.template.md` | The template for the interactive section of `CLAUDE.md` and `AGENTS.md`. The section tells an interactive agent to orient a new person, to refine and assign beads, and not to implement them. |
 | `watch.py` | The watcher. It shows a live session log as one line per tool call. |
+| `notify.py` | The notifier. It sends short Telegram messages to the human about the loop. `layout.sh` runs it from the loop-engineering clone, so it is not copied into `.loop/`. |
 | `../skills/dev-env-setup/scripts/queue.sh` | The queue script. It shows one agent's in-progress, ready and blocked beads. |
 | `tests/` | Tests for `watch.py`, `run.sh`, the setup scripts and the prompts. |
 
@@ -217,6 +218,34 @@ cd /path/to/project
 ```
 
 Use your coder or reviewer name in place of Ralph. Leave out `--watch` to print the queue once.
+
+### Telegram messages
+
+`notify.py` sends short Telegram messages, so that the human sees the loop away from the computer. `layout.sh` starts it in the Notifier pane beside the watchers. It polls bd every 30 seconds and sends one message for each change:
+
+| Event | Message | Sound |
+|---|---|---|
+| A bead enters `loop=escalated` or `loop=blocked` | The bead ID, the title and the last note | Yes |
+| A bead enters `loop=merge` | The bead ID, the title and the pull request URL | Yes |
+| A bead enters `loop=coding`, `loop=review`, `loop=returned` or `loop=done` | The bead ID, the title and the round | No |
+| A bead stays in `loop=coding` or `loop=review` with no update for longer than the stall limit | The bead ID, the title and the time since the last update | Yes |
+| The `run.sh` process of an agent stops | The agent name | Yes |
+
+The notifier sends each stall message once, until the state of the bead changes. At start, it records the current states and sends nothing for them, so a restart does not send old events again. The stall limit is 2 hours, the default session timeout of `run.sh`. `--stall` changes it, for example `--stall 90m`. If a send fails, the notifier logs the error and sends the message again at the next poll, in the original order. If Telegram answers with `retry_after`, the notifier sends nothing until that time passes. The notifier only sends. It reads no replies.
+
+To turn the messages on, do these steps:
+
+1. In Telegram, open a chat with @BotFather, send `/newbot` and follow its questions. BotFather gives a bot token.
+2. Send any message to the new bot, so that the bot gets a chat with you.
+3. Open `https://api.telegram.org/bot<token>/getUpdates` in a browser, with your token in place of `<token>`. Copy the number at `message.chat.id`. That number is the chat ID.
+4. Export `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in the shell that starts herdr, for example in a git-ignored `.envrc` in the primary checkout.
+5. Start `layout.sh`, or run the notifier by hand from the primary checkout:
+
+   ```bash
+   uv run /path/to/loop-engineering/loop/notify.py --project /path/to/project
+   ```
+
+If either variable is not set, the notifier prints that notifications are off and exits 0. The bot token is part of each request URL. The notifier never prints the token, a request URL or a raw error. For a failed request, it logs only the method, the HTTP status and the Telegram error code and description. Do not commit the token, and do not paste it into a bead.
 
 ### run.sh variables
 
