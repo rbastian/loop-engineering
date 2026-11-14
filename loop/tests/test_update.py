@@ -17,6 +17,7 @@ UPDATE = ROOT / "skills/dev-env-setup/scripts/update.sh"
 FILES = ("run.sh", "watch.py", "CODER.md", "REVIEWER.md", "prices.json")
 CLONE_FILES = FILES + (
     "notify.py",
+    "reply.py",
     "project.template.md",
     "interactive.template.md",
     "README.md",

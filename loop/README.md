@@ -103,7 +103,7 @@ This table is the one source for the `loop` values. `CODER.md` and `REVIEWER.md`
 | `merge-wait` | reviewer | `local` mode, review passed, primary checkout busy | reviewer | `in_progress` |
 | `merge` | reviewer | `pr` mode, review passed | human | `in_progress` |
 | `accept` | reviewer | `local` mode, merged and closed | human | `closed` |
-| `escalated` | reviewer | Round 2 or later failed | human | `in_progress` |
+| `escalated` | reviewer | Round 2 or later failed, or the gate fails or a blocking finding remains after a decision from the human | human | `in_progress` |
 | `parked` | coder or reviewer | The coder: gate fails twice at step 12, push or `gh` fails at step 13, no code written at step 10, or design unclear. The reviewer: Review not run, because its default review method cannot run. | human | If a branch with work exists, use `in_progress`. For no code written or an unclear design, use `open` with the branch deleted. |
 | `blocked` | coder | Gate fails on `main` (broken main), beside the dependency on the `broken-main` bug bead | coder | `open` |
 | `done` | human | After the merge and `bd close` in `pr` mode, or after acceptance in `local` mode | unchanged | `closed` |
@@ -115,8 +115,11 @@ The `round` dimension follows these rules:
 3. A failed round 1 sets `loop=returned`. A failed round 2 or later sets `loop=escalated`.
 4. When the coder resumes a bead from `escalated`, it sets `round=0`, so that the next review is round 1 with one bounce available. No other resume resets the round.
 5. When the reviewer resumes a bead from `parked`, it keeps the round, because the round did not run. It writes a "Review round <n> restarted" note instead of a new "started" note.
+6. When the reviewer resumes a bead from `escalated`, it keeps the round. It writes a "Review round <n> resumed after decision from <human>" note. If the branch did not change, it runs only the gate and judges the findings of the escalated round by the decision. If the branch changed, it runs a full round with the same number. If the decision asks for code changes, it assigns the bead to the coder and leaves `loop=escalated`.
 
 A parked or escalated bead goes to the human, so `run.sh` does not wake the coder for it. To resume it, add a note that tells the coder what to do, then run `bd update <id> --assignee=<coder>`. The coder reads your newest note, sets `loop=coding` and continues. A parked bead with status `open` becomes ready and goes through Phase 1, which reuses an existing `feat/` branch.
+
+To give an escalated bead to the reviewer instead, add a note that starts with `Decision from <human>`, then run `bd update <id> --assignee=<reviewer>`. The reviewer judges the findings of the escalated round by your decision (round rule 6). A reply to a Telegram decision message writes the same note and assignment, see [Telegram replies](#telegram-replies).
 
 If its default review method cannot run, the reviewer parks a bead with a "Review not run: <error>" note. Fix the cause, then run `bd update <id> --assignee=<reviewer>`. The reviewer runs the same round again.
 
@@ -131,6 +134,7 @@ If its default review method cannot run, the reviewer parks a bead with a "Revie
 | `interactive.template.md` | The template for the interactive section of `CLAUDE.md` and `AGENTS.md`. The section tells an interactive agent to orient a new person, to refine and assign beads, and not to implement them. |
 | `watch.py` | The watcher. It shows a live session log as one line per tool call. |
 | `notify.py` | The notifier. It sends short Telegram messages to the human about the loop. |
+| `reply.py` | The reply reader. It turns the human's Telegram replies to decision messages into bead notes and assignments. |
 | `../skills/dev-env-setup/scripts/queue.sh` | The queue script. It shows one agent's in-progress, ready and blocked beads. |
 | `tests/` | Tests for `watch.py`, `run.sh`, the setup scripts and the prompts. |
 
@@ -157,7 +161,7 @@ The `dev-env-setup` skill in `../skills/dev-env-setup` does the setup. See the r
 
 To set up a project by hand, follow these steps:
 
-1. Copy `run.sh`, `watch.py`, `notify.py`, `prices.json`, `CODER.md` and `REVIEWER.md` into the project as `.loop/`.
+1. Copy `run.sh`, `watch.py`, `notify.py`, `reply.py`, `prices.json`, `CODER.md` and `REVIEWER.md` into the project as `.loop/`.
 2. Copy `project.template.md` to `.loop/project.md` and fill every `{{...}}` placeholder.
 3. Add `extend-exclude = [".loop"]` under `[tool.ruff]` in `pyproject.toml`, so that the gate does not lint the harness. pytest skips folders that start with a dot.
 4. Fill the placeholders in `interactive.template.md` and put the result into `CLAUDE.md` and `AGENTS.md`, after the first H1 heading and before the beads blocks.
@@ -225,13 +229,14 @@ Use your coder or reviewer name in place of Ralph. Leave out `--watch` to print 
 
 | Event | Message | Sound |
 |---|---|---|
-| A bead enters `loop=escalated` or `loop=blocked` | The bead ID, the title and the last note | Yes |
+| A bead enters `loop=escalated` or `loop=parked` | A decision message: the bead ID, the title, the last note and a line that asks for a reply | Yes |
+| A bead enters `loop=blocked` | The bead ID, the title and the last note | Yes |
 | A bead enters `loop=merge` | The bead ID, the title and the pull request URL | Yes |
 | A bead enters `loop=coding`, `loop=review`, `loop=returned` or `loop=done` | The bead ID, the title and the round | No |
 | A bead stays in `loop=coding` or `loop=review` with no update for longer than the stall limit | The bead ID, the title and the time since the last update | Yes |
 | The `run.sh` process of an agent stops | The agent name | Yes |
 
-The notifier sends each stall message once, until the state of the bead changes. At start, it records the current states and sends nothing for them, so a restart does not send old events again. The stall limit is 2 hours, the default session timeout of `run.sh`. `--stall` changes it, for example `--stall 90m`. If a send fails, the notifier logs the error and sends the message again at the next poll, in the original order. If Telegram answers with `retry_after`, the notifier sends nothing until that time passes. The notifier only sends. It reads no replies.
+The notifier sends each stall message once, until the state of the bead changes. At start, it records the current states and sends nothing for them, so a restart does not send old events again. The stall limit is 2 hours, the default session timeout of `run.sh`. `--stall` changes it, for example `--stall 90m`. If a send fails, the notifier logs the error and sends the message again at the next poll, in the original order. If Telegram answers with `retry_after`, the notifier sends nothing until that time passes. The notifier reads no replies. `reply.py` reads them, see [Telegram replies](#telegram-replies).
 
 To turn the messages on, do these steps:
 
@@ -246,6 +251,23 @@ To turn the messages on, do these steps:
    ```
 
 If either variable is not set, the notifier prints that notifications are off and exits 0. The bot token is part of each request URL. The notifier never prints the token, a request URL or a raw error. For a failed request, it logs only the method, the HTTP status and the Telegram error code and description. Do not commit the token, and do not paste it into a bead.
+
+### Telegram replies
+
+A decision message opens the reply box on the phone. Reply to the message with your decision. `reply.py` reads the reply, adds the note `Decision from <human> (Telegram): <text>` to the bead and assigns the bead to an agent:
+
+- If the reply starts with `<coder>:` or `<reviewer>:`, in any case, that agent gets the bead, and the note leaves out the name.
+- Otherwise, an escalated bead goes to the coder. A parked bead goes to the reviewer if the reviewer parked it with "Review not run", and to the coder otherwise.
+
+The reader answers each reply with one line, for example `demo lpe-abc: note added, assigned to Ralph.` If the bead no longer waits for a decision, or a message is not a reply to a decision message, the reader changes nothing and says so. It ignores messages from any chat or user other than `TELEGRAM_CHAT_ID`. The assignment uses `--if-assignee=<human>`, so it does not take a bead that someone already moved.
+
+One reader serves every repository that uses the same bot, because Telegram lets only one reader confirm the replies of a bot. Each notifier records its decision messages in `~/.local/state/loop-telegram/sent.jsonl`, and the reader finds each bead and its primary checkout there. `layout.sh` does not start the reader. Start it by hand from the primary checkout of any project that has the harness, with the same two variables as the notifier:
+
+```bash
+direnv exec . uv run .loop/reply.py
+```
+
+A lock file stops a second reader: it prints that a reader already runs and exits 1. The reader saves its position in `~/.local/state/loop-telegram/offset`, so a restart does not apply a reply twice. Telegram keeps a reply for 24 hours. If the reader is down for longer, the reply is lost, and you must answer from the terminal. If either variable is not set, the reader prints that replies are off and exits 0. Like the notifier, it never prints the token.
 
 ### run.sh variables
 
@@ -478,7 +500,7 @@ Then exclude `.loop` from ruff, as in step 3 of [Install in a project](#install-
 - The human has these queues. Each queue is a `loop` state label, and `bd list --label <label>` lists it. The `loop:accept` beads are closed, so list that queue with `bd list --label loop:accept --status=closed`:
   - `loop:merge` (`pr` mode): reviewed pull requests that wait for approval and merge. After the merge, run `bd close <id>` and `bd set-state <id> loop=done`.
   - `loop:accept` (`local` mode): merged work that waits for acceptance. If you are satisfied, run `bd set-state <id> loop=done`. Otherwise, reopen the bead.
-  - `loop:escalated`: unmerged work where the coder and the reviewer disagree. Read the findings and disputes, add a note with your decision, and assign the bead back to the coder.
+  - `loop:escalated`: unmerged work where the coder and the reviewer disagree. Read the findings and disputes, add a note with your decision, and assign the bead back to the coder. To let the reviewer judge the findings by your decision, start the note with `Decision from <human>` and assign the bead to the reviewer.
   - `loop:parked`: work that the coder cannot continue, for example a gate that fails twice, a failed push or an unclear design. Read the coder's note, fix the cause or add a note, and assign the bead back to the coder. If its default review method cannot run, the reviewer also parks a bead. For a `Review not run:` note, fix the cause and assign the bead back to the reviewer.
   - `broken-main`: a bug bead that says `main` fails the gate. The coder files it or reuses an open one. The coder assigns it to the human and makes its own bead depend on it. The coder sets `loop=blocked` and puts its bead back to `open`. A bead with an open dependency is not ready, so the coder sleeps. When the human fixes `main` and closes the bug bead, each blocked bead becomes ready again.
 - The rule for closing a bead is that its code must be on `main`. A dependent bead becomes ready only after its blocker closes. In `pr` mode, the human closes the bead after the merge. In `local` mode, the reviewer closes it at the merge.

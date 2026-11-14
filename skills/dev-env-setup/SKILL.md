@@ -1,6 +1,6 @@
 ---
 name: dev-env-setup
-description: "Set up a new project for the multi-agent loop, with a coder agent (default Ralph) and a reviewer agent (default Alice). The coder runs on Claude Code or on fw (Claude Code on a Fireworks model). The reviewer runs on Claude Code, Codex or fw. It sets up git, a uv project with ruff and pytest, and beads. It copies run.sh, watch.py, notify.py, prices.json, CODER.md and REVIEWER.md from the loop/ folder of the loop-engineering repository into .loop/. It writes .loop/project.md with the agent names, the human who approves merges, the engine and the model of each agent, and the ship mode: pull requests by default, local merge for a repository with one user. Then it creates two git worktrees and starts both loops in a herdr tab, with both watchers in the calling tab. Use it to set up a development environment or bootstrap a project for the agent loop. Use it to start the agent loop in a new repository."
+description: "Set up a new project for the multi-agent loop, with a coder agent (default Ralph) and a reviewer agent (default Alice). The coder runs on Claude Code or on fw (Claude Code on a Fireworks model). The reviewer runs on Claude Code, Codex or fw. It sets up git, a uv project with ruff and pytest, and beads. It copies run.sh, watch.py, notify.py, reply.py, prices.json, CODER.md and REVIEWER.md from the loop/ folder of the loop-engineering repository into .loop/. It writes .loop/project.md with the agent names, the human who approves merges, the engine and the model of each agent, and the ship mode: pull requests by default, local merge for a repository with one user. Then it creates two git worktrees and starts both loops in a herdr tab, with both watchers in the calling tab. Use it to set up a development environment or bootstrap a project for the agent loop. Use it to start the agent loop in a new repository."
 ---
 
 # Development environment setup
@@ -72,7 +72,7 @@ The harness source is `loop/` in the same repository. `bootstrap.sh` finds it fr
 
 ## Telegram messages
 
-The `notifier` pane in the loop tab runs `.loop/notify.py` in the primary checkout, under `direnv exec .` when direnv is on `PATH`. It sends short Telegram messages to the human: escalations, blocked beads, pull requests that are ready to merge, stalls and progress. The notifier only sends. It reads no replies. Without the two variables below, the pane prints that notifications are off and exits. To turn the messages on, tell the user to do these steps:
+The `notifier` pane in the loop tab runs `.loop/notify.py` in the primary checkout, under `direnv exec .` when direnv is on `PATH`. It sends short Telegram messages to the human: escalated and parked beads, blocked beads, pull requests that are ready to merge, stalls and progress. The notifier only sends. `.loop/reply.py` reads the replies, see below. Without the two variables below, the pane prints that notifications are off and exits. To turn the messages on, tell the user to do these steps:
 
 1. In Telegram, open a chat with @BotFather, send `/newbot` and follow its questions. BotFather gives a bot token.
 2. Send any message to the new bot, so that the bot gets a chat with the user.
@@ -81,6 +81,8 @@ The `notifier` pane in the loop tab runs `.loop/notify.py` in the primary checko
 5. Restart the notifier: press Ctrl-C in the `notifier` pane if it still runs, then run `direnv exec . uv run .loop/notify.py` there, or `uv run .loop/notify.py` without direnv.
 
 The token gives control of the bot. Do not commit it, and do not paste it into a bead or a chat.
+
+A message about an escalated or parked bead is a decision message. The human replies to it, and `.loop/reply.py` adds the reply to the bead as a note from the human and assigns the bead to the coder or the reviewer. A reply that starts with `<coder>:` or `<reviewer>:` chooses the agent. One reader serves every repository that uses the same bot, and `layout.sh` does not start it. To turn replies on, tell the user to run `direnv exec . uv run .loop/reply.py` in a spare pane, from the primary checkout of any project that has the harness, or `uv run .loop/reply.py` without direnv. If a reader already runs, the second one exits 1. Telegram keeps a reply for 24 hours, so a reply sent while the reader is down for longer is lost.
 
 ## Facts the scripts depend on
 

@@ -8,7 +8,12 @@
 The notifier polls bd for this project's beads and sends one message when a
 bead enters a loop state that the human wants to know about:
 
-* escalated or blocked: the bead ID, the title and the last note, with sound;
+* escalated or parked: a decision message with the bead ID, the title, the
+  last note and a line that asks for a reply, with sound. reply.py reads the
+  replies. Each sent decision message is recorded in the shared file
+  ~/.local/state/loop-telegram/sent.jsonl, so that reply.py can match a reply
+  to its bead;
+* blocked: the bead ID, the title and the last note, with sound;
 * merge: the bead ID, the title and the PR URL, with sound;
 * coding, review, returned or done: the bead ID, the title and the round,
   silently;
@@ -44,7 +49,7 @@ import urllib.request
 from collections import deque
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 API_URL = "https://api.telegram.org"
@@ -54,7 +59,8 @@ POLL_SECONDS = 30
 # The default stall limit is run.sh's default session timeout.
 STALL_DEFAULT = "2h"
 
-ESCALATIONS = {"escalated", "blocked"}
+DECISIONS = {"escalated", "parked"}
+ESCALATIONS = {"blocked"}
 PROGRESS = {"coding", "review", "returned", "done"}
 STALLS = {"coding", "review"}
 PR_RE = re.compile(r"PR opened: #\d+ (\S+)")
@@ -64,10 +70,30 @@ def log_line(text: str) -> None:
     print(f"{time.strftime('%H:%M:%S')}  {text}", flush=True)
 
 
-def truncate(text: str) -> str:
-    if len(text) <= MAX_LENGTH:
+def truncate(text: str, limit: int = MAX_LENGTH) -> str:
+    if len(text) <= limit:
         return text
-    return text[: MAX_LENGTH - 3] + "..."
+    return text[: limit - 3] + "..."
+
+
+def state_dir() -> Path:
+    """The folder that every repository's notifier and reply.py share."""
+    return Path.home() / ".local/state/loop-telegram"
+
+
+def sent_path() -> Path:
+    return state_dir() / "sent.jsonl"
+
+
+def append_line(path: Path, record: dict) -> None:
+    """Append RECORD as one JSON line, in one write with O_APPEND, so that
+    two writers never mix their lines."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    try:
+        os.write(fd, (json.dumps(record) + "\n").encode())
+    finally:
+        os.close(fd)
 
 
 def duration_seconds(text: str) -> int:
@@ -258,6 +284,7 @@ class Notifier:
         project: str,
         prefix: str,
         agents: list[str],
+        primary: str = "",
         telegram: Telegram,
         list_beads: Callable[[], list[dict]],
         running_agents: Callable[[], set[str] | None],
@@ -266,6 +293,7 @@ class Notifier:
         log: Callable[[str], None] = log_line,
     ) -> None:
         self.project = project
+        self.primary = primary
         self.prefix = prefix
         self.agents = agents
         self.telegram = telegram
@@ -277,7 +305,9 @@ class Notifier:
         self.states: dict[str, str | None] = {}
         self.stalled: set[str] = set()
         self.running: dict[str, bool] = {}
-        self.queue: deque[dict] = deque()
+        # Each queued message comes with the sent.jsonl fields of a decision
+        # message, or None.
+        self.queue: deque[tuple[dict, dict | None]] = deque()
         self.hold_until = 0.0
         # The first bd read only records the states. start makes it, unless
         # bd fails then, and the next poll makes it.
@@ -339,10 +369,14 @@ class Notifier:
 
     def on_change(self, bead: dict, state: str | None, round_: str | None) -> None:
         bead_id = bead["id"]
-        if state in ESCALATIONS:
+        if state in DECISIONS or state in ESCALATIONS:
             note = last_note(bead.get("notes", ""))
             detail = f"Last note: {note}" if note else ""
-            self.queue_message(bead_text(f"{bead_id} {state}", bead, detail))
+            text = bead_text(f"{bead_id} {state}", bead, detail)
+            if state in DECISIONS:
+                self.queue_decision(text, {"bead": bead_id, "state": state})
+            else:
+                self.queue_message(text)
         elif state == "merge":
             urls = PR_RE.findall(bead.get("notes") or "")
             detail = urls[-1] if urls else ""
@@ -368,17 +402,57 @@ class Notifier:
         message = {"text": truncate(f"{self.project}: {text}")}
         if silent:
             message["disable_notification"] = True
-        self.queue.append(message)
+        self.queue.append((message, None))
+
+    def queue_decision(self, text: str, record: dict) -> None:
+        """A message that asks the human for a reply. A long note is cut
+        before the reply line, so that the line always goes out."""
+        names = " or ".join(f"{agent}:" for agent in self.agents)
+        ask = (
+            f"Reply to this message to answer. Start with {names} to choose the agent."
+        )
+        body = truncate(f"{self.project}: {text}", MAX_LENGTH - len(ask) - 1)
+        message = {
+            "text": f"{body}\n{ask}",
+            "reply_markup": {
+                "force_reply": True,
+                "input_field_placeholder": "Your decision",
+            },
+        }
+        self.queue.append((message, record))
 
     def flush(self) -> None:
         """Send the queued messages in order. Stop at the first failure."""
         while self.queue and self.now() >= self.hold_until:
-            reply = self.telegram.send(self.queue[0])
+            message, record = self.queue[0]
+            reply = self.telegram.send(message)
             if not reply.ok:
                 if reply.retry_after:
                     self.hold_until = self.now() + reply.retry_after
                 return
             self.queue.popleft()
+            if record:
+                self.record_sent(reply.result, record)
+
+    def record_sent(self, result: object, record: dict) -> None:
+        """Append the sent decision message to sent.jsonl for reply.py."""
+        sent = result if isinstance(result, dict) else {}
+        if not isinstance(sent.get("message_id"), int):
+            self.log(f"could not record {record['bead']}: Telegram sent no message_id")
+            return
+        chat = sent.get("chat") if isinstance(sent.get("chat"), dict) else {}
+        line = {
+            "message_id": sent.get("message_id"),
+            "chat_id": chat.get("id", self.telegram.chat_id),
+            "project": self.project,
+            "primary": self.primary,
+            **record,
+            "sent_at": datetime.fromtimestamp(self.now(), UTC).isoformat(),
+        }
+        try:
+            append_line(sent_path(), line)
+        except OSError as err:
+            self.log(f"could not record {record['bead']} in sent.jsonl: {err.strerror}")
 
 
 def project_path(arg: str) -> Path:
@@ -430,6 +504,7 @@ def main(argv: list[str] | None = None) -> int:
     telegram.check()
     notifier = Notifier(
         project=project.name,
+        primary=overlay.get("PRIMARY") or str(project),
         prefix=overlay.get("BEAD_PREFIX", ""),
         agents=agents,
         telegram=telegram,

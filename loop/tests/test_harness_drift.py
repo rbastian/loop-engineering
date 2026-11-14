@@ -246,20 +246,22 @@ def test_drift_paths_are_the_installed_files():
     assert sorted(shell_words(RUN_SH, "HARNESS_PATHS")) == installed_paths()
 
 
-def test_layout_drift_paths_add_the_notifier():
-    """bootstrap.sh installs notify.py, which only layout.sh starts, so only
-    lib.sh's list names it. run.sh does not change (lpe-2gm)."""
+def test_layout_drift_paths_add_the_notifier_and_the_reader():
+    """bootstrap.sh installs notify.py, which only layout.sh starts, and
+    reply.py, which the human starts, so only lib.sh's list names them.
+    run.sh does not change (lpe-2gm, lpe-kri)."""
     assert sorted(shell_words(LIB_SH, "HARNESS_PATHS")) == sorted(
-        [*installed_paths(), "loop/notify.py"]
+        [*installed_paths(), "loop/notify.py", "loop/reply.py"]
     )
 
 
-def test_a_change_to_the_notifier_is_drift_for_layout(tmp_path):
+@pytest.mark.parametrize("rel", ["loop/notify.py", "loop/reply.py"])
+def test_a_change_to_the_notifier_is_drift_for_layout(tmp_path, rel):
     clone = make_clone(tmp_path)
     project = make_project(tmp_path, clone)
-    notifier = clone / "loop/notify.py"
+    notifier = clone / rel
     notifier.write_text(notifier.read_text() + "\n")
-    commit_all(clone, "change loop/notify.py")
+    commit_all(clone, f"change {rel}")
     result = run_layout(tmp_path, project)
     assert "harness is 1 commit behind loop-engineering; run update.sh" in (
         result.stdout
