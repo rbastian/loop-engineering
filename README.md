@@ -173,7 +173,7 @@ In either mode, a second failed review sets `loop=escalated` and assigns the unm
 ```bash
 bd list --label loop:merge       # pr mode: reviewed PRs to approve and merge
 bd list --label loop:accept --status=closed   # local mode: merged work to accept with bd set-state <id> loop=done
-bd list --label loop:escalated   # review failed twice: decide, add a note, assign back to the coder
+bd list --label loop:escalated   # review failed twice: decide, add a note, assign back to the coder or the reviewer
 bd list --label loop:parked      # an agent is stuck: fix the cause, add a note, assign back to the agent that parked it
 ```
 

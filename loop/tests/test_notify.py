@@ -12,6 +12,7 @@ import os
 import subprocess
 import sys
 import threading
+from collections import deque
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -109,6 +110,7 @@ class Harness:
         self.bot = notify.Telegram(TOKEN, CHAT, base=telegram.url, log=logs.append)
         self.notifier = notify.Notifier(
             project="demo",
+            primary="/p/demo",
             prefix="lpe",
             agents=["Ralph", "Alice"],
             telegram=self.bot,
@@ -126,6 +128,22 @@ class Harness:
 @pytest.fixture
 def logs():
     return []
+
+
+@pytest.fixture(autouse=True)
+def home(tmp_path, monkeypatch):
+    """A temporary HOME, so that decision messages record into it."""
+    path = tmp_path / "home"
+    path.mkdir()
+    monkeypatch.setenv("HOME", str(path))
+    return path
+
+
+def sent_lines(home: Path) -> list[dict]:
+    path = home / ".local/state/loop-telegram/sent.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines()]
 
 
 @pytest.fixture
@@ -180,6 +198,7 @@ def test_states_seen_at_start_send_nothing(make, telegram):
     ("state", "word"),
     [
         ("escalated", "escalated"),
+        ("parked", "parked"),
         ("blocked", "blocked"),
         ("merge", "ready to merge"),
         ("coding", "coding"),
@@ -189,7 +208,7 @@ def test_states_seen_at_start_send_nothing(make, telegram):
     ],
 )
 def test_each_listed_state_change_sends_one_message(make, telegram, state, word):
-    harness = make(bead("lpe-b1", "parked", title="Add a flag"))
+    harness = make(bead("lpe-b1", "rebase", title="Add a flag"))
     harness.set(bead("lpe-b1", state, title="Add a flag", round_=2))
     harness.notifier.poll()
     harness.notifier.poll()
@@ -202,7 +221,7 @@ def test_each_listed_state_change_sends_one_message(make, telegram, state, word)
     assert word in texts[0]
 
 
-@pytest.mark.parametrize("state", ["parked", "accept", "rebase", "rebased"])
+@pytest.mark.parametrize("state", ["accept", "rebase", "rebased"])
 def test_unlisted_states_send_nothing(make, telegram, state):
     harness = make(bead("lpe-c1", "coding"))
     harness.set(bead("lpe-c1", state))
@@ -263,7 +282,7 @@ def test_progress_is_silent(make, telegram, state):
     assert telegram.messages()[0]["disable_notification"] is True
 
 
-@pytest.mark.parametrize("state", ["escalated", "blocked", "merge"])
+@pytest.mark.parametrize("state", ["escalated", "parked", "blocked", "merge"])
 def test_escalation_and_merge_make_a_sound(make, telegram, state):
     harness = make(bead("lpe-i1", "review"))
     harness.set(bead("lpe-i1", state))
@@ -457,7 +476,7 @@ def test_a_long_message_is_truncated():
 
 def test_a_long_escalation_goes_out_truncated(make, telegram):
     harness = make(bead("lpe-r1", "review"))
-    harness.set(bead("lpe-r1", "escalated", notes="y" * 5000))
+    harness.set(bead("lpe-r1", "blocked", notes="y" * 5000))
     harness.notifier.poll()
     text = telegram.texts()[0]
     assert len(text) <= 4000
@@ -641,3 +660,115 @@ def test_run_sh_process_is_matched_by_project_and_agent():
 )
 def test_stall_limit_takes_run_sh_durations(text, seconds):
     assert notify.duration_seconds(text) == seconds
+
+
+# Decision messages (lpe-kri): escalated and parked beads ask for a reply, and
+# each sent decision message is recorded in the shared sent.jsonl.
+
+
+@pytest.mark.parametrize("state", ["escalated", "parked"])
+def test_a_decision_message_asks_for_a_reply(make, telegram, state):
+    harness = make(bead("lpe-u1", "review"))
+    harness.set(bead("lpe-u1", state, title="Pick one", notes="Which way?"))
+    harness.notifier.poll()
+    message = telegram.messages()[0]
+    lines = message["text"].splitlines()
+    assert lines[0] == f"demo: lpe-u1 {state}"
+    assert "Pick one" in lines
+    assert "Last note: Which way?" in lines
+    assert lines[-1] == (
+        "Reply to this message to answer. Start with Ralph: or Alice:"
+        " to choose the agent."
+    )
+    assert message["reply_markup"] == {
+        "force_reply": True,
+        "input_field_placeholder": "Your decision",
+    }
+    assert "disable_notification" not in message
+
+
+@pytest.mark.parametrize("state", ["blocked", "merge", "coding"])
+def test_other_messages_ask_for_no_reply(make, telegram, home, state):
+    harness = make(bead("lpe-u2", "review"))
+    harness.set(bead("lpe-u2", state))
+    harness.notifier.poll()
+    message = telegram.messages()[0]
+    assert "reply_markup" not in message
+    assert "Reply to this message" not in message["text"]
+    assert sent_lines(home) == []
+
+
+def test_a_sent_decision_message_is_recorded(make, telegram, home):
+    harness = make(bead("lpe-v1", "review"))
+    telegram.replies = [
+        (200, {"ok": True, "result": {"message_id": 77, "chat": {"id": 4242}}})
+    ]
+    harness.set(bead("lpe-v1", "escalated"))
+    harness.notifier.poll()
+    assert sent_lines(home) == [
+        {
+            "message_id": 77,
+            "chat_id": 4242,
+            "project": "demo",
+            "primary": "/p/demo",
+            "bead": "lpe-v1",
+            "state": "escalated",
+            "sent_at": "2026-11-14T12:00:00+00:00",
+        }
+    ]
+    mode = (home / ".local/state/loop-telegram/sent.jsonl").stat().st_mode
+    assert mode & 0o077 == 0
+
+
+def test_a_failed_decision_message_is_recorded_when_it_goes_out(make, telegram, home):
+    harness = make(bead("lpe-v2", "coding"))
+    telegram.replies = [
+        (500, {"ok": False, "error_code": 500, "description": "Boom"}),
+        (200, {"ok": True, "result": {"message_id": 9, "chat": {"id": 4242}}}),
+    ]
+    harness.set(bead("lpe-v2", "parked"))
+    harness.notifier.poll()
+    assert sent_lines(home) == []
+    harness.notifier.poll()
+    assert [(line["message_id"], line["bead"]) for line in sent_lines(home)] == [
+        (9, "lpe-v2")
+    ]
+
+
+def test_every_notifier_appends_to_the_same_file(telegram, home, logs):
+    one = Harness(telegram, [bead("lpe-w1", "review")], logs)
+    two = Harness(telegram, [bead("lpe-w2", "review")], logs)
+    one.notifier.start()
+    two.notifier.start()
+    telegram.replies = [
+        (200, {"ok": True, "result": {"message_id": 1, "chat": {"id": 4242}}}),
+        (200, {"ok": True, "result": {"message_id": 2, "chat": {"id": 4242}}}),
+    ]
+    one.set(bead("lpe-w1", "escalated"))
+    two.set(bead("lpe-w2", "parked"))
+    one.notifier.poll()
+    two.notifier.poll()
+    assert [line["bead"] for line in sent_lines(home)] == ["lpe-w1", "lpe-w2"]
+
+
+def test_a_failed_record_does_not_stop_the_notifier(make, telegram, home, logs):
+    harness = make(bead("lpe-w3", "review"))
+    (home / ".local").write_text("not a folder")
+    telegram.replies = [
+        (200, {"ok": True, "result": {"message_id": 3, "chat": {"id": 4242}}})
+    ]
+    harness.set(bead("lpe-w3", "escalated"))
+    harness.notifier.poll()
+    assert len(telegram.messages()) == 1
+    assert harness.notifier.queue == deque()
+    assert any("sent.jsonl" in line for line in logs)
+
+
+def test_a_long_decision_message_keeps_the_reply_line(make, telegram):
+    harness = make(bead("lpe-w4", "review"))
+    harness.set(bead("lpe-w4", "parked", notes="z" * 5000))
+    harness.notifier.poll()
+    text = telegram.texts()[0]
+    assert len(text) <= 4000
+    assert text.endswith("to choose the agent.")
+    assert "..." in text
