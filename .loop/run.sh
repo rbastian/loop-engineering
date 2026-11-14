@@ -48,6 +48,9 @@ PROMPT_FILE="${2:-CODER.md}"
 SESSION_TIMEOUT="${LOOP_SESSION_TIMEOUT:-2h}"
 ENGINE="${LOOP_ENGINE:-claude}"
 
+# A scheduled wakeup keeps claude -p alive after its final result.
+CLAUDE_DISALLOWED_TOOLS=(ScheduleWakeup CronCreate)
+
 # The engine picks the command and the model default. Reviewing on a second
 # model family is the point of the codex engine, so it gets no default model:
 # an unset LOOP_MODEL there means whatever the ChatGPT plan runs by default.
@@ -551,6 +554,7 @@ while true; do
             AGENT_CMD=(claude -p "$PROMPT" --model "$MODEL")
         fi
         AGENT_CMD+=(--dangerously-skip-permissions)
+        AGENT_CMD+=(--disallowedTools "${CLAUDE_DISALLOWED_TOOLS[@]}")
         if [ -n "${LOOP_STREAM_LOG:-}" ]; then
             AGENT_CMD+=(--verbose --output-format stream-json)
         fi
