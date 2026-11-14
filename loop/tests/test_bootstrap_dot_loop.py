@@ -7,17 +7,7 @@ does not, so bootstrap.sh adds .loop to ruff's extend-exclude in pyproject.toml.
 import tomllib
 
 from test_bootstrap_interactive import existing_repo, run_bootstrap
-
-FILES = (
-    "run.sh",
-    "watch.py",
-    "notify.py",
-    "reply.py",
-    "prices.json",
-    "CODER.md",
-    "REVIEWER.md",
-    "project.md",
-)
+from test_update import FILES, add_listed_file, make_clone
 
 
 def ruff_table(project) -> dict:
@@ -27,10 +17,11 @@ def ruff_table(project) -> dict:
 def test_a_new_project_gets_dot_loop_and_one_ruff_exclude(tmp_path):
     project = tmp_path / "proj"
     result = run_bootstrap(tmp_path, project)
-    for f in FILES:
+    for f in (*FILES, "project.md"):
         assert (project / ".loop" / f).is_file(), f
-    assert (project / ".loop/notify.py").stat().st_mode & 0o111
-    assert (project / ".loop/reply.py").stat().st_mode & 0o111
+    for f in FILES:
+        if f.endswith((".sh", ".py")):
+            assert (project / ".loop" / f).stat().st_mode & 0o111, f
     assert not (project / "ralph").exists()
     assert "ralph/" not in result.stdout
     assert ".loop/project.md" in result.stdout
@@ -60,3 +51,16 @@ def test_an_existing_extend_exclude_is_left_alone_with_a_hint(tmp_path):
     result = run_bootstrap(tmp_path, project)
     assert ruff_table(project)["extend-exclude"] == ["vendor"]
     assert '".loop"' in result.stdout
+
+
+def test_bootstrap_copies_every_file_in_the_clone_list(tmp_path):
+    """lpe-gas: one new line in loop/harness-files is enough."""
+    clone = make_clone(tmp_path)
+    add_listed_file(clone)
+    project = tmp_path / "proj"
+    run_bootstrap(tmp_path, project, {"LOOP_HOME": str(clone)})
+    for f in (*FILES, "extra.sh"):
+        installed = project / ".loop" / f
+        assert installed.read_bytes() == (clone / "loop" / f).read_bytes(), f
+        if f.endswith((".sh", ".py")):
+            assert installed.stat().st_mode & 0o111, f

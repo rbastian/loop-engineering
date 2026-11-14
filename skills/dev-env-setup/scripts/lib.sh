@@ -118,14 +118,37 @@ key_value() {
     sed -n "s/^$2=//p" "$1" 2>/dev/null | head -1
 }
 
-# The files that update.sh installs, as paths in the loop-engineering clone:
-# FILES in skills/dev-env-setup/scripts/update.sh, plus interactive.template.md,
-# which update.sh renders into CLAUDE.md and AGENTS.md, notify.py, which
-# bootstrap.sh installs and layout.sh starts, and reply.py, which bootstrap.sh
-# installs and the human starts. Only a commit that
-# changes one of them counts as drift. A test keeps this list in step with
-# update.sh.
-HARNESS_PATHS="loop/run.sh loop/watch.py loop/notify.py loop/reply.py loop/prices.json loop/CODER.md loop/REVIEWER.md loop/interactive.template.md"
+# The names in a harness-files list, on one line with one space between
+# them. Blank lines and lines that start with # are ignored.
+# Usage: harness_files FILE
+harness_files() {
+    local name list=""
+    while read -r name || [ -n "$name" ]; do
+        case "$name" in '' | '#'*) continue ;; esac
+        list="$list${list:+ }$name"
+    done <"$1"
+    echo "$list"
+}
+
+# The paths in the loop-engineering clone whose commits count as drift for
+# the harness installed in DIR: loop/<name> for each line of
+# DIR/harness-files, plus loop/interactive.template.md, which update.sh renders
+# into CLAUDE.md and AGENTS.md. Without the list (an install from before
+# loop/harness-files), every commit under loop/ counts. run.sh holds the same
+# function, and a test checks that the two copies match.
+# Usage: HARNESS_PATHS=$(harness_paths DIR)
+harness_paths() {
+    local name list=loop/interactive.template.md
+    [ -f "$1/harness-files" ] || {
+        echo loop
+        return 0
+    }
+    while read -r name || [ -n "$name" ]; do
+        case "$name" in '' | '#'*) continue ;; esac
+        list="$list loop/$name"
+    done <"$1/harness-files"
+    echo "$list"
+}
 
 # The drift line for the stamp FILE, or nothing when the harness is current.
 # A missing stamp or clone, or a commit that the clone lacks, prints nothing.

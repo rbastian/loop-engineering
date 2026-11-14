@@ -11,19 +11,23 @@ from pathlib import Path
 import pytest
 from test_bootstrap_interactive import run_bootstrap
 from test_update import (
+    FILES,
     GIT_ENV,
     ROOT,
     UPDATE,
+    add_listed_file,
     advance_clone,
     commit_all,
     git,
     make_clone,
     make_project,
+    run_update,
 )
 
 LAYOUT = ROOT / "skills/dev-env-setup/scripts/layout.sh"
 RUN_SH = ROOT / "loop/run.sh"
 LIB_SH = ROOT / "skills/dev-env-setup/scripts/lib.sh"
+BOOTSTRAP = ROOT / "skills/dev-env-setup/scripts/bootstrap.sh"
 
 
 def stamp_lines(project: Path) -> list[str]:
@@ -229,43 +233,31 @@ def test_run_sh_and_lib_sh_share_the_same_drift_line():
 # lpe-t0w: only commits that change an installed file count as drift.
 
 
-def shell_words(path: Path, var: str) -> list[str]:
-    """The words of the line VAR="..." in the shell script PATH."""
-    match = re.search(rf'^{var}="([^"]*)"$', path.read_text(), re.MULTILINE)
-    assert match, f"{path.name} has no {var} line"
-    return match.group(1).split()
-
-
 def installed_paths() -> list[str]:
-    """update.sh FILES plus interactive.template.md, as paths in the clone."""
-    files = [*shell_words(UPDATE, "FILES"), "interactive.template.md"]
-    return sorted(f"loop/{f}" for f in files)
+    """The files in loop/harness-files plus interactive.template.md, as
+    paths in the clone (lpe-gas)."""
+    return sorted(f"loop/{f}" for f in (*FILES, "interactive.template.md"))
 
 
-def test_drift_paths_are_the_installed_files():
-    assert sorted(shell_words(RUN_SH, "HARNESS_PATHS")) == installed_paths()
+def test_the_drift_paths_come_from_the_list():
+    assert "loop/harness-files" in installed_paths()
+    assert "loop/notify.py" in installed_paths()
+    assert "loop/reply.py" in installed_paths()
 
 
-def test_layout_drift_paths_add_the_notifier_and_the_reader():
-    """bootstrap.sh installs notify.py, which only layout.sh starts, and
-    reply.py, which the human starts, so only lib.sh's list names them.
-    run.sh does not change (lpe-2gm, lpe-kri)."""
-    assert sorted(shell_words(LIB_SH, "HARNESS_PATHS")) == sorted(
-        [*installed_paths(), "loop/notify.py", "loop/reply.py"]
+def test_run_sh_and_lib_sh_share_the_same_harness_paths():
+    assert function_text(RUN_SH, "harness_paths") == function_text(
+        LIB_SH, "harness_paths"
     )
 
 
-@pytest.mark.parametrize("rel", ["loop/notify.py", "loop/reply.py"])
-def test_a_change_to_the_notifier_is_drift_for_layout(tmp_path, rel):
-    clone = make_clone(tmp_path)
-    project = make_project(tmp_path, clone)
-    notifier = clone / rel
-    notifier.write_text(notifier.read_text() + "\n")
-    commit_all(clone, f"change {rel}")
-    result = run_layout(tmp_path, project)
-    assert "harness is 1 commit behind loop-engineering; run update.sh" in (
-        result.stdout
-    )
+def test_no_script_holds_a_literal_list_of_harness_files():
+    for script in (RUN_SH, LIB_SH, UPDATE, BOOTSTRAP):
+        text = script.read_text()
+        literal = r'^\s*(FILES|HARNESS_PATHS)="[^$"]*"$'
+        assert not re.search(literal, text, re.MULTILINE), script
+        assert "notify.py reply.py" not in text, script
+        assert "watch.py prices.json" not in text, script
 
 
 def test_commits_outside_the_installed_files_are_not_drift(tmp_path):
@@ -282,11 +274,41 @@ def test_commits_outside_the_installed_files_are_not_drift(tmp_path):
     assert "behind" not in run_layout(tmp_path, harness.parent).stdout
 
 
+ONE_BEHIND = "harness is 1 commit behind loop-engineering; run update.sh"
+
+
 @pytest.mark.parametrize("rel", installed_paths())
 def test_a_change_to_one_installed_file_is_drift(tmp_path, rel):
     clone, harness = loop_project(tmp_path)
     target = clone / rel
     target.write_text(target.read_text() + "\n")
     commit_all(clone, f"change {rel}")
-    line = "harness is 1 commit behind loop-engineering; run update.sh"
-    assert line in run_loop(tmp_path, harness).stdout
+    assert ONE_BEHIND in run_loop(tmp_path, harness).stdout
+    assert ONE_BEHIND in run_layout(tmp_path, harness.parent).stdout
+
+
+def test_without_a_list_any_commit_under_loop_is_drift(tmp_path):
+    """A project installed before lpe-gas has no .loop/harness-files."""
+    clone, harness = loop_project(tmp_path)
+    (harness / "harness-files").unlink()
+    (clone / "notes.txt").write_text("not in loop/\n")
+    commit_all(clone, "outside loop/")
+    assert "behind" not in run_loop(tmp_path, harness).stdout
+    assert "behind" not in run_layout(tmp_path, harness.parent).stdout
+    (clone / "loop/README.md").write_text("not installed\n")
+    commit_all(clone, "change loop/README.md")
+    assert ONE_BEHIND in run_loop(tmp_path, harness).stdout
+    assert ONE_BEHIND in run_layout(tmp_path, harness.parent).stdout
+
+
+def test_one_line_in_the_list_is_enough_to_watch_a_new_file(tmp_path):
+    clone, harness = loop_project(tmp_path)
+    add_listed_file(clone)
+    result = run_update(tmp_path, clone, harness.parent)
+    assert result.returncode == 0, result.stdout + result.stderr
+    commit_all(harness.parent, "update")
+    extra = clone / "loop/extra.sh"
+    extra.write_text(extra.read_text() + "echo newer\n")
+    commit_all(clone, "change extra.sh")
+    assert ONE_BEHIND in run_loop(tmp_path, harness).stdout
+    assert ONE_BEHIND in run_layout(tmp_path, harness.parent).stdout

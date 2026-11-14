@@ -7,8 +7,8 @@
 #                 the local-edit check.
 #
 # Every check runs before any file changes. If one fails, update.sh prints all
-# failures, changes nothing and exits 1. Then it copies run.sh, watch.py,
-# prices.json, CODER.md and REVIEWER.md, refreshes the interactive section of
+# failures, changes nothing and exits 1. Then it copies the files that the
+# clone's loop/harness-files lists, refreshes the interactive section of
 # CLAUDE.md and AGENTS.md, writes .loop/HARNESS_VERSION and prints the diff. It never changes
 # .loop/project.md (apart from the ralph/ path rewrite), and it commits nothing.
 set -euo pipefail
@@ -38,10 +38,13 @@ for arg in "$@"; do
 done
 [ -n "$PROJECT_ARG" ] || usage
 
-FILES="run.sh watch.py prices.json CODER.md REVIEWER.md"
 DOCS="CLAUDE.md AGENTS.md"
 
 # Errors that stop update.sh before the checks: nothing to compare against.
+# The list comes from the clone, so a file that is new in the clone gets
+# installed.
+[ -f "$HARNESS/harness-files" ] || { echo "ERROR: $HARNESS/harness-files not found (set LOOP_HOME)"; exit 1; }
+FILES="$(harness_files "$HARNESS/harness-files")"
 for f in $FILES project.template.md interactive.template.md README.md; do
     [ -f "$HARNESS/$f" ] || { echo "ERROR: $HARNESS/$f not found (set LOOP_HOME)"; exit 1; }
 done
@@ -251,8 +254,8 @@ echo
 echo "==> update .loop/ from $LOOP_HOME"
 for f in $FILES; do
     cp "$HARNESS/$f" "$DIR/$f"
+    case "$f" in *.sh | *.py) chmod +x "$DIR/$f" ;; esac
 done
-chmod +x "$DIR/run.sh" "$DIR/watch.py"
 echo "copied $FILES"
 
 SECTION="$TMP/section"
