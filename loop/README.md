@@ -159,7 +159,7 @@ To set up a project by hand, follow these steps:
 
 1. Copy `run.sh`, `watch.py`, `notify.py`, `prices.json`, `CODER.md` and `REVIEWER.md` into the project as `.loop/`.
 2. Copy `project.template.md` to `.loop/project.md` and fill every `{{...}}` placeholder.
-3. Add `extend-exclude = [".loop"]` under `[tool.ruff]` in `pyproject.toml`, so that the gate does not lint the harness. pytest skips folders that start with a dot.
+3. Add `extend-exclude = [".loop"]` under `[tool.ruff]` in `pyproject.toml`, so that the gate does not lint the installed files. pytest skips folders that start with a dot.
 4. Fill the placeholders in `interactive.template.md` and put the result into `CLAUDE.md` and `AGENTS.md`, after the first H1 heading and before the beads blocks.
 5. In `pr` mode, make sure that the repository has an `origin` remote, that `main` is on it, and that `gh` is authenticated.
 6. Create the worktrees from the primary checkout:
@@ -350,6 +350,48 @@ The dollar figure is Claude Code's API-equivalent estimate, not a bill. Codex on
 
 A missing cost note never stops the loop. The note needs `uv` to run `watch.py`. Agents route on the state dimensions, not on notes, so a cost note never changes what a session does.
 
+## Running an agent on Fireworks (fw)
+
+`fw` starts one Claude Code process against the Fireworks endpoint. It uses a temporary configuration file for that process. It does not change `~/.claude/settings.json`.
+
+This repository ships `fw` as `tools/fw`. To install it, copy `tools/fw` to `~/.local/bin/fw`:
+
+```bash
+mkdir -p ~/.local/bin
+cp tools/fw ~/.local/bin/fw
+```
+
+Make sure that `~/.local/bin` is on `PATH`. Both `fw` and `claude` must be on `PATH`. Set `FIREWORKS_API_KEY` in the shell that starts the loop.
+
+The launcher also has a Nexus credential fallback. Nexus v0.10.1 does not support `nexus key export --stored-only`. Set `FIREWORKS_API_KEY` instead.
+
+Set `CODER_ENGINE` or `REVIEWER_ENGINE` to `fw` in `.loop/project.md`. Quote each model, because the shell reads `[1m]` as a glob pattern.
+
+```bash
+CODER_ENGINE=fw
+CODER_MODEL="accounts/fireworks/models/kimi-k3p1-pro[1m]"
+REVIEWER_ENGINE=fw
+REVIEWER_MODEL="glm-fast-latest[1m]"
+```
+
+At startup, `run.sh` runs `fw --model <model> --check`. A failed check stops the loop before the first session.
+
+The `[1m]` suffix belongs to Claude Code, not to the Fireworks model name. It tells Claude Code that the model has a 1M-token context window. Use it only for a model with at least 1M tokens of context on Fireworks. Kimi K3.1 Pro provides 1,048,576 tokens of context.
+
+Kimi K3.1 Pro has no short alias. Use its full model ID, `accounts/fireworks/models/kimi-k3p1-pro`.
+
+When stream logging is on, the session cost note estimates dollars from `loop/prices.json`. A model without an entry gets `cost unknown (fw)`. To add a price, copy an existing entry in `loop/prices.json`. Use the model ID without `[1m]` as its key. Set `provider` to `fireworks`. Give `input`, `cached_input` and `output` as prices per million tokens. Record the price date in `checked`. The entries for Kimi K3.1 Pro and GLM 5.3 exist from PR #47.
+
+The watcher labels an fw session `cc@fw/<model>`. The fw session logs report 0 tokens on each message. The totals arrive only in the final result event. The watcher header shows `0.0k out` during an fw session.
+
+An fw session cannot use claude.ai connectors. Claude Code prints an `unrecognized_model` warning for a Fireworks model.
+
+The recommended reviewer model is `glm-fast-latest[1m]` (GLM 5.3). In the reviewer trial (`lpe-6v6.5`), it made no protocol errors and missed no blocking finding. Each review cost about $0.45. Its reviews catch fewer non-blocking details than a Claude review.
+
+In the coder trial (`lpe-6v6.7`), `deepseek-flash-latest[1m]` worked. It cost about a quarter of the Opus cost. One session needed 311 small turns.
+
+This repository now runs its coder on Kimi K3.1 Pro, `accounts/fireworks/models/kimi-k3p1-pro[1m]`. That choice is in trial. No measured result is available.
+
 ## Operations
 
 ### Stop and restart
@@ -400,7 +442,7 @@ uv run .loop/watch.py --agent Ralph --prefix <prefix> --file /path/to/session.js
 
 Use your configured agent name in place of `Ralph`.
 
-### Update an installed harness
+### Update an installed copy
 
 `bootstrap.sh` keeps the files that `.loop/` already holds, so a rerun does not install newer copies of the runner, the watcher or the prompts. `update.sh` in the setup skill does the update. It copies `run.sh`, `watch.py`, `prices.json`, `CODER.md` and `REVIEWER.md` from `loop/` in your loop-engineering clone into `.loop/`. It never changes `.loop/project.md`, and it commits nothing.
 
@@ -454,13 +496,13 @@ Before lpe-0y3, the agents routed on the last marker in the bead notes. The huma
 3. For each bead, read its last note marker and set `loop` from the table under [Routing state](#routing-state). For example, "Returned to Ralph after review round 1" becomes `loop=returned`, and "Review passed, awaiting merge" becomes `loop=merge-wait`.
 4. For each bead that the reviewer saw, set `round` to the number in its newest "Review round <n> started" note: `bd set-state <id> round=<n>`.
 5. Replace each old label with its state: run `bd set-state <id> loop=<value>`, then `bd label remove <id> <old label>`.
-6. Update the installed prompts as in [Update an installed harness](#update-an-installed-harness), then restart the loops.
+6. Update the installed prompts as in [Update an installed copy](#update-an-installed-copy), then restart the loops.
 
 ### Move an install from ralph/ to .loop/
 
-Before lpe-wh5, `bootstrap.sh` installed the harness into `ralph/`. It now installs into `.loop/`. If a project has `ralph/` and no `.loop/`, `update.sh` moves the install and then updates it in the same run:
+Before lpe-wh5, `bootstrap.sh` installed the loop into `ralph/`. It now installs into `.loop/`. If a project has `ralph/` and no `.loop/`, `update.sh` moves the install and then updates it in the same run:
 
-1. It runs every check from [Update an installed harness](#update-an-installed-harness) against `ralph/`. If a check fails, it stops before the move.
+1. It runs every check from [Update an installed copy](#update-an-installed-copy) against `ralph/`. If a check fails, it stops before the move.
 2. It moves the folder with `git mv ralph .loop`.
 3. It changes each `ralph/` path in `.loop/project.md` to `.loop/`.
 4. It prints each line outside the interactive section of `CLAUDE.md` and `AGENTS.md` that still names `ralph/`. Change those lines by hand. The interactive section itself gets the new text.
