@@ -23,8 +23,9 @@ The bot token is part of every request URL, so the notifier never prints the
 token, a URL or a raw exception. A failed request logs only the method, the
 HTTP status and Telegram's error_code and description.
 
-Usage:
-    uv run loop/notify.py --project DIR   # DIR holds .loop/project.md
+Usage, from the primary checkout:
+    uv run .loop/notify.py
+    uv run .loop/notify.py --stall 90m   # a stall limit other than 2h
 
 TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID name the bot and the chat. If either
 one is unset, the notifier prints one line and exits 0. TELEGRAM_API_URL
@@ -78,14 +79,19 @@ def duration_seconds(text: str) -> int:
     return int(match.group(1)) * unit
 
 
-def overlay_value(path: Path, key: str) -> str:
-    """The value of the first KEY=value line in .loop/project.md, or ""."""
+def read_overlay(path: Path) -> dict[str, str]:
+    """The KEY=value lines of .loop/project.md. The first line of a key wins,
+    and a {{...}} placeholder counts as no value."""
     try:
         lines = path.read_text().splitlines()
     except OSError:
-        return ""
-    prefix = f"{key}="
-    return next((line[len(prefix) :] for line in lines if line.startswith(prefix)), "")
+        return {}
+    values: dict[str, str] = {}
+    for line in lines:
+        match = re.fullmatch(r"([A-Z_]+)=(.*)", line)
+        if match and "{{" not in match.group(2):
+            values.setdefault(match.group(1), match.group(2))
+    return values
 
 
 class BdError(Exception):
@@ -113,14 +119,15 @@ def read_beads() -> list[dict]:
         raise BdError("bd list failed: output is not JSON") from None
 
 
-def loop_in(lines: Iterable[str], project: str, agent: str) -> bool:
-    """True when a process line runs PROJECT's run.sh for AGENT, as layout.sh starts it."""
-    command = f"{project}/.loop/run.sh {agent} "
-    return any(command in line for line in lines)
+def loop_in(lines: Iterable[str], projects: Iterable[str], agent: str) -> bool:
+    """True when a process line runs the run.sh of one of PROJECTS for AGENT,
+    as layout.sh starts it. PROJECTS holds the path as typed and as resolved."""
+    commands = [f"{project}/.loop/run.sh {agent} " for project in projects]
+    return any(command in line for line in lines for command in commands)
 
 
-def run_sh_running(project: str, agent: str) -> bool | None:
-    """Whether AGENT's run.sh runs, or None when ps fails."""
+def running_loops(projects: Iterable[str], agents: Iterable[str]) -> set[str] | None:
+    """The agents whose run.sh runs, from one ps call, or None when ps fails."""
     try:
         result = subprocess.run(
             ["ps", "-ax", "-o", "command="],
@@ -133,7 +140,8 @@ def run_sh_running(project: str, agent: str) -> bool | None:
         return None
     if result.returncode != 0:
         return None
-    return loop_in(result.stdout.splitlines(), project, agent)
+    lines = result.stdout.splitlines()
+    return {agent for agent in agents if loop_in(lines, projects, agent)}
 
 
 @dataclass
@@ -238,6 +246,11 @@ def age_text(seconds: float) -> str:
     return f"{hours}h{minutes:02d}m" if hours else f"{minutes}m"
 
 
+def bead_text(head: str, bead: dict, detail: str = "") -> str:
+    text = f"{head}\n{bead.get('title', '')}"
+    return f"{text}\n{detail}" if detail else text
+
+
 class Notifier:
     def __init__(
         self,
@@ -247,7 +260,7 @@ class Notifier:
         agents: list[str],
         telegram: Telegram,
         list_beads: Callable[[], list[dict]],
-        agent_running: Callable[[str], bool | None],
+        running_agents: Callable[[], set[str] | None],
         now: Callable[[], float] = time.time,
         stall_seconds: float = duration_seconds(STALL_DEFAULT),
         log: Callable[[str], None] = log_line,
@@ -257,54 +270,56 @@ class Notifier:
         self.agents = agents
         self.telegram = telegram
         self.list_beads = list_beads
-        self.agent_running = agent_running
+        self.running_agents = running_agents
         self.now = now
         self.stall_seconds = stall_seconds
         self.log = log
         self.states: dict[str, str | None] = {}
         self.stalled: set[str] = set()
-        self.running: dict[str, bool | None] = {}
+        self.running: dict[str, bool] = {}
         self.queue: deque[dict] = deque()
         self.hold_until = 0.0
+        # The first bd read only records the states. start makes it, unless
+        # bd fails then, and the next poll makes it.
+        self.primed = False
 
     def ours(self, beads: list[dict]) -> list[dict]:
         if not self.prefix:
             return beads
         return [b for b in beads if str(b.get("id", "")).startswith(f"{self.prefix}-")]
 
-    def stalls(self, bead: dict, state: str | None) -> bool:
-        if state not in STALLS:
-            return False
-        stamp = updated_at(bead)
-        return stamp is not None and self.now() - stamp > self.stall_seconds
+    def stall_age(self, bead: dict, state: str | None) -> float | None:
+        """How long the bead has had no update, when that is past the limit."""
+        stamp = updated_at(bead) if state in STALLS else None
+        if stamp is None:
+            return None
+        age = self.now() - stamp
+        return age if age > self.stall_seconds else None
 
     def start(self) -> None:
         """Record the current states, and send nothing for them."""
-        try:
-            beads = self.ours(self.list_beads())
-        except BdError as err:
-            self.log(str(err))
-            beads = []
-        for bead in beads:
-            state = labels_of(bead).get("loop")
-            self.states[bead["id"]] = state
-            if self.stalls(bead, state):
-                self.stalled.add(bead["id"])
-        for agent in self.agents:
-            self.running[agent] = self.agent_running(agent)
+        self.read_beads()
+        self.check_agents()
         self.log(f"watching {len(self.states)} beads; notifications are on")
 
     def poll(self) -> None:
+        self.read_beads()
+        self.check_agents()
+        self.flush()
+
+    def read_beads(self) -> None:
         try:
             beads = self.ours(self.list_beads())
         except BdError as err:
             self.log(str(err))
-        else:
-            for bead in beads:
-                self.check_bead(bead)
-        for agent in self.agents:
-            self.check_agent(agent)
-        self.flush()
+            return
+        mark = len(self.queue)
+        for bead in beads:
+            self.check_bead(bead)
+        if not self.primed:
+            while len(self.queue) > mark:
+                self.queue.pop()
+            self.primed = True
 
     def check_bead(self, bead: dict) -> None:
         bead_id = bead["id"]
@@ -314,49 +329,43 @@ class Notifier:
             self.states[bead_id] = state
             self.stalled.discard(bead_id)
             self.on_change(bead, state, dims.get("round"))
-        if bead_id not in self.stalled and self.stalls(bead, state):
+        if bead_id in self.stalled:
+            return
+        age = self.stall_age(bead, state)
+        if age is not None:
             self.stalled.add(bead_id)
-            age = self.now() - (updated_at(bead) or self.now())
-            self.queue_message(
-                f"{bead_id} stalled in {state}: no update for {age_text(age)}",
-                bead,
-            )
+            head = f"{bead_id} stalled in {state}: no update for {age_text(age)}"
+            self.queue_message(bead_text(head, bead))
 
     def on_change(self, bead: dict, state: str | None, round_: str | None) -> None:
         bead_id = bead["id"]
         if state in ESCALATIONS:
             note = last_note(bead.get("notes", ""))
-            self.queue_message(
-                f"{bead_id} {state}", bead, f"Last note: {note}" if note else ""
-            )
+            detail = f"Last note: {note}" if note else ""
+            self.queue_message(bead_text(f"{bead_id} {state}", bead, detail))
         elif state == "merge":
-            match = PR_RE.findall(bead.get("notes") or "")
-            self.queue_message(
-                f"{bead_id} ready to merge", bead, match[-1] if match else ""
-            )
+            urls = PR_RE.findall(bead.get("notes") or "")
+            detail = urls[-1] if urls else ""
+            self.queue_message(bead_text(f"{bead_id} ready to merge", bead, detail))
         elif state in PROGRESS:
             head = f"{bead_id} {state}"
             if state != "done" and round_ and round_ != "0":
                 head += f" (round {round_})"
-            self.queue_message(head, bead, silent=True)
+            self.queue_message(bead_text(head, bead), silent=True)
 
-    def check_agent(self, agent: str) -> None:
-        running = self.agent_running(agent)
+    def check_agents(self) -> None:
+        """Send one message when an agent's run.sh stops. An agent that is
+        not running at start sends nothing."""
+        running = self.running_agents()
         if running is None:
             return
-        if self.running.get(agent) and not running:
-            self.queue.append(
-                {"text": truncate(f"{self.project}: {agent} loop is not running")}
-            )
-        self.running[agent] = running
+        for agent in self.agents:
+            if self.running.get(agent) and agent not in running:
+                self.queue_message(f"{agent} loop is not running")
+            self.running[agent] = agent in running
 
-    def queue_message(
-        self, head: str, bead: dict, detail: str = "", *, silent: bool = False
-    ) -> None:
-        text = f"{self.project}: {head}\n{bead.get('title', '')}"
-        if detail:
-            text += f"\n{detail}"
-        message = {"text": truncate(text)}
+    def queue_message(self, text: str, *, silent: bool = False) -> None:
+        message = {"text": truncate(f"{self.project}: {text}")}
         if silent:
             message["disable_notification"] = True
         self.queue.append(message)
@@ -372,13 +381,23 @@ class Notifier:
             self.queue.popleft()
 
 
+def project_path(arg: str) -> Path:
+    """ARG as an absolute path. For ".", the shell's PWD keeps the path as
+    typed, where os.getcwd gives the resolved path."""
+    path = Path(arg).absolute()
+    pwd = os.environ.get("PWD")
+    if arg == "." and pwd and Path(pwd).resolve() == path.resolve():
+        return Path(pwd)
+    return path
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--project", default=".", help="the primary checkout")
     parser.add_argument(
         "--stall",
         default=STALL_DEFAULT,
-        help="the stall limit, such as 90m or 2h (default: 2h)",
+        help="the stall limit, such as 90m or 2h (default: %(default)s)",
     )
     parser.add_argument("--interval", type=float, default=POLL_SECONDS)
     parser.add_argument("--polls", type=int, help=argparse.SUPPRESS)
@@ -398,16 +417,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"notify: {err}")
         return 2
 
-    project = Path(args.project).absolute()
-    overlay = project / ".loop/project.md"
-    agents = [
-        name
-        for name in (
-            overlay_value(overlay, "CODER"),
-            overlay_value(overlay, "REVIEWER"),
-        )
-        if name and "{{" not in name
-    ]
+    project = project_path(args.project)
+    overlay = read_overlay(project / ".loop/project.md")
+    agents = [overlay[k] for k in ("CODER", "REVIEWER") if overlay.get(k)]
+    # layout.sh starts run.sh with the project path as typed, which can differ
+    # from the resolved path when the path goes through a symbolic link.
+    projects = {str(project), str(project.resolve())}
     os.chdir(project)
     telegram = Telegram(
         token, chat_id, base=os.environ.get("TELEGRAM_API_URL", API_URL)
@@ -415,11 +430,11 @@ def main(argv: list[str] | None = None) -> int:
     telegram.check()
     notifier = Notifier(
         project=project.name,
-        prefix=overlay_value(overlay, "BEAD_PREFIX"),
+        prefix=overlay.get("BEAD_PREFIX", ""),
         agents=agents,
         telegram=telegram,
         list_beads=read_beads,
-        agent_running=lambda agent: run_sh_running(str(project), agent),
+        running_agents=lambda: running_loops(projects, agents),
         stall_seconds=stall_seconds,
     )
     notifier.start()

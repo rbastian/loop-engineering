@@ -130,7 +130,7 @@ If its default review method cannot run, the reviewer parks a bead with a "Revie
 | `project.template.md` | The template for `.loop/project.md`, the project overlay. |
 | `interactive.template.md` | The template for the interactive section of `CLAUDE.md` and `AGENTS.md`. The section tells an interactive agent to orient a new person, to refine and assign beads, and not to implement them. |
 | `watch.py` | The watcher. It shows a live session log as one line per tool call. |
-| `notify.py` | The notifier. It sends short Telegram messages to the human about the loop. `layout.sh` runs it from the loop-engineering clone, so it is not copied into `.loop/`. |
+| `notify.py` | The notifier. It sends short Telegram messages to the human about the loop. |
 | `../skills/dev-env-setup/scripts/queue.sh` | The queue script. It shows one agent's in-progress, ready and blocked beads. |
 | `tests/` | Tests for `watch.py`, `run.sh`, the setup scripts and the prompts. |
 
@@ -157,7 +157,7 @@ The `dev-env-setup` skill in `../skills/dev-env-setup` does the setup. See the r
 
 To set up a project by hand, follow these steps:
 
-1. Copy `run.sh`, `watch.py`, `prices.json`, `CODER.md` and `REVIEWER.md` into the project as `.loop/`.
+1. Copy `run.sh`, `watch.py`, `notify.py`, `prices.json`, `CODER.md` and `REVIEWER.md` into the project as `.loop/`.
 2. Copy `project.template.md` to `.loop/project.md` and fill every `{{...}}` placeholder.
 3. Add `extend-exclude = [".loop"]` under `[tool.ruff]` in `pyproject.toml`, so that the gate does not lint the harness. pytest skips folders that start with a dot.
 4. Fill the placeholders in `interactive.template.md` and put the result into `CLAUDE.md` and `AGENTS.md`, after the first H1 heading and before the beads blocks.
@@ -198,14 +198,14 @@ LOOP_LOG_DIR=/tmp/<name>-alice-sessions uv run .loop/watch.py --agent Alice --pr
 
 ### Agent queues
 
-`layout.sh` puts an agent queue above each loop in the loop tab:
+`layout.sh` puts an agent queue above each loop in the loop tab, and the notifier (see [Telegram messages](#telegram-messages)) beside the reviewer queue:
 
 ```text
-+-------------------+-------------------+
-| coder queue       | reviewer queue    |
-+-------------------+-------------------+
-| coder loop        | reviewer loop     |
-+-------------------+-------------------+
++-------------------+----------------+----------+
+| coder queue       | reviewer queue | notifier |
++-------------------+----------------+----------+
+| coder loop        | reviewer loop             |
++-------------------+---------------------------+
 ```
 
 An agent queue shows the beads assigned to one agent. In progress lists the agent's active beads with their `loop` state labels. Ready next lists the unblocked beads that wait for the agent. Waiting lists the agent's blocked beads and their blockers.
@@ -221,7 +221,7 @@ Use your coder or reviewer name in place of Ralph. Leave out `--watch` to print 
 
 ### Telegram messages
 
-`notify.py` sends short Telegram messages, so that the human sees the loop away from the computer. `layout.sh` starts it in the Notifier pane beside the watchers. It polls bd every 30 seconds and sends one message for each change:
+`notify.py` sends short Telegram messages, so that the human sees the loop away from the computer. `layout.sh` starts it in the loop tab, in a pane named `notifier` to the right of the reviewer queue. The pane works in the primary checkout. If direnv is on `PATH`, the pane runs `direnv exec . uv run .loop/notify.py`, so that `.envrc` supplies the variables. Otherwise it runs `uv run .loop/notify.py`. If a pane named `notifier` already exists in the workspace, `layout.sh` refuses to start. It polls bd every 30 seconds and sends one message for each change:
 
 | Event | Message | Sound |
 |---|---|---|
@@ -238,11 +238,11 @@ To turn the messages on, do these steps:
 1. In Telegram, open a chat with @BotFather, send `/newbot` and follow its questions. BotFather gives a bot token.
 2. Send any message to the new bot, so that the bot gets a chat with you.
 3. Open `https://api.telegram.org/bot<token>/getUpdates` in a browser, with your token in place of `<token>`. Copy the number at `message.chat.id`. That number is the chat ID.
-4. Export `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in the shell that starts herdr, for example in a git-ignored `.envrc` in the primary checkout.
+4. Export `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in a git-ignored `.envrc` in the primary checkout. If direnv is installed, run `direnv allow` once in the primary checkout, so that `direnv exec` loads the file. Without direnv, export the two variables in the shell that starts herdr.
 5. Start `layout.sh`, or run the notifier by hand from the primary checkout:
 
    ```bash
-   uv run /path/to/loop-engineering/loop/notify.py --project /path/to/project
+   direnv exec . uv run .loop/notify.py
    ```
 
 If either variable is not set, the notifier prints that notifications are off and exits 0. The bot token is part of each request URL. The notifier never prints the token, a request URL or a raw error. For a failed request, it logs only the method, the HTTP status and the Telegram error code and description. Do not commit the token, and do not paste it into a bead.

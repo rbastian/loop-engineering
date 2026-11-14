@@ -1,65 +1,93 @@
-"""layout.sh starts the Telegram notifier in its own pane (lpe-2gm).
+"""layout.sh starts the Telegram notifier in the loop tab (lpe-2gm).
 
-The pane runs loop/notify.py from the loop-engineering clone, as the queue
-panes run queue.sh, so the installed harness in .loop/ does not change.
+The notifier pane sits to the right of the reviewer queue, so the top row of
+the loop tab reads: coder queue | reviewer queue | notifier. Its working
+directory is the primary checkout, where .envrc lives, so the pane runs the
+notifier under direnv when direnv is on PATH.
 """
 
-from _layout_helpers import LAYOUT, operation_records, run_layout
+from _layout_helpers import operation_records, run_layout
 
-NOTIFY = LAYOUT.resolve().parents[3] / "loop/notify.py"
-
-
-def notifier_command(project) -> str:
-    return f"uv run '{NOTIFY}' --project '{project}'"
+PLAIN = "uv run .loop/notify.py"
+DIRENV = "direnv exec . uv run .loop/notify.py"
 
 
 def notifier_pane(records: list[list[str]]) -> str:
-    renames = [r for r in records if r[0] == "rename" and r[2] == "Notifier"]
+    renames = [r for r in records if r[0] == "rename" and r[2] == "notifier"]
     assert len(renames) == 1, records
     return renames[0][1]
 
 
-def test_notifier_gets_its_own_pane_next_to_the_watchers(tmp_path):
+def split_of(records: list[list[str]], pane: str) -> list[str]:
+    """The split that made PANE. The fake herdr numbers new panes p1, p2, ..."""
+    splits = [r for r in records if r[0] == "split"]
+    return splits[int(pane[1:]) - 1]
+
+
+def direnv_stub(tmp_path):
+    stub = tmp_path / "direnv-bin" / "direnv"
+    stub.parent.mkdir()
+    stub.write_text("#!/bin/sh\n")
+    stub.chmod(0o755)
+    return stub.parent
+
+
+def test_notifier_sits_right_of_the_reviewer_queue_in_the_loop_tab(tmp_path):
     result, _ = run_layout(tmp_path, [])
 
     assert result.returncode == 0, result.stdout + result.stderr
     records = operation_records(tmp_path)
     pane = notifier_pane(records)
-    watchers = {r[1]: r[2] for r in records if r[0] == "rename"}
-    reviewer_watch = next(
-        p for p, label in watchers.items() if label == "Carol watcher"
+    reviewer_queue = next(
+        r[1] for r in records if r[0] == "rename" and r[2] == "Carol queue"
     )
-    project = tmp_path / "proj"
-    splits = [r for r in records if r[0] == "split"]
-    # The fake herdr numbers each new pane p<n> in split order.
-    split = splits[int(pane[1:]) - 1]
-    assert split[1] == reviewer_watch
-    assert split[2] == "right"
-    assert split[4] == str(project)
-
-    runs = [r for r in records if r[0] == "run" and r[1] == pane]
-    assert runs == [["run", pane, notifier_command(project)]]
+    assert split_of(records, pane) == [
+        "split",
+        reviewer_queue,
+        "right",
+        "0.5",
+        str(tmp_path / "proj"),
+    ]
     assert pane in result.stdout
+
+
+def test_notifier_runs_plain_uv_without_direnv(tmp_path):
+    run_layout(tmp_path, [])
+    records = operation_records(tmp_path)
+    pane = notifier_pane(records)
+    assert [r for r in records if r[0] == "run" and r[1] == pane] == [
+        ["run", pane, PLAIN]
+    ]
+
+
+def test_notifier_runs_under_direnv_when_direnv_is_on_path(tmp_path):
+    bin_dir = direnv_stub(tmp_path)
+    run_layout(tmp_path, [], {"PATH": f"{tmp_path}/bin:{bin_dir}:/usr/bin:/bin"})
+    records = operation_records(tmp_path)
+    pane = notifier_pane(records)
+    assert [r for r in records if r[0] == "run" and r[1] == pane] == [
+        ["run", pane, DIRENV]
+    ]
 
 
 def test_notifier_starts_before_the_loops(tmp_path):
     run_layout(tmp_path, [])
-    records = operation_records(tmp_path)
-    runs = [r[2] for r in records if r[0] == "run"]
-    notifier = runs.index(notifier_command(tmp_path / "proj"))
+    runs = [r[2] for r in operation_records(tmp_path) if r[0] == "run"]
     loops = [i for i, command in enumerate(runs) if "/.loop/run.sh" in command]
-    assert loops and notifier < min(loops)
+    assert loops and runs.index(PLAIN) < min(loops)
 
 
-def test_a_notifier_pane_in_this_tab_stops_the_layout(tmp_path):
+def test_a_notifier_pane_anywhere_in_the_workspace_stops_the_layout(tmp_path):
     result, _ = run_layout(
         tmp_path,
         [],
-        panes=[{"pane_id": "old", "tab_id": "t1", "label": "Notifier"}],
+        panes=[{"pane_id": "old", "tab_id": "another-tab", "label": "notifier"}],
     )
 
     assert result.returncode == 1
-    assert "close them first" in result.stdout + result.stderr
+    out = result.stdout + result.stderr
+    assert "notifier" in out
+    assert "close it first" in out
     assert not any(
         record[0] in ("tab", "split") for record in operation_records(tmp_path)
     )

@@ -113,7 +113,7 @@ class Harness:
             agents=["Ralph", "Alice"],
             telegram=self.bot,
             list_beads=lambda: list(self.beads),
-            agent_running=lambda agent: self.running[agent],
+            running_agents=lambda: {a for a, up in self.running.items() if up},
             now=lambda: self.clock,
             stall_seconds=2 * HOUR,
             log=logs.append,
@@ -394,6 +394,24 @@ def test_a_failed_bd_call_does_not_stop_the_notifier(make, telegram, logs):
     assert len(telegram.messages()) == 1
 
 
+def test_a_failed_bd_call_at_start_sends_nothing_for_old_states(telegram, logs):
+    harness = Harness(telegram, [], logs)
+
+    def broken():
+        raise notify.BdError("bd list failed")
+
+    harness.notifier.list_beads = broken
+    harness.notifier.start()
+    harness.notifier.list_beads = lambda: list(harness.beads)
+    harness.set(bead("lpe-p2", "escalated"), bead("lpe-p3", "merge"))
+    harness.notifier.poll()
+    assert telegram.messages() == []
+
+    harness.set(bead("lpe-p2", "coding"), bead("lpe-p3", "merge"))
+    harness.notifier.poll()
+    assert len(telegram.messages()) == 1
+
+
 # 6. After a 429 with retry_after, nothing goes out until that time passes.
 
 
@@ -587,10 +605,24 @@ def test_read_beads_raises_when_bd_fails(tmp_path, monkeypatch):
 
 def test_overlay_values_come_from_project_md(tmp_path):
     overlay = tmp_path / "project.md"
-    overlay.write_text("# Project\n\n```bash\nCODER=Bob\nREVIEWER=Carol\n```\n")
-    assert notify.overlay_value(overlay, "CODER") == "Bob"
-    assert notify.overlay_value(overlay, "REVIEWER") == "Carol"
-    assert notify.overlay_value(overlay, "BEAD_PREFIX") == ""
+    overlay.write_text(
+        "# Project\n\n```bash\nCODER=Bob\nREVIEWER=Carol\nCODER=Dan\n"
+        "BEAD_PREFIX={{BEAD_PREFIX}}\n```\n"
+    )
+    assert notify.read_overlay(overlay) == {"CODER": "Bob", "REVIEWER": "Carol"}
+    assert notify.read_overlay(tmp_path / "missing.md") == {}
+
+
+def test_the_project_path_keeps_the_typed_path(tmp_path, monkeypatch):
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(real)
+    monkeypatch.chdir(link)
+    monkeypatch.setenv("PWD", str(link))
+    assert notify.project_path(".") == link
+    monkeypatch.setenv("PWD", str(tmp_path))
+    assert notify.project_path(".").resolve() == real.resolve()
 
 
 def test_run_sh_process_is_matched_by_project_and_agent():
@@ -599,8 +631,9 @@ def test_run_sh_process_is_matched_by_project_and_agent():
         "bash /p/proj/.loop/run.sh Ralph /p/proj/.loop/CODER.md",
         "bash /p/other/.loop/run.sh Alice /p/other/.loop/REVIEWER.md",
     ]
-    assert notify.loop_in(lines, "/p/proj", "Ralph") is True
-    assert notify.loop_in(lines, "/p/proj", "Alice") is False
+    assert notify.loop_in(lines, ["/p/proj"], "Ralph") is True
+    assert notify.loop_in(lines, ["/p/proj"], "Alice") is False
+    assert notify.loop_in(lines, ["/x/link", "/p/other"], "Alice") is True
 
 
 @pytest.mark.parametrize(

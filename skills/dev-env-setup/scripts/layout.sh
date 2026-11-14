@@ -1,9 +1,9 @@
 #!/bin/bash
-# Start both loops and their queues in their own herdr tab, and both watchers,
-# the Telegram notifier and the beads list in the caller's tab:
-#   loop tab:      coder queue (1/3) | reviewer queue (1/3)           (top)
+# Start both loops and their queues in their own herdr tab, and both watchers
+# and the beads list in the caller's tab:
+#   loop tab:      coder queue (1/3) | reviewer queue (1/3) | notifier (top)
 #                  coder loop (2/3)  | reviewer loop (2/3)            (bottom)
-#   caller's tab:  coder watcher (1/2) | reviewer watcher | Notifier   (top third)
+#   caller's tab:  coder watcher (1/2)  | reviewer watcher (1/2)       (top third)
 #                  calling pane (2/3)   | Beads (1/3)                  (bottom two thirds)
 # Usage: layout.sh PROJECT_DIR
 # The agent names and worktree paths come from .loop/project.md.
@@ -101,14 +101,18 @@ if herdr tab list --workspace "$HERDR_WORKSPACE_ID" \
 fi
 PANES="$(herdr pane list --workspace "$HERDR_WORKSPACE_ID")"
 if jq -e --arg t "$HERDR_TAB_ID" \
-    '.result.panes[] | select(.tab_id == $t and (.label // "" | endswith(" watcher") or . == "Beads" or . == "Notifier"))' \
+    '.result.panes[] | select(.tab_id == $t and (.label // "" | endswith(" watcher") or . == "Beads"))' \
     >/dev/null <<<"$PANES"; then
-    echo "ERROR: this tab already has watcher, Beads or Notifier panes; close them first"
+    echo "ERROR: this tab already has watcher or Beads panes; close them first"
     exit 1
 fi
 QUEUE_LABEL="$(jq -r 'first(.result.panes[] | select((.label // "") | endswith(" queue")) | .label) // empty' <<<"$PANES")"
 if [ -n "$QUEUE_LABEL" ]; then
     echo "ERROR: a pane named '$QUEUE_LABEL' already exists in this workspace; close it first"
+    exit 1
+fi
+if jq -e '.result.panes[] | select(.label == "notifier")' >/dev/null <<<"$PANES"; then
+    echo "ERROR: a pane named 'notifier' already exists in this workspace; close it first"
     exit 1
 fi
 
@@ -126,6 +130,9 @@ CODER_QUEUE=$(split "$CODER_PANE" down 0.33 "$PROJECT")
 herdr pane swap --source-pane "$CODER_QUEUE" --target-pane "$CODER_PANE" >/dev/null
 REVIEWER_QUEUE=$(split "$REVIEWER_PANE" down 0.33 "$PROJECT")
 herdr pane swap --source-pane "$REVIEWER_QUEUE" --target-pane "$REVIEWER_PANE" >/dev/null
+# Notifier: the right half of the reviewer queue. Its working directory is the
+# primary checkout, where .envrc lives.
+NOTIFY_PANE=$(split "$REVIEWER_QUEUE" right 0.5 "$PROJECT")
 
 # Watchers: the split keeps the top third for the caller, then the swap moves
 # the new pane up there. Pane IDs follow their processes through a swap.
@@ -136,17 +143,15 @@ REVIEWER_WATCH=$(split "$CODER_WATCH" right 0.5 "$PROJECT")
 herdr pane focus --direction down --pane "$CODER_WATCH" >/dev/null
 # Beads: the right third of the bottom area, beside the calling pane.
 BEADS_PANE=$(split "$HERDR_PANE_ID" right 0.67 "$PROJECT")
-# Notifier: the right part of the top row, beside the reviewer's watcher.
-NOTIFY_PANE=$(split "$REVIEWER_WATCH" right 0.6 "$PROJECT")
 
 herdr pane rename "$CODER_PANE" "$CODER" >/dev/null
 herdr pane rename "$REVIEWER_PANE" "$REVIEWER" >/dev/null
 herdr pane rename "$CODER_QUEUE" "$CODER queue" >/dev/null
 herdr pane rename "$REVIEWER_QUEUE" "$REVIEWER queue" >/dev/null
+herdr pane rename "$NOTIFY_PANE" "notifier" >/dev/null
 herdr pane rename "$CODER_WATCH" "$CODER watcher" >/dev/null
 herdr pane rename "$REVIEWER_WATCH" "$REVIEWER watcher" >/dev/null
 herdr pane rename "$BEADS_PANE" "Beads" >/dev/null
-herdr pane rename "$NOTIFY_PANE" "Notifier" >/dev/null
 
 # Watchers first: they wait for current.jsonl, so nothing is missed.
 herdr pane run "$CODER_WATCH" "LOOP_LOG_DIR=$CODER_LOG uv run .loop/watch.py --agent $CODER$PREFIX_ARG --tui" >/dev/null
@@ -159,12 +164,14 @@ herdr pane run "$REVIEWER_WATCH" "LOOP_LOG_DIR=$REVIEWER_LOG uv run .loop/watch.
 BEADS_LOOP='clear; prev=; while true; do out=$(CLICOLOR_FORCE=1 bd list --status open,blocked,in_progress 2>&1); if [ "$out" != "$prev" ]; then clear; date "+updated %H:%M:%S"; printf "%s\n" "$out"; prev=$out; fi; sleep 5; done'
 herdr pane run "$BEADS_PANE" "$BEADS_LOOP" >/dev/null
 
-# The notifier records the current bead states at start and sends nothing for
-# them, so it starts before the loops. It runs from this clone, as queue.sh
-# does, and reads TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID from the pane shell.
-# Without them it prints that notifications are off and exits.
-NOTIFY="$(cd "$SCRIPT_DIR/../../../loop" && pwd -P)/notify.py"
-herdr pane run "$NOTIFY_PANE" "uv run '$NOTIFY' --project '$PROJECT'" >/dev/null
+# The notifier records the bead states at start and sends nothing for them, so
+# it starts before the loops. direnv exec loads .envrc, which holds
+# TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.
+NOTIFY_CMD="uv run .loop/notify.py"
+if command -v direnv >/dev/null 2>&1; then
+    NOTIFY_CMD="direnv exec . $NOTIFY_CMD"
+fi
+herdr pane run "$NOTIFY_PANE" "$NOTIFY_CMD" >/dev/null
 
 # The queue panes start before the loops. Their splits set the working directory
 # to the primary checkout, so bd reads its beads.
@@ -180,7 +187,7 @@ herdr pane run "$REVIEWER_PANE" \
     "LOOP_ENGINE=$REVIEWER_ENGINE LOOP_MODEL='$REVIEWER_MODEL' LOOP_STREAM_LOG=1 LOOP_SHOW_BEAD=1 LOOP_LOG_DIR=$REVIEWER_LOG $PROJECT/.loop/run.sh $REVIEWER $PROJECT/.loop/REVIEWER.md" >/dev/null
 
 echo "opened tab '$LABEL'"
-echo "  $CODER queue: $CODER_QUEUE   $REVIEWER queue: $REVIEWER_QUEUE"
+echo "  $CODER queue: $CODER_QUEUE   $REVIEWER queue: $REVIEWER_QUEUE   notifier: $NOTIFY_PANE"
 echo "  $CODER: $CODER_PANE ($CODER_ENGINE)   $REVIEWER: $REVIEWER_PANE ($REVIEWER_ENGINE)"
 echo "watchers in this tab"
-echo "  $CODER watcher: $CODER_WATCH   $REVIEWER watcher: $REVIEWER_WATCH   Beads: $BEADS_PANE   Notifier: $NOTIFY_PANE"
+echo "  $CODER watcher: $CODER_WATCH   $REVIEWER watcher: $REVIEWER_WATCH   Beads: $BEADS_PANE"
