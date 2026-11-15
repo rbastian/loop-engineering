@@ -77,7 +77,7 @@ def truncate(text: str, limit: int = MAX_LENGTH) -> str:
 
 
 def state_dir() -> Path:
-    """The folder that every repository's notifier and reply.py share."""
+    """The folder that notify.py and reply.py of every repository share."""
     return Path.home() / ".local/state/loop-telegram"
 
 
@@ -431,8 +431,7 @@ def report(path: Path, agent: str, project: Project, telegram: Telegram) -> None
     try:
         snapshot = json.loads(path.read_text())
     except (OSError, ValueError):
-        log_line(f"no snapshot in {path}; nothing to report")
-        return
+        snapshot = None
     if not isinstance(snapshot, dict):
         log_line(f"no snapshot in {path}; nothing to report")
         return

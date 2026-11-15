@@ -49,9 +49,12 @@ set -euo pipefail
 
 # Exit on Ctrl-C during startup and pauses as well as during an agent session.
 # TERM and HUP exit with their own codes, so that the stop message gives them.
-trap 'exit 130' INT
-trap 'exit 143' TERM
-trap 'exit 129' HUP
+exit_traps() {
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
+}
+exit_traps
 
 AGENT_NAME="${1:-Ralph}"
 PROMPT_FILE="${2:-CODER.md}"
@@ -206,11 +209,12 @@ watchdog() {
 }
 
 # Ctrl-C reaches run.sh but not the session's own process group, so pass it on.
+# $1 is the exit code of the signal.
 interrupt_session() {
     trap - INT TERM HUP
     kill -KILL -- "-$WATCHDOG_PGID" 2>/dev/null || true
     stop_group "$SESSION_PGID" 10
-    exit 130
+    exit "$1"
 }
 
 # Runs AGENT_CMD under the watchdog, teeing to $SESSION_LOG when it is set.
@@ -231,12 +235,12 @@ run_session() {
         WATCHDOG_PGID=$!
     fi
     set +m
-    trap interrupt_session INT TERM HUP
+    trap 'interrupt_session 130' INT
+    trap 'interrupt_session 143' TERM
+    trap 'interrupt_session 129' HUP
     wait "$SESSION_PGID" 2>/dev/null
     SESSION_EXIT=$?
-    trap 'exit 130' INT
-    trap 'exit 143' TERM
-    trap 'exit 129' HUP
+    exit_traps
     [ -n "$WATCHDOG_PGID" ] || return 0
     # A watchdog that fired finishes its KILL grace period and exits 124.
     kill -TERM -- "-$WATCHDOG_PGID" 2>/dev/null
@@ -534,6 +538,7 @@ if [ -z "$NOTIFY_ON" ]; then
     :
 elif [ -n "${LOOP_STREAM_LOG:-}" ]; then
     SNAPSHOT="${LOOP_LOG_DIR:-/tmp/loop-sessions}/notify-snapshot.json"
+    mkdir -p "$(dirname "$SNAPSHOT")"
 else
     NOTIFY_TMP=$(mktemp "${TMPDIR:-/tmp}/loop-notify.XXXXXX")
     SNAPSHOT="$NOTIFY_TMP"
@@ -620,7 +625,6 @@ while true; do
     HELD=$(bd list --assignee="$AGENT_NAME" --status=in_progress --json 2>/dev/null \
                | jq -r '.[].id // empty' 2>/dev/null | tr '\n' ' ') || HELD=""
 
-    if [ -n "$SNAPSHOT" ] && [ -n "${LOOP_STREAM_LOG:-}" ]; then mkdir -p "$(dirname "$SNAPSHOT")"; fi
     notify snapshot "$SNAPSHOT"
 
     echo ""
