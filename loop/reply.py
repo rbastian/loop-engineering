@@ -43,7 +43,7 @@ import re
 import subprocess
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import IO
 
@@ -54,7 +54,12 @@ import notify
 POLL_TIMEOUT = 30
 # The HTTP timeout must be longer than the long-poll timeout.
 HTTP_TIMEOUT = 40
+# The wait after a failed getUpdates without retry_after. Repeated HTTP 409
+# answers double it up to CONFLICT_MAX_SECONDS.
 RETRY_SECONDS = 5
+CONFLICT_MAX_SECONDS = 60
+# The size of each read when sent.jsonl is read from the end.
+BLOCK_SIZE = 65536
 ASK = "Reply to a decision message to answer a bead."
 EVENT_TITLE = "State change: loop → parked"
 REASON_RE = re.compile(r"^Reason: (.*)$", re.MULTILINE)
@@ -74,33 +79,44 @@ def take_lock() -> IO | None:
     return lock
 
 
+def lines_from_end(path: Path) -> Iterator[bytes]:
+    """The lines of PATH, the last line first, read in blocks from the end."""
+    with open(path, "rb") as file:
+        position = file.seek(0, os.SEEK_END)
+        rest = b""
+        while position > 0:
+            size = min(BLOCK_SIZE, position)
+            position -= size
+            file.seek(position)
+            lines = (file.read(size) + rest).split(b"\n")
+            rest = lines.pop(0)
+            yield from reversed(lines)
+        yield rest
+
+
 def find_record(message_id: object, chat_id: str) -> tuple[dict | None, bool]:
     """The newest line of sent.jsonl for MESSAGE_ID in CHAT_ID, and whether it
-    is still the newest line for its project and bead."""
+    is still the newest line for its project and bead. The file is read from
+    the end, and the read stops at the first match."""
+    later = set()
     try:
-        lines = notify.sent_path().read_text().splitlines()
+        for line in lines_from_end(notify.sent_path()):
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(record, dict):
+                continue
+            key = (record.get("project"), record.get("bead"))
+            if (
+                record.get("message_id") == message_id
+                and str(record.get("chat_id")) == chat_id
+            ):
+                return record, key not in later
+            later.add(key)
     except OSError:
-        return None, False
-    found = None
-    newest = True
-    for line in lines:
-        try:
-            record = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(record, dict):
-            continue
-        if (
-            record.get("message_id") == message_id
-            and str(record.get("chat_id")) == chat_id
-        ):
-            found, newest = record, True
-        elif found is not None and (record.get("project"), record.get("bead")) == (
-            found.get("project"),
-            found.get("bead"),
-        ):
-            newest = False
-    return found, newest
+        pass
+    return None, False
 
 
 class BdFailed(Exception):
@@ -158,6 +174,15 @@ def choose_agent(
     return names["CODER"], text
 
 
+def record_head(record: dict) -> str:
+    """The "<project> <bead>" start of each answer about RECORD."""
+    return f"{record.get('project', '?')} {record.get('bead', '')}"
+
+
+def empty_answer(record: dict) -> str:
+    return f"{record_head(record)}: reply with text."
+
+
 class Reader:
     def __init__(
         self,
@@ -171,6 +196,7 @@ class Reader:
         self.chat_id = chat_id
         self.poll_timeout = poll_timeout
         self.log = log
+        self.conflicts = 0
         self.offset_path = notify.state_dir() / "offset"
         self.offset_path.parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -179,8 +205,16 @@ class Reader:
             self.offset = None
 
     def save_offset(self, offset: int) -> None:
+        """Keep OFFSET, and write it to a temporary file that a rename puts
+        in place, so that a crash never leaves a half-written file. A failed
+        write logs one line and keeps the reader going."""
         self.offset = offset
-        self.offset_path.write_text(f"{offset}\n")
+        temporary = self.offset_path.with_name(f"{self.offset_path.name}.tmp")
+        try:
+            temporary.write_text(f"{offset}\n")
+            os.replace(temporary, self.offset_path)
+        except OSError as err:
+            self.log(f"could not save the offset: {err.strerror}")
 
     def updates_request(self) -> dict:
         request = {"timeout": self.poll_timeout, "allowed_updates": ["message"]}
@@ -188,12 +222,13 @@ class Reader:
             request["offset"] = self.offset
         return request
 
-    def poll(self) -> bool:
+    def poll(self) -> float:
         """One getUpdates call. Handle each update, then save the next offset.
-        False when the call failed."""
-        result = self.telegram.call("getUpdates", self.updates_request())
+        The seconds to wait before the next call: 0 after a success."""
+        result = self.telegram.call("getUpdates", self.updates_request(), quiet=True)
         if not result.ok:
-            return False
+            return self.wait_after(result)
+        self.conflicts = 0
         for update in result.result if isinstance(result.result, list) else []:
             uid = update.get("update_id") if isinstance(update, dict) else None
             if not isinstance(uid, int):
@@ -203,7 +238,27 @@ class Reader:
             except Exception as err:  # noqa: BLE001 - one bad update must not stop the reader
                 self.log(f"update {uid} failed: {type(err).__name__}")
             self.save_offset(uid + 1)
-        return True
+        return 0
+
+    def wait_after(self, result: notify.Reply) -> float:
+        """The wait after a failed getUpdates: retry_after when Telegram gives
+        it, else a back-off for HTTP 409, else RETRY_SECONDS. A run of 409
+        answers logs one line."""
+        if result.status == 409:
+            self.conflicts += 1
+            if self.conflicts == 1:
+                self.log(
+                    f"{result.error}. Another reader or a webhook takes the"
+                    f" updates; trying again after up to {CONFLICT_MAX_SECONDS}"
+                    " seconds"
+                )
+        else:
+            self.log(result.error)
+        if result.retry_after is not None:
+            return max(result.retry_after, 0)
+        if result.status == 409:
+            return min(RETRY_SECONDS * 2 ** (self.conflicts - 1), CONFLICT_MAX_SECONDS)
+        return RETRY_SECONDS
 
     def answer(self, message: dict, text: str) -> None:
         self.telegram.send(
@@ -218,7 +273,10 @@ class Reader:
         if str(chat) != self.chat_id or str(sender) != self.chat_id:
             self.log(f"ignored a message from chat {chat}, user {sender}")
             return
-        original = message.get("reply_to_message") or {}
+        original = message.get("reply_to_message")
+        if not isinstance(original, dict):
+            self.answer(message, ASK)
+            return
         record, newest = find_record(original.get("message_id"), self.chat_id)
         if record is None:
             self.answer(message, ASK)
@@ -226,20 +284,20 @@ class Reader:
         if not newest:
             self.answer(
                 message,
-                f"{record.get('project', '?')} {record.get('bead', '')}: this message"
+                f"{record_head(record)}: this message"
                 " is out of date; reply to the newest message for this bead.",
             )
             return
         text = message.get("text") or ""
         if not text.strip():
-            self.answer(message, "Reply with text to answer a bead.")
+            self.answer(message, empty_answer(record))
             return
         self.answer(message, self.decide(record, text))
 
     def decide(self, record: dict, text: str) -> str:
         """Write the decision into the bead. The answer to send back."""
         bead_id, primary = record.get("bead", ""), record.get("primary", "")
-        head = f"{record.get('project', '?')} {bead_id}"
+        head = record_head(record)
         names = notify.read_overlay(Path(primary) / ".loop/project.md")
         missing = [k for k in ("CODER", "REVIEWER", "HUMAN") if not names.get(k)]
         if missing:
@@ -249,9 +307,15 @@ class Reader:
             )
         human = names["HUMAN"]
         try:
-            (bead,) = json.loads(run_bd(["show", bead_id, "--json"], primary))
+            records = json.loads(run_bd(["show", bead_id, "--json"], primary))
         except (BdFailed, ValueError) as err:
             return f"{head}: bd show failed: {err}. Nothing changed."
+        if not isinstance(records, list):
+            return f"{head}: bd show failed: output is not a list. Nothing changed."
+        if len(records) != 1:
+            found = f"{len(records)} records" if records else "no record"
+            return f"{head}: bd show {bead_id} returned {found}. Nothing changed."
+        (bead,) = records
         state = notify.labels_of(bead).get("loop")
         assignee = bead.get("assignee") or ""
         if state not in notify.DECISIONS or assignee != human:
@@ -265,6 +329,8 @@ class Reader:
             )
         except (BdFailed, ValueError) as err:
             return f"{head}: bd list failed: {err}. Nothing changed."
+        if not note.strip():
+            return empty_answer(record)
         try:
             run_bd(
                 ["note", bead_id, f"Decision from {human} (Telegram): {note}"],
@@ -315,8 +381,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         while args.polls is None or polls < args.polls:
             polls += 1
-            if not reader.poll() and (args.polls is None or polls < args.polls):
-                time.sleep(RETRY_SECONDS)
+            wait = reader.poll()
+            if wait and (args.polls is None or polls < args.polls):
+                time.sleep(wait)
     except KeyboardInterrupt:
         pass
     finally:

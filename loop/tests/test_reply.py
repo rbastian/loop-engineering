@@ -89,6 +89,7 @@ class FakeTelegram:
         self.requests: list[tuple[str, dict]] = []
         self.updates: list[dict] = []
         self.send_failures: list[tuple[int, dict]] = []
+        self.update_failures: list[tuple[int, dict]] = []
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -114,6 +115,8 @@ class FakeTelegram:
         ).start()
 
     def answer(self, method: str, body: dict) -> tuple[int, dict]:
+        if method == "getUpdates" and self.update_failures:
+            return self.update_failures.pop(0)
         if method == "getUpdates":
             offset = body.get("offset", 0)
             result = [u for u in self.updates if u["update_id"] >= offset]
@@ -491,7 +494,7 @@ def test_a_reply_without_text_changes_nothing(telegram, home, bd, project, reade
     telegram.updates = [sticker]
     reader().poll()
     assert bd.writes() == []
-    assert answers(telegram) == [("Reply with text to answer a bead.", 501)]
+    assert answers(telegram) == [("demo lpe-d4: reply with text.", 501)]
 
 
 # 8. A message from another chat or sender gets no answer.
@@ -548,7 +551,6 @@ def test_a_failed_note_assigns_nothing(telegram, home, bd, project, reader):
         ("list", "fail", "Error: database is locked"),
         ("list", "print_raw", "not json"),
         ("show", "print_raw", "not json"),
-        ("show", "print_raw", "[]"),
     ],
 )
 def test_a_failed_bead_read_answers_and_changes_nothing(
@@ -700,3 +702,207 @@ def test_a_newer_message_of_another_project_does_not_make_a_reply_out_of_date(
     telegram.updates = [update(1, "answer", reply_to=90)]
     reader().poll()
     assert bd.bead("lpe-s1")["assignee"] == "Ralph"
+
+
+# lpe-qqv 2. A reply without text after the agent name changes nothing.
+
+
+@pytest.mark.parametrize("text", ["Ralph:", "  alice:  ", "   ", "\n\t"])
+def test_an_empty_reply_asks_for_text_and_changes_nothing(
+    telegram, home, bd, project, reader, text
+):
+    bd.add("lpe-q1", "escalated")
+    record(home, 120, "lpe-q1", project, "escalated")
+    telegram.updates = [update(1, text, reply_to=120)]
+    reader().poll()
+    assert bd.writes() == []
+    assert bd.bead("lpe-q1")["assignee"] == HUMAN
+    assert answers(telegram) == [("demo lpe-q1: reply with text.", 501)]
+
+
+# lpe-qqv 3. A refused getUpdates waits for retry_after, and HTTP 409 backs off.
+
+
+def refused(status, retry_after=None):
+    body = {"ok": False, "error_code": status, "description": f"Error {status}"}
+    if retry_after is not None:
+        body["parameters"] = {"retry_after": retry_after}
+    return status, body
+
+
+CONFLICT = refused(409)
+
+
+def test_a_refused_get_updates_waits_for_retry_after(telegram, reader, logs):
+    telegram.update_failures = [refused(429, retry_after=17)]
+    one = reader()
+    assert one.poll() == 17
+    assert one.poll() == 0
+
+
+def test_a_failed_get_updates_without_retry_after_waits_5_seconds(
+    telegram, reader, logs
+):
+    telegram.update_failures = [refused(502)]
+    one = reader()
+    assert one.poll() == 5
+    assert any("getUpdates failed: HTTP 502" in line for line in logs)
+
+
+def test_repeated_conflicts_back_off_and_reset_after_a_success(telegram, reader, logs):
+    telegram.update_failures = [CONFLICT] * 6
+    one = reader()
+    assert [one.poll() for _ in range(6)] == [5, 10, 20, 40, 60, 60]
+    assert one.poll() == 0
+    telegram.update_failures = [CONFLICT, CONFLICT]
+    assert [one.poll() for _ in range(2)] == [5, 10]
+
+
+def test_a_conflict_streak_logs_once(telegram, reader, logs):
+    telegram.update_failures = [CONFLICT] * 4
+    one = reader()
+    for _ in range(4):
+        one.poll()
+    assert len(logs) == 1
+    assert "409" in logs[0]
+    assert "another reader or a webhook" in logs[0].lower()
+
+
+def test_retry_after_wins_over_the_conflict_back_off(telegram, reader, logs):
+    telegram.update_failures = [CONFLICT, refused(409, retry_after=3)]
+    one = reader()
+    assert [one.poll(), one.poll()] == [5, 3]
+
+
+def test_main_sleeps_the_wait_that_poll_gives(monkeypatch, home):
+    waits = iter([7, 0, 0])
+    slept = []
+
+    class FakeReader:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def poll(self):
+            return next(waits)
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", str(CHAT))
+    monkeypatch.setenv("TELEGRAM_API_URL", "http://127.0.0.1:9")
+    monkeypatch.setattr(reply, "Reader", FakeReader)
+    monkeypatch.setattr(reply.time, "sleep", slept.append)
+    assert reply.main(["--polls", "3"]) == 0
+    assert slept == [7]
+
+
+# lpe-qqv 4. The offset goes to disk through a rename, and a failed save logs.
+
+
+def test_save_offset_writes_through_a_rename(home, reader, monkeypatch):
+    renames = []
+    real = reply.os.replace
+
+    def spy(src, dst):
+        renames.append((Path(src), Path(dst), Path(src).read_text()))
+        real(src, dst)
+
+    monkeypatch.setattr(reply.os, "replace", spy)
+    one = reader()
+    one.save_offset(42)
+    offset = home / ".local/state/loop-telegram/offset"
+    ((src, dst, text),) = renames
+    assert dst == offset
+    assert src.parent == offset.parent
+    assert src != offset
+    assert text == "42\n"
+    assert offset.read_text() == "42\n"
+    assert not src.exists()
+
+
+def test_a_failed_offset_save_logs_one_line_and_polling_goes_on(
+    telegram, home, bd, project, reader, logs, monkeypatch
+):
+    def broken(src, dst):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(reply.os, "replace", broken)
+    bd.add("lpe-q2", "escalated")
+    record(home, 121, "lpe-q2", project, "escalated")
+    telegram.updates = [update(5, "go", reply_to=121)]
+    one = reader()
+    assert one.poll() == 0
+    assert [line for line in logs if "offset" in line] == [
+        "could not save the offset: Permission denied"
+    ]
+    assert one.poll() == 0
+    assert telegram.get_updates()[-1]["offset"] == 6
+    assert len([w for w in bd.writes() if w[0] == "note"]) == 1
+
+
+# lpe-qqv 5. find_record reads sent.jsonl from the end, and only for a reply.
+
+
+def test_find_record_returns_the_newest_matching_record(home, project):
+    record(home, 130, "lpe-r1", project, "escalated")
+    record(home, 131, "lpe-r2", project, "escalated")
+    record(home, 130, "lpe-r3", project, "parked")
+    found, newest = reply.find_record(130, str(CHAT))
+    assert (found["bead"], found["state"], newest) == ("lpe-r3", "parked", True)
+
+
+def test_find_record_sees_a_newer_message_of_the_same_bead(home, project):
+    record(home, 132, "lpe-r4", project, "escalated")
+    record(home, 133, "lpe-r5", project, "escalated")
+    record(home, 134, "lpe-r4", project, "parked")
+    found, newest = reply.find_record(132, str(CHAT))
+    assert (found["bead"], newest) == ("lpe-r4", False)
+    assert reply.find_record(134, str(CHAT))[1] is True
+    assert reply.find_record(999, str(CHAT)) == (None, False)
+
+
+def test_find_record_reads_a_file_larger_than_one_block(home, project, monkeypatch):
+    monkeypatch.setattr(reply, "BLOCK_SIZE", 64)
+    for n in range(40):
+        record(home, 200 + n, f"lpe-t{n}", project, "escalated")
+    sent = home / ".local/state/loop-telegram/sent.jsonl"
+    with open(sent, "a") as f:
+        f.write("not json\n\n")
+    for n in (0, 17, 39):
+        found, newest = reply.find_record(200 + n, str(CHAT))
+        assert (found["bead"], newest) == (f"lpe-t{n}", True)
+
+
+def test_find_record_without_a_file_finds_nothing(home):
+    assert reply.find_record(1, str(CHAT)) == (None, False)
+
+
+def test_a_message_that_is_not_a_reply_skips_the_lookup(
+    telegram, home, bd, reader, monkeypatch
+):
+    calls = []
+    monkeypatch.setattr(reply, "find_record", lambda *a: calls.append(a))
+    telegram.updates = [update(1, "hello")]
+    reader().poll()
+    assert calls == []
+    assert answers(telegram) == [(ASK, 501)]
+
+
+# lpe-qqv 6. bd show with no record or several records says so.
+
+
+@pytest.mark.parametrize(
+    ("output", "said"),
+    [
+        ("[]", "bd show lpe-q3 returned no record."),
+        ('[{"id": "lpe-q3"}, {"id": "lpe-q3"}]', "bd show lpe-q3 returned 2 records."),
+    ],
+)
+def test_bd_show_with_no_record_or_several_says_so(
+    telegram, home, bd, project, reader, output, said
+):
+    bd.add("lpe-q3", "escalated")
+    bd.print_raw("show", output)
+    record(home, 122, "lpe-q3", project, "escalated")
+    telegram.updates = [update(1, "go", reply_to=122)]
+    reader().poll()
+    assert bd.writes() == []
+    assert answers(telegram) == [(f"demo lpe-q3: {said} Nothing changed.", 501)]
