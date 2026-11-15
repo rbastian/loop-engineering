@@ -90,7 +90,7 @@ def test_a_missing_loop_toml_stops_with_a_hint(tmp_path):
     assert "==> commit" not in result.stdout
 
 
-def test_pr_mode_without_origin_hints_valid_toml(tmp_path):
+def test_a_pr_mode_without_origin_hints_valid_toml(tmp_path):
     project = make_project(
         tmp_path, {"ship.mode": "pr", "ship.github_account": "someone"}
     )
