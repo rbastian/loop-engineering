@@ -31,7 +31,12 @@ def summary_args(tmp_path: Path, overlay_lines: str) -> list[str]:
         "esac\n",
     )
     write_exe(bin_dir / "claude", "")
-    write_exe(bin_dir / "uv", f'printf "%s\\n" "$@" >"{calls}"\necho "{{}}"\n')
+    # run.sh also calls notify.py through uv; record only the watch.py call.
+    write_exe(
+        bin_dir / "uv",
+        f'case "$*" in *watch.py*) printf "%s\\n" "$@" >"{calls}" ;; esac\n'
+        'echo "{}"\n',
+    )
     write_exe(
         bin_dir / "sleep",
         '[ "$1" = 30 ] || exec /bin/sleep "$@"\nkill -TERM $PPID\n',

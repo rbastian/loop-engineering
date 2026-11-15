@@ -70,6 +70,7 @@ def test_the_reviewer_on_fw_prints_the_startup_block(tmp_path):
         "logs     alice-logs",
         "timeout  90m",
         "version  unknown",
+        "notifications off",
     ], result.stdout
 
 

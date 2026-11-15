@@ -74,25 +74,33 @@ def take_lock() -> IO | None:
     return lock
 
 
-def find_record(message_id: object, chat_id: str) -> dict | None:
-    """The newest line of sent.jsonl for MESSAGE_ID in CHAT_ID."""
+def find_record(message_id: object, chat_id: str) -> tuple[dict | None, bool]:
+    """The newest line of sent.jsonl for MESSAGE_ID in CHAT_ID, and whether it
+    is still the newest line for its project and bead."""
     try:
         lines = notify.sent_path().read_text().splitlines()
     except OSError:
-        return None
+        return None, False
     found = None
+    newest = True
     for line in lines:
         try:
             record = json.loads(line)
         except ValueError:
             continue
+        if not isinstance(record, dict):
+            continue
         if (
-            isinstance(record, dict)
-            and record.get("message_id") == message_id
+            record.get("message_id") == message_id
             and str(record.get("chat_id")) == chat_id
         ):
-            found = record
-    return found
+            found, newest = record, True
+        elif found is not None and (record.get("project"), record.get("bead")) == (
+            found.get("project"),
+            found.get("bead"),
+        ):
+            newest = False
+    return found, newest
 
 
 class BdFailed(Exception):
@@ -211,9 +219,16 @@ class Reader:
             self.log(f"ignored a message from chat {chat}, user {sender}")
             return
         original = message.get("reply_to_message") or {}
-        record = find_record(original.get("message_id"), self.chat_id)
+        record, newest = find_record(original.get("message_id"), self.chat_id)
         if record is None:
             self.answer(message, ASK)
+            return
+        if not newest:
+            self.answer(
+                message,
+                f"{record.get('project', '?')} {record.get('bead', '')}: this message"
+                " is out of date; reply to the newest message for this bead.",
+            )
             return
         text = message.get("text") or ""
         if not text.strip():

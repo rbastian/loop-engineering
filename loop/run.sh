@@ -31,6 +31,13 @@
 #                        project.md beside PROMPT_FILE; "none" disables it).
 #   LOOP_PRINT_PROMPT=1  Print the combined prompt and exit.
 #
+# Telegram (see notify.py beside this script): run.sh takes a snapshot of the
+# bead states before each session and reports the changes after it. It also
+# sends one message when a session times out, when 3 sessions in a row fail,
+# and when the loop stops. notify.py runs under direnv exec in the primary
+# checkout when direnv is on PATH, so that .envrc supplies TELEGRAM_BOT_TOKEN
+# and TELEGRAM_CHAT_ID. The TELEGRAM_ variables never reach the agent.
+#
 # GitHub account (pr mode only, when the overlay says SHIP_MODE=pr):
 #   The overlay must name GITHUB_ACCOUNT, the account that the agents use.
 #   At start, run.sh gets that account's token with gh auth token --user and
@@ -41,7 +48,10 @@
 set -euo pipefail
 
 # Exit on Ctrl-C during startup and pauses as well as during an agent session.
+# TERM and HUP exit with their own codes, so that the stop message gives them.
 trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 AGENT_NAME="${1:-Ralph}"
 PROMPT_FILE="${2:-CODER.md}"
@@ -225,7 +235,8 @@ run_session() {
     wait "$SESSION_PGID" 2>/dev/null
     SESSION_EXIT=$?
     trap 'exit 130' INT
-    trap - TERM HUP
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
     [ -n "$WATCHDOG_PGID" ] || return 0
     # A watchdog that fired finishes its KILL grace period and exits 124.
     kill -TERM -- "-$WATCHDOG_PGID" 2>/dev/null
@@ -454,6 +465,42 @@ version_text() {
 ROLE=$(agent_role)
 LABEL=$(harness_label "$ENGINE" "$MODEL")
 
+# Telegram. The TELEGRAM_ variables leave the environment here, so that no
+# session sees them, and only notify() passes them on. PRIMARY is the parent
+# of the harness folder, where .envrc lives.
+PRIMARY="$(dirname "$HARNESS_DIR")"
+TELEGRAM_ENV=()
+for name in $(compgen -e); do
+    case "$name" in
+        TELEGRAM_*)
+            TELEGRAM_ENV+=("$name=${!name}")
+            unset "$name"
+            ;;
+    esac
+done
+
+# Runs notify.py with the TELEGRAM_ variables, through direnv when it is on
+# PATH. Fails when uv is missing.
+notify_run() {
+    command -v uv >/dev/null 2>&1 || return 1
+    local cmd=(uv run --quiet "$HARNESS_DIR/notify.py" "$@")
+    if command -v direnv >/dev/null 2>&1; then
+        cmd=(direnv exec "$PRIMARY" "${cmd[@]}")
+    fi
+    env DIRENV_LOG_FORMAT= ${TELEGRAM_ENV[@]+"${TELEGRAM_ENV[@]}"} "${cmd[@]}" </dev/null
+}
+
+# A notify call never stops the loop and never changes an exit code.
+notify() {
+    [ -n "$NOTIFY_ON" ] || return 0
+    notify_run "$@" || true
+}
+
+NOTIFY_ON=""
+if notify_run check >/dev/null 2>&1; then
+    NOTIFY_ON=1
+fi
+
 # The configuration, once, after every startup check passed. Never a token.
 print_startup_block() {
     local ship prompt logs timeout
@@ -474,9 +521,37 @@ print_startup_block() {
     echo "=== $AGENT_NAME ($ROLE) ==="
     printf '%-9s%s\n' harness "$LABEL" ship "$ship" prompt "$prompt" \
         logs "$logs" timeout "$timeout" version "$(version_text)"
+    if [ -n "$NOTIFY_ON" ]; then echo "notifications on"; else echo "notifications off"; fi
     echo ""
 }
 print_startup_block
+
+# The snapshot of the bead states before a session: in the session log folder,
+# or in a temporary file that the stop removes.
+NOTIFY_TMP=""
+SNAPSHOT=""
+if [ -z "$NOTIFY_ON" ]; then
+    :
+elif [ -n "${LOOP_STREAM_LOG:-}" ]; then
+    SNAPSHOT="${LOOP_LOG_DIR:-/tmp/loop-sessions}/notify-snapshot.json"
+else
+    NOTIFY_TMP=$(mktemp "${TMPDIR:-/tmp}/loop-notify.XXXXXX")
+    SNAPSHOT="$NOTIFY_TMP"
+fi
+
+# One message when the loop stops, from Ctrl-C or an error. A hard kill sends
+# nothing.
+on_exit() {
+    local code=$?
+    trap - EXIT
+    notify send "$AGENT_NAME loop stopped (exit $code)"
+    [ -z "$NOTIFY_TMP" ] || rm -f "$NOTIFY_TMP"
+    exit "$code"
+}
+trap on_exit EXIT
+
+# Sessions in a row that exited non-zero, not counting timeouts.
+FAILED_SESSIONS=0
 
 # The busy reason printed last, so a wait prints its reason once, not every 30s.
 LAST_BUSY=""
@@ -545,6 +620,9 @@ while true; do
     HELD=$(bd list --assignee="$AGENT_NAME" --status=in_progress --json 2>/dev/null \
                | jq -r '.[].id // empty' 2>/dev/null | tr '\n' ' ') || HELD=""
 
+    if [ -n "$SNAPSHOT" ] && [ -n "${LOOP_STREAM_LOG:-}" ]; then mkdir -p "$(dirname "$SNAPSHOT")"; fi
+    notify snapshot "$SNAPSHOT"
+
     echo ""
     echo "=== $(date '+%Y-%m-%d %H:%M:%S') === $AGENT_NAME ($ROLE) on $LABEL: session starts ==="
     echo "=================================================="
@@ -607,6 +685,18 @@ while true; do
     fi
     if [ -n "$SESSION_LOG" ]; then
         record_cost "$SESSION_LOG" "$HELD"
+    fi
+    notify report "$SNAPSHOT" --agent "$AGENT_NAME"
+    if [ "$SESSION_EXIT" -eq 124 ]; then
+        HELD_TEXT="${HELD% }"
+        notify send "$AGENT_NAME session timed out after $SESSION_TIMEOUT on ${HELD_TEXT:-no bead}"
+    elif [ "$SESSION_EXIT" -eq 0 ]; then
+        FAILED_SESSIONS=0
+    else
+        FAILED_SESSIONS=$((FAILED_SESSIONS + 1))
+        if [ "$FAILED_SESSIONS" -eq 3 ]; then
+            notify send "$AGENT_NAME: 3 sessions in a row failed, last exit $SESSION_EXIT"
+        fi
     fi
     echo "=== $(date '+%Y-%m-%d %H:%M:%S') === Session ended ==="
     echo ""

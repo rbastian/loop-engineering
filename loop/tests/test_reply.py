@@ -645,3 +645,58 @@ def test_main_logs_no_token_when_telegram_is_down(tmp_path, home):
     assert "getUpdates" in out
     assert TOKEN not in out
     assert "SECRET" not in out
+
+
+# lpe-de2: a reply counts only for the newest decision message of its bead.
+
+OUT_OF_DATE = (
+    "demo lpe-s1: this message is out of date;"
+    " reply to the newest message for this bead."
+)
+
+
+def test_a_reply_to_an_older_decision_message_changes_nothing(
+    telegram, home, bd, project, reader
+):
+    bd.add("lpe-s1", "escalated")
+    record(home, 90, "lpe-s1", project, "escalated")
+    record(home, 91, "lpe-s1", project, "escalated")
+    telegram.updates = [update(1, "old answer", reply_to=90)]
+    reader().poll()
+    assert bd.calls() == []
+    assert bd.bead("lpe-s1")["assignee"] == HUMAN
+    assert answers(telegram) == [(OUT_OF_DATE, 501)]
+
+
+def test_a_reply_to_the_newest_decision_message_is_accepted(
+    telegram, home, bd, project, reader
+):
+    bd.add("lpe-s1", "escalated")
+    record(home, 90, "lpe-s1", project, "escalated")
+    record(home, 91, "lpe-s1", project, "escalated")
+    telegram.updates = [update(1, "new answer", reply_to=91)]
+    reader().poll()
+    assert bd.bead("lpe-s1")["assignee"] == "Ralph"
+    assert answers(telegram) == [("demo lpe-s1: note added, assigned to Ralph.", 501)]
+
+
+def test_a_newer_message_of_another_project_does_not_make_a_reply_out_of_date(
+    telegram, home, bd, project, reader
+):
+    bd.add("lpe-s1", "escalated")
+    record(home, 90, "lpe-s1", project, "escalated")
+    reply.notify.append_line(
+        home / ".local/state/loop-telegram/sent.jsonl",
+        {
+            "message_id": 95,
+            "chat_id": CHAT,
+            "project": "other",
+            "primary": "/p/other",
+            "bead": "lpe-s1",
+            "state": "escalated",
+            "sent_at": "2026-11-14T12:05:00+00:00",
+        },
+    )
+    telegram.updates = [update(1, "answer", reply_to=90)]
+    reader().poll()
+    assert bd.bead("lpe-s1")["assignee"] == "Ralph"

@@ -133,7 +133,7 @@ If its default review method cannot run, the reviewer parks a bead with a "Revie
 | `project.template.md` | The template for `.loop/project.md`, the project overlay. |
 | `interactive.template.md` | The template for the interactive section of `CLAUDE.md` and `AGENTS.md`. The section tells an interactive agent to orient a new person, to refine and assign beads, and not to implement them. |
 | `watch.py` | The watcher. It shows a live session log as one line per tool call. |
-| `notify.py` | The notifier. It sends short Telegram messages to the human about the loop. |
+| `notify.py` | The Telegram send command. `run.sh` calls it to send short messages to the human about the loop. |
 | `reply.py` | The reply reader. It turns the human's Telegram replies to decision messages into bead notes and assignments. |
 | `harness-files` | The one list of the files that `bootstrap.sh` and `update.sh` copy into `.loop/`, one name per line. A new harness file needs one line in this list and no other change. |
 | `../skills/dev-env-setup/scripts/queue.sh` | The queue script. It shows one agent's in-progress, ready and blocked beads. |
@@ -203,14 +203,14 @@ LOOP_LOG_DIR=/tmp/<name>-alice-sessions uv run .loop/watch.py --agent Alice --pr
 
 ### Agent queues
 
-`layout.sh` puts an agent queue above each loop in the loop tab, and the notifier (see [Telegram messages](#telegram-messages)) beside the reviewer queue:
+`layout.sh` puts an agent queue above each loop in the loop tab:
 
 ```text
-+-------------------+----------------+----------+
-| coder queue       | reviewer queue | notifier |
-+-------------------+----------------+----------+
-| coder loop        | reviewer loop             |
-+-------------------+---------------------------+
++-------------------+-------------------+
+| coder queue       | reviewer queue    |
++-------------------+-------------------+
+| coder loop        | reviewer loop     |
++-------------------+-------------------+
 ```
 
 An agent queue shows the beads assigned to one agent. In progress lists the agent's active beads with their `loop` state labels. Ready next lists the unblocked beads that wait for the agent. Waiting lists the agent's blocked beads and their blockers.
@@ -226,18 +226,22 @@ Use your coder or reviewer name in place of Ralph. Leave out `--watch` to print 
 
 ### Telegram messages
 
-`notify.py` sends short Telegram messages, so that the human sees the loop away from the computer. `layout.sh` starts it in the loop tab, in a pane named `notifier` to the right of the reviewer queue. The pane works in the primary checkout. If direnv is on `PATH`, the pane runs `direnv exec . uv run .loop/notify.py`, so that `.envrc` supplies the variables. Otherwise it runs `uv run .loop/notify.py`. If a pane named `notifier` already exists in the workspace, `layout.sh` refuses to start. It polls bd every 30 seconds and sends one message for each change:
+`run.sh` sends short Telegram messages through `notify.py`, so that the human sees the loop away from the computer. No separate process and no pane poll bd. Before each session, `run.sh` runs `notify.py snapshot`, which records the loop state, the round and the assignee of each bead. After the session, it runs `notify.py report --agent <name>`, which sends one message for each bead that the snapshot assigned to that agent and whose loop state changed. A change that the other agent made at the same time is the other agent's to report. The messages go out in bead ID order:
 
 | Event | Message | Sound |
 |---|---|---|
 | A bead enters `loop=escalated` or `loop=parked` | A decision message: the bead ID, the title, the last note and a line that asks for a reply | Yes |
+| A bead that the agent held ends assigned to the human in `loop=escalated` or `loop=parked` with the same state, for example after a second escalation | The same decision message | Yes |
 | A bead enters `loop=blocked` | The bead ID, the title and the last note | Yes |
 | A bead enters `loop=merge` | The bead ID, the title and the pull request URL | Yes |
 | A bead enters `loop=coding`, `loop=review`, `loop=returned` or `loop=done` | The bead ID, the title and the round | No |
-| A bead stays in `loop=coding` or `loop=review` with no update for longer than the stall limit | The bead ID, the title and the time since the last update | Yes |
-| The `run.sh` process of an agent stops | The agent name | Yes |
+| A session runs longer than `LOOP_SESSION_TIMEOUT` | `<agent> session timed out after <limit> on <bead>` | Yes |
+| 3 sessions in a row exit with an error, not counting timeouts | `<agent>: 3 sessions in a row failed, last exit <code>`, once until a session exits 0 | Yes |
+| The loop stops, for example after Ctrl-C or a startup error | `<agent> loop stopped (exit <code>)` | Yes |
 
-The notifier sends each stall message once, until the state of the bead changes. At start, it records the current states and sends nothing for them, so a restart does not send old events again. The stall limit is 2 hours, the default session timeout of `run.sh`. `--stall` changes it, for example `--stall 90m`. If a send fails, the notifier logs the error and sends the message again at the next poll, in the original order. If Telegram answers with `retry_after`, the notifier sends nothing until that time passes. The notifier reads no replies. `reply.py` reads them, see [Telegram replies](#telegram-replies).
+The last note skips the `Session cost:` notes. Each message starts with the project name and is plain text. A bead gets one message per session at most. A hard kill of `run.sh` sends nothing. If a send fails, `notify.py` tries again after 5 seconds, or after the `retry_after` time that Telegram gives, up to 60 seconds. After the third failed try, it logs one line and drops the message. `notify.py` always exits 0, so a failed message never stops the loop.
+
+`notify.py` reads no replies. `reply.py` reads them, see [Telegram replies](#telegram-replies).
 
 To turn the messages on, do these steps:
 
@@ -245,13 +249,9 @@ To turn the messages on, do these steps:
 2. Send any message to the new bot, so that the bot gets a chat with you.
 3. Open `https://api.telegram.org/bot<token>/getUpdates` in a browser, with your token in place of `<token>`. Copy the number at `message.chat.id`. That number is the chat ID.
 4. Export `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in a git-ignored `.envrc` in the primary checkout. If direnv is installed, run `direnv allow` once in the primary checkout, so that `direnv exec` loads the file. Without direnv, export the two variables in the shell that starts herdr.
-5. Start `layout.sh`, or run the notifier by hand from the primary checkout:
+5. Restart both loops. The startup block of `run.sh` shows `notifications on` when `notify.py check` reaches the bot, and `notifications off` otherwise.
 
-   ```bash
-   direnv exec . uv run .loop/notify.py
-   ```
-
-If either variable is not set, the notifier prints that notifications are off and exits 0. The bot token is part of each request URL. The notifier never prints the token, a request URL or a raw error. For a failed request, it logs only the method, the HTTP status and the Telegram error code and description. Do not commit the token, and do not paste it into a bead.
+`run.sh` runs `notify.py` with `direnv exec <primary checkout>` when direnv is on `PATH`, so that `.envrc` supplies the variables. Otherwise it runs `uv run .loop/notify.py` with the variables from its own environment. `run.sh` removes every `TELEGRAM_` variable from the environment of the agent sessions. If either variable is not set, `notify.py` sends nothing and prints nothing. The bot token is part of each request URL. `notify.py` never prints the token, a request URL or a raw error. For a dropped message, it logs only the method, the HTTP status and the Telegram error code and description. Do not commit the token, and do not paste it into a bead.
 
 ### Telegram replies
 
@@ -260,15 +260,15 @@ A decision message opens the reply box on the phone. Reply to the message with y
 - If the reply starts with `<coder>:` or `<reviewer>:`, in any case, that agent gets the bead, and the note leaves out the name.
 - Otherwise, an escalated bead goes to the coder. A parked bead goes to the reviewer if the reviewer parked it with "Review not run", and to the coder otherwise.
 
-The reader answers each reply with one line, for example `demo lpe-abc: note added, assigned to Ralph.` If the bead no longer waits for a decision, or a message is not a reply to a decision message, the reader changes nothing and says so. It ignores messages from any chat or user other than `TELEGRAM_CHAT_ID`. The assignment uses `--if-assignee=<human>`, so it does not take a bead that someone already moved.
+The reader answers each reply with one line, for example `demo lpe-abc: note added, assigned to Ralph.` If the bead no longer waits for a decision, or a message is not a reply to a decision message, the reader changes nothing and says so. A reply to an older decision message of a bead gets the answer `<project> <bead>: this message is out of date; reply to the newest message for this bead.` and changes nothing. It ignores messages from any chat or user other than `TELEGRAM_CHAT_ID`. The assignment uses `--if-assignee=<human>`, so it does not take a bead that someone already moved.
 
-One reader serves every repository that uses the same bot, because Telegram lets only one reader confirm the replies of a bot. Each notifier records its decision messages in `~/.local/state/loop-telegram/sent.jsonl`, and the reader finds each bead and its primary checkout there. `layout.sh` does not start the reader. Start it by hand from the primary checkout of any project that has the harness, with the same two variables as the notifier:
+One reader serves every repository that uses the same bot, because Telegram lets only one reader confirm the replies of a bot. `notify.py` records each decision message that it sends in `~/.local/state/loop-telegram/sent.jsonl`, and the reader finds each bead and its primary checkout there. `layout.sh` does not start the reader. Start it by hand from the primary checkout of any project that has the harness, with the same two variables:
 
 ```bash
 direnv exec . uv run .loop/reply.py
 ```
 
-A lock file stops a second reader: it prints that a reader already runs and exits 1. The reader saves its position in `~/.local/state/loop-telegram/offset`, so a restart does not apply a reply twice. Telegram keeps a reply for 24 hours. If the reader is down for longer, the reply is lost, and you must answer from the terminal. If either variable is not set, the reader prints that replies are off and exits 0. Like the notifier, it never prints the token.
+A lock file stops a second reader: it prints that a reader already runs and exits 1. The reader saves its position in `~/.local/state/loop-telegram/offset`, so a restart does not apply a reply twice. Telegram keeps a reply for 24 hours. If the reader is down for longer, the reply is lost, and you must answer from the terminal. If either variable is not set, the reader prints that replies are off and exits 0. Like `notify.py`, it never prints the token.
 
 ### run.sh variables
 
@@ -314,6 +314,7 @@ prompt   .loop/REVIEWER.md + .loop/project.md
 logs     /tmp/loop-alice
 timeout  2h
 version  b7e1166 (up to date)
+notifications on
 ```
 
 The rows have these values:
@@ -327,6 +328,7 @@ The rows have these values:
 | `logs` | `LOOP_LOG_DIR`, or `off` without `LOOP_STREAM_LOG`. |
 | `timeout` | `LOOP_SESSION_TIMEOUT`, or `none` for `0`. |
 | `version` | The short commit from `HARNESS_VERSION`, with `up to date` or the drift text. `unknown` without a stamp. |
+| `notifications` | `notifications on` when `notify.py check` reaches the Telegram bot at start, `notifications off` otherwise. See [Telegram messages](#telegram-messages). |
 
 A path inside the primary checkout (`PRIMARY` in the overlay) shows relative to it. Every other path shows in full. The block never shows `GH_TOKEN` or an API key. `LOOP_PRINT_PROMPT=1` prints only the prompt, without the block.
 
