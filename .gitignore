@@ -8,3 +8,6 @@ __pycache__/
 .beads-credential-key
 .beads/proxieddb/
 *.gate.lock*
+
+# Local secrets loaded by direnv
+.envrc
