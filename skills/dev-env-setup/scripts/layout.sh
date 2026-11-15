@@ -92,6 +92,7 @@ done
 
 # One line when the clone has newer commits on loop/ than the installed harness.
 # The check never stops the layout.
+HARNESS_PATHS=$(harness_paths "$PROJECT/.loop")
 drift_line "$PROJECT/.loop/HARNESS_VERSION" || true
 
 if herdr tab list --workspace "$HERDR_WORKSPACE_ID" \

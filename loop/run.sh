@@ -357,12 +357,25 @@ pin_github_account() {
 }
 pin_github_account
 
-# The files that update.sh installs, as paths in the loop-engineering clone:
-# FILES in skills/dev-env-setup/scripts/update.sh, plus interactive.template.md,
-# which update.sh renders into CLAUDE.md and AGENTS.md. Only a commit that
-# changes one of them counts as drift. A test keeps this list in step with
-# update.sh.
-HARNESS_PATHS="loop/run.sh loop/watch.py loop/prices.json loop/CODER.md loop/REVIEWER.md loop/interactive.template.md"
+# The paths in the loop-engineering clone whose commits count as drift:
+# loop/<name> for each line of harness-files beside run.sh, plus
+# loop/interactive.template.md, which update.sh renders into CLAUDE.md and
+# AGENTS.md. Without the list (an install from before loop/harness-files),
+# every commit under loop/ counts. The same function is in
+# skills/dev-env-setup/scripts/lib.sh.
+harness_paths() {
+    local name list=loop/interactive.template.md
+    [ -f "$1/harness-files" ] || {
+        echo loop
+        return 0
+    }
+    while read -r name || [ -n "$name" ]; do
+        case "$name" in '' | '#'*) continue ;; esac
+        list="$list loop/$name"
+    done <"$1/harness-files"
+    echo "$list"
+}
+HARNESS_PATHS=$(harness_paths "$HARNESS_DIR")
 
 # One line when the loop-engineering clone has newer commits on the installed
 # files than this harness. HARNESS_VERSION beside run.sh names the clone and
