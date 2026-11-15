@@ -54,3 +54,21 @@ def test_a_queue_pane_anywhere_in_the_workspace_stops_the_layout(tmp_path):
     assert not any(
         record[0] in ("tab", "split") for record in operation_records(tmp_path)
     )
+
+
+def test_the_loop_tab_has_no_notifier_pane(tmp_path):
+    """run.sh sends the Telegram messages, so no pane runs notify.py (lpe-de2)."""
+    result, _ = run_layout(
+        tmp_path,
+        [],
+        panes=[{"pane_id": "old", "tab_id": "another-tab", "label": "notifier"}],
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    records = operation_records(tmp_path)
+    renames = [r[2] for r in records if r[0] == "rename"]
+    assert "notifier" not in renames
+    assert len(renames) == 7
+    assert not any("notify.py" in r[2] for r in records if r[0] == "run")
+    assert "notifier" not in result.stdout
+    assert "notifier" not in LAYOUT.read_text().lower()
