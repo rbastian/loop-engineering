@@ -5,11 +5,11 @@ copy of loop/) and a scratch project with an install in .loop/ or ralph/. The
 scripts run under /bin/bash, which is bash 3.2 on macOS.
 """
 
-import re
 import shutil
 import subprocess
 from pathlib import Path
 
+from _loop_toml import write_loop_toml, write_uv
 from test_bootstrap_interactive import BEGIN, END
 
 ROOT = Path(__file__).parents[2]
@@ -86,21 +86,22 @@ def rendered_section(clone: Path) -> str:
     return fill((clone / "loop/interactive.template.md").read_text(), **NAMES)
 
 
-def project_md(clone: Path, project: Path) -> str:
-    return fill(
-        (clone / "loop/project.template.md").read_text(),
-        PRIMARY=str(project),
-        CODER_WORKTREE=f"{project}-bob",
-        REVIEWER_WORKTREE=f"{project}-carol",
-        SHIP_MODE="pr",
-        GITHUB_ACCOUNT="dana-gh",
-        CODER_ENGINE="claude",
-        CODER_MODEL="",
-        REVIEWER_ENGINE="claude",
-        REVIEWER_MODEL="",
-        BEAD_PREFIX="demo",
-        **NAMES,
-    )
+def project_md(clone: Path) -> str:
+    return fill((clone / "loop/project.template.md").read_text(), **NAMES)
+
+
+def loop_toml_values(project: Path) -> dict[str, str]:
+    return {
+        "project.primary": str(project),
+        "project.bead_prefix": "demo",
+        "project.human": NAMES["HUMAN"],
+        "ship.mode": "pr",
+        "ship.github_account": "dana-gh",
+        "coder.name": NAMES["CODER"],
+        "coder.worktree": f"{project}-bob",
+        "reviewer.name": NAMES["REVIEWER"],
+        "reviewer.worktree": f"{project}-carol",
+    }
 
 
 CLAUDE_HEAD = "# My Project\n\nIntro text.\n\n"
@@ -117,7 +118,8 @@ def make_project(tmp_path: Path, clone: Path, install: str = ".loop") -> Path:
     harness.mkdir()
     for f in FILES:
         shutil.copy2(clone / "loop" / f, harness / f)
-    (harness / "project.md").write_text(project_md(clone, project))
+    (harness / "project.md").write_text(project_md(clone))
+    write_loop_toml(harness / "loop.toml", loop_toml_values(project))
     stamp = f"commit={git(clone, 'rev-parse', 'HEAD')}\nclone={clone}\n"
     (harness / "HARNESS_VERSION").write_text(stamp)
     (project / "CLAUDE.md").write_text(
@@ -142,10 +144,12 @@ def advance_clone(clone: Path) -> str:
 def run_update(
     tmp_path: Path, clone: Path, project: Path, *args: str
 ) -> subprocess.CompletedProcess:
+    bin_dir = tmp_path / "update-bin"
+    write_uv(bin_dir)
     return subprocess.run(
         ["/bin/bash", str(UPDATE), str(project), *args],
         env={
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PATH": f"{bin_dir}:/usr/bin:/bin:/usr/sbin:/sbin",
             "HOME": str(tmp_path),
             "LOOP_HOME": str(clone),
             **GIT_ENV,
@@ -325,38 +329,30 @@ def test_refuses_a_dirty_clone(tmp_path):
     assert "Commit or stash" in result.stdout
 
 
-def test_refuses_a_missing_key_and_says_what_it_means(tmp_path):
+def test_refuses_an_invalid_loop_toml_with_its_key_paths(tmp_path):
     clone = make_clone(tmp_path)
     project = make_project(tmp_path, clone)
-    md = project / ".loop/project.md"
-    md.write_text(
-        "".join(
-            line
-            for line in md.read_text().splitlines(keepends=True)
-            if not line.startswith("GITHUB_ACCOUNT=")
-        )
+    write_loop_toml(
+        project / ".loop/loop.toml",
+        {**loop_toml_values(project), "ship.github_account": "", "coder.name": None},
     )
     advance_clone(clone)
     before = snapshot(project)
     result = run_update(tmp_path, clone, project)
     assert_refused(result, before, project)
-    assert "GITHUB_ACCOUNT" in result.stdout
-    assert "the GitHub account that" in result.stdout
+    assert ".loop/loop.toml is not valid" in result.stdout
+    assert "loop.toml: coder.name: missing required key" in result.stdout
+    assert "loop.toml: ship.github_account: must be set in pr mode" in result.stdout
 
 
-def test_every_template_key_has_a_meaning(tmp_path):
+def test_refuses_a_missing_loop_toml_without_key_value_lines(tmp_path):
     clone = make_clone(tmp_path)
     project = make_project(tmp_path, clone)
-    (project / ".loop/project.md").write_text("# Project\n")
+    (project / ".loop/loop.toml").unlink()
+    before = snapshot(project)
     result = run_update(tmp_path, clone, project)
-    assert result.returncode == 1
-    template = (clone / "loop/project.template.md").read_text()
-    keys = re.findall(r"^([A-Z][A-Z0-9_]*)=", template, re.MULTILINE)
-    assert len(keys) == 13
-    for key in keys:
-        lines = [line for line in result.stdout.splitlines() if f"{key}:" in line]
-        assert lines, key
-        assert "loop/project.template.md" not in lines[0], lines[0]
+    assert_refused(result, before, project)
+    assert "loop.toml: cannot read the file" in result.stdout
 
 
 def test_refuses_a_local_edit_and_shows_its_diff(tmp_path):
@@ -524,20 +520,6 @@ def test_a_failed_check_stops_before_the_move(tmp_path):
     assert_refused(result, before, project)
     assert (project / "ralph/run.sh").is_file()
     assert not (project / ".loop").exists()
-
-
-def test_refuses_a_key_that_still_holds_a_placeholder(tmp_path):
-    clone = make_clone(tmp_path)
-    project = make_project(tmp_path, clone)
-    md = project / ".loop/project.md"
-    md.write_text(
-        md.read_text().replace("BEAD_PREFIX=demo", "BEAD_PREFIX={{BEAD_PREFIX}}")
-    )
-    advance_clone(clone)
-    before = snapshot(project)
-    result = run_update(tmp_path, clone, project)
-    assert_refused(result, before, project)
-    assert "placeholder: BEAD_PREFIX" in result.stdout
 
 
 # lpe-gas: loop/harness-files is the one list of installed files.
