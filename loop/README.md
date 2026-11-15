@@ -387,9 +387,9 @@ The rows have these values:
 
 | Row | Value |
 |---|---|
-| title | The agent name and its role. If the name equals `CODER` in the overlay, the role is `coder`. If it equals `REVIEWER`, the role is `reviewer`. Otherwise, the role is `unknown role`. |
+| title | The agent name and its role. If the name equals `coder.name` in `.loop/loop.toml`, the role is `coder`. If it equals `reviewer.name`, the role is `reviewer`. Otherwise, the role is `unknown role`. |
 | `harness` | The label in the same form as the watcher: `cc/<model>` on `claude`, `codex/<model>` on `codex` (`codex/codex default` with no model), and `cc@fw/<model>` on `fw`. |
-| `ship` | `pr, as <GITHUB_ACCOUNT>` in `pr` mode, `local` in `local` mode, and `unknown` with no `SHIP_MODE`. |
+| `ship` | `pr, as <GITHUB_ACCOUNT>` in `pr` mode, and `local` in `local` mode. |
 | `prompt` | The prompt file and the overlay file. If `LOOP_OVERLAY=none`, the value is `+ no overlay`. |
 | `logs` | `LOOP_LOG_DIR`, or `off` without `LOOP_STREAM_LOG`. |
 | `timeout` | `LOOP_SESSION_TIMEOUT`, or `none` for `0`. |

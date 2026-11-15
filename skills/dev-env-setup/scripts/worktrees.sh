@@ -26,7 +26,7 @@ cd "$PROJECT"
 
 if [ "$SHIP_MODE" = pr ] && ! git remote get-url origin >/dev/null 2>&1; then
     echo "ERROR: ship mode is pr, but the repository has no origin remote"
-    echo "Hint: add one (gh repo create, or git remote add origin <url>), or set mode = "local" under [ship] in .loop/loop.toml."
+    echo "Hint: add one (gh repo create, or git remote add origin <url>), or set mode = \"local\" under [ship] in .loop/loop.toml."
     exit 1
 fi
 

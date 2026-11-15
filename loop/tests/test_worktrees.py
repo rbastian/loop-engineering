@@ -90,6 +90,16 @@ def test_a_missing_loop_toml_stops_with_a_hint(tmp_path):
     assert "==> commit" not in result.stdout
 
 
+def test_pr_mode_without_origin_hints_valid_toml(tmp_path):
+    project = make_project(
+        tmp_path, {"ship.mode": "pr", "ship.github_account": "someone"}
+    )
+    result = run_worktrees(tmp_path, project)
+    assert result.returncode == 1
+    assert 'set mode = "local" under [ship]' in result.stdout
+    assert "==> commit" not in result.stdout
+
+
 def test_a_valid_loop_toml_creates_both_worktrees(tmp_path):
     project = make_project(tmp_path, {})
     result = run_worktrees(tmp_path, project)
