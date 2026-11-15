@@ -818,3 +818,71 @@ def test_a_missing_variable_turns_every_subcommand_off(
     assert result.stdout == ""
     assert result.stderr == ""
     assert json.loads((tmp_path / "snap.json").read_text()) == {}
+
+
+# lpe-qqv 7. Without agent names, the decision message names no agent.
+
+
+def test_a_decision_message_without_agent_names_leaves_out_start_with():
+    project = notify.Project(name="demo", primary="/p/demo", prefix="lpe", human=HUMAN)
+    message = notify.decision_message(project, "lpe-u9 escalated")
+    assert message["text"] == "demo: lpe-u9 escalated\nReply to this message to answer."
+    assert "Start with" not in message["text"]
+
+
+def test_the_project_without_agent_names_has_no_agents(tmp_path):
+    (tmp_path / ".loop").mkdir()
+    (tmp_path / ".loop/project.md").write_text(f"HUMAN={HUMAN}\nCODER=\n")
+    assert notify.load_project(tmp_path).agents == []
+
+
+# lpe-qqv 8. A bad bd record is skipped with one log line.
+
+BAD_RECORDS = [
+    ({"title": "no id", "labels": ["loop:review"]}, "without an id"),
+    ({"id": "", "labels": []}, "without an id"),
+    ({"id": 7, "labels": []}, "without an id"),
+    ("lpe-not-a-dict", "without an id"),
+    ({"id": "lpe-bad1", "labels": "loop:review"}, "lpe-bad1: malformed labels"),
+    ({"id": "lpe-bad2", "labels": [1, "loop:review"]}, "lpe-bad2: malformed labels"),
+]
+
+
+@pytest.mark.parametrize(("bad", "said"), BAD_RECORDS)
+def test_a_bad_record_is_skipped_by_the_snapshot_with_one_log_line(bad, said, capsys):
+    good = bead("lpe-ok1", "review", assignee="Alice")
+    assert notify.snapshot_of([bad, good], "lpe") == {
+        "lpe-ok1": {"loop": "review", "round": None, "assignee": "Alice"}
+    }
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert len(lines) == 1
+    assert said in lines[0]
+
+
+@pytest.mark.parametrize(("bad", "said"), BAD_RECORDS)
+def test_a_bad_record_is_skipped_by_the_report_with_one_log_line(bad, said, capsys):
+    coding = {"loop": "coding", "round": None, "assignee": "Ralph"}
+    snapshot = {"lpe-ok1": coding, "lpe-bad1": coding, "lpe-bad2": coding}
+    after = [bad, bead("lpe-ok1", "review", assignee="Alice")]
+    out = notify.report_messages(PROJECT, snapshot, after, "Ralph")
+    assert texts_of(out) == ["demo: lpe-ok1 review\nDo a thing"]
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert len(lines) == 1
+    assert said in lines[0]
+
+
+def test_a_bad_record_does_not_end_the_report_command(
+    tmp_path, project_dir, fake_bd, env_on, telegram, capsys
+):
+    fake_bd.set({"title": "no id"}, bead("lpe-a1", "coding", round_=1))
+    snap = tmp_path / "snap.json"
+    assert run_main(project_dir, "snapshot", str(snap)) == 0
+    fake_bd.set(
+        {"id": "lpe-x9", "labels": "oops"},
+        bead("lpe-a1", "review", round_=1, assignee="Alice"),
+    )
+    assert run_main(project_dir, "report", str(snap), "--agent", "Ralph") == 0
+    assert telegram.texts() == ["demo: lpe-a1 review (round 1)\nDo a thing"]
+    out = capsys.readouterr().out
+    assert "without an id" in out
+    assert "lpe-x9: malformed labels" in out

@@ -45,7 +45,7 @@ def test_the_escalated_route_covers_every_case_of_the_design():
     route = escalated_route()
     # Code changes go to the coder, and the state stays escalated.
     assert (
-        'bd note <id> "Decision from $HUMAN needs code changes: routed to $CODER"'
+        'bd note <id> "Routed to $CODER: the decision from $HUMAN needs code changes"'
         in route
     )
     assert 'bd update <id> --assignee="$CODER"' in route
@@ -82,3 +82,22 @@ def test_the_docs_describe_the_reply_reader():
         assert "one reader" in text.lower()
         assert "It reads no replies." not in text
     assert "`reply.py`" in LOOP_README
+
+
+# lpe-qqv: no note that the reviewer writes starts with the human's decision prefix.
+
+
+def test_no_reviewer_note_starts_with_the_decision_prefix():
+    notes = re.findall(r'bd note <id> "([^"]*)"', REVIEWER)
+    assert notes
+    assert not [n for n in notes if n.startswith("Decision from")]
+    routed = "Routed to $CODER: the decision from $HUMAN needs code changes"
+    assert REVIEWER.count(routed) == 2
+    assert "needs code changes: routed to" not in REVIEWER + LOOP_README
+
+
+def test_the_docs_say_replies_work_only_in_the_private_chat():
+    replies = section(LOOP_README, "Telegram replies")
+    assert "only in the private chat with the bot" in replies
+    assert "from.id" in replies
+    assert "Group chats" in replies

@@ -142,6 +142,7 @@ class Reply:
     result: object = None
     retry_after: int | None = None
     error: str = ""
+    status: int | None = None
 
 
 class Telegram:
@@ -162,7 +163,8 @@ class Telegram:
         self.log = log
         self.timeout = timeout
 
-    def call(self, method: str, payload: dict) -> Reply:
+    def call(self, method: str, payload: dict, *, quiet: bool = False) -> Reply:
+        """One Bot API call. A failure logs its error line unless QUIET."""
         request = urllib.request.Request(
             f"{self.base}/bot{self._token}/{method}",
             data=json.dumps(payload).encode(),
@@ -180,7 +182,8 @@ class Telegram:
                 raw = b""
         except Exception as err:  # noqa: BLE001 - its text can hold the URL
             error = f"{method} failed: network error ({type(err).__name__})"
-            self.log(error)
+            if not quiet:
+                self.log(error)
             return Reply(ok=False, error=error)
         try:
             body = json.loads(raw)
@@ -195,11 +198,15 @@ class Telegram:
             f" error_code {body.get('error_code', '-')}:"
             f" {body.get('description', 'no description')}"
         )
-        self.log(error)
+        if not quiet:
+            self.log(error)
         parameters = body.get("parameters")
         retry = parameters.get("retry_after") if isinstance(parameters, dict) else None
         return Reply(
-            ok=False, retry_after=retry if isinstance(retry, int) else None, error=error
+            ok=False,
+            retry_after=retry if isinstance(retry, int) else None,
+            error=error,
+            status=status,
         )
 
     def check(self) -> bool:
@@ -264,10 +271,29 @@ def load_project(path: Path) -> Project:
     )
 
 
+def well_formed(bead: object) -> bool:
+    """False, with one log line, for a bd record without an id or with
+    labels that are not a list of strings."""
+    bead_id = bead.get("id") if isinstance(bead, dict) else None
+    if not bead_id or not isinstance(bead_id, str):
+        log_line("skipped a bd record without an id")
+        return False
+    labels = bead.get("labels")
+    if labels is not None and not (
+        isinstance(labels, list) and all(isinstance(label, str) for label in labels)
+    ):
+        log_line(f"skipped {bead_id}: malformed labels")
+        return False
+    return True
+
+
 def ours(beads: list[dict], prefix: str) -> list[dict]:
-    if not prefix:
-        return beads
-    return [b for b in beads if str(b.get("id", "")).startswith(f"{prefix}-")]
+    """The well-formed beads of the project."""
+    return [
+        b
+        for b in beads
+        if well_formed(b) and (not prefix or b["id"].startswith(f"{prefix}-"))
+    ]
 
 
 def snapshot_of(beads: list[dict], prefix: str) -> dict[str, dict]:
@@ -293,8 +319,10 @@ def plain_message(project: Project, text: str, *, silent: bool = False) -> dict:
 def decision_message(project: Project, text: str) -> dict:
     """A message that asks the human for a reply. A long note is cut before
     the reply line, so that the line always goes out."""
-    names = " or ".join(f"{agent}:" for agent in project.agents)
-    ask = f"Reply to this message to answer. Start with {names} to choose the agent."
+    ask = "Reply to this message to answer."
+    if project.agents:
+        names = " or ".join(f"{agent}:" for agent in project.agents)
+        ask += f" Start with {names} to choose the agent."
     body = truncate(f"{project.name}: {text}", MAX_LENGTH - len(ask) - 1)
     return {
         "text": f"{body}\n{ask}",
