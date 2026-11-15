@@ -55,9 +55,8 @@ POLL_TIMEOUT = 30
 # The HTTP timeout must be longer than the long-poll timeout.
 HTTP_TIMEOUT = 40
 # The wait after a failed getUpdates without retry_after. Repeated HTTP 409
-# answers double it up to CONFLICT_MAX_SECONDS.
+# answers double it up to notify.RETRY_AFTER_MAX.
 RETRY_SECONDS = 5
-CONFLICT_MAX_SECONDS = 60
 # The size of each read when sent.jsonl is read from the end.
 BLOCK_SIZE = 65536
 ASK = "Reply to a decision message to answer a bead."
@@ -179,10 +178,6 @@ def record_head(record: dict) -> str:
     return f"{record.get('project', '?')} {record.get('bead', '')}"
 
 
-def empty_answer(record: dict) -> str:
-    return f"{record_head(record)}: reply with text."
-
-
 class Reader:
     def __init__(
         self,
@@ -244,21 +239,23 @@ class Reader:
         """The wait after a failed getUpdates: retry_after when Telegram gives
         it, else a back-off for HTTP 409, else RETRY_SECONDS. A run of 409
         answers logs one line."""
+        backoff = RETRY_SECONDS
         if result.status == 409:
             self.conflicts += 1
             if self.conflicts == 1:
                 self.log(
                     f"{result.error}. Another reader or a webhook takes the"
-                    f" updates; trying again after up to {CONFLICT_MAX_SECONDS}"
+                    f" updates; trying again after up to {notify.RETRY_AFTER_MAX}"
                     " seconds"
                 )
+            backoff = min(
+                RETRY_SECONDS * 2 ** (self.conflicts - 1), notify.RETRY_AFTER_MAX
+            )
         else:
             self.log(result.error)
         if result.retry_after is not None:
             return max(result.retry_after, 0)
-        if result.status == 409:
-            return min(RETRY_SECONDS * 2 ** (self.conflicts - 1), CONFLICT_MAX_SECONDS)
-        return RETRY_SECONDS
+        return backoff
 
     def answer(self, message: dict, text: str) -> None:
         self.telegram.send(
@@ -288,11 +285,7 @@ class Reader:
                 " is out of date; reply to the newest message for this bead.",
             )
             return
-        text = message.get("text") or ""
-        if not text.strip():
-            self.answer(message, empty_answer(record))
-            return
-        self.answer(message, self.decide(record, text))
+        self.answer(message, self.decide(record, message.get("text") or ""))
 
     def decide(self, record: dict, text: str) -> str:
         """Write the decision into the bead. The answer to send back."""
@@ -305,6 +298,8 @@ class Reader:
                 f"{head}: .loop/project.md in {primary} has no"
                 f" {', '.join(missing)}. Nothing changed."
             )
+        if not choose_agent(text, names, "", str)[1].strip():
+            return f"{head}: reply with text."
         human = names["HUMAN"]
         try:
             records = json.loads(run_bd(["show", bead_id, "--json"], primary))
@@ -329,8 +324,6 @@ class Reader:
             )
         except (BdFailed, ValueError) as err:
             return f"{head}: bd list failed: {err}. Nothing changed."
-        if not note.strip():
-            return empty_answer(record)
         try:
             run_bd(
                 ["note", bead_id, f"Decision from {human} (Telegram): {note}"],

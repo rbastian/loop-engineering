@@ -861,9 +861,8 @@ def test_a_bad_record_is_skipped_by_the_snapshot_with_one_log_line(bad, said, ca
 
 @pytest.mark.parametrize(("bad", "said"), BAD_RECORDS)
 def test_a_bad_record_is_skipped_by_the_report_with_one_log_line(bad, said, capsys):
-    snapshot = {"lpe-ok1": {"loop": "coding", "round": None, "assignee": "Ralph"}}
-    if isinstance(bad, dict) and isinstance(bad.get("id"), str) and bad["id"]:
-        snapshot[bad["id"]] = {"loop": "coding", "round": None, "assignee": "Ralph"}
+    coding = {"loop": "coding", "round": None, "assignee": "Ralph"}
+    snapshot = {"lpe-ok1": coding, "lpe-bad1": coding, "lpe-bad2": coding}
     after = [bad, bead("lpe-ok1", "review", assignee="Alice")]
     out = notify.report_messages(PROJECT, snapshot, after, "Ralph")
     assert texts_of(out) == ["demo: lpe-ok1 review\nDo a thing"]
