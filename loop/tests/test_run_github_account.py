@@ -1,6 +1,6 @@
 """loop/run.sh pins the GitHub account that the agents use in pr mode (lpe-e52).
 
-project.md names the account in GITHUB_ACCOUNT. At start, run.sh gets that
+loop.toml names the account in ship.github_account. At start, run.sh gets that
 account's token from gh, exports it as GH_TOKEN, and, for an SSH origin,
 checks that ssh -T greets the same account. These tests run run.sh against a
 scratch git repository with stub bd, gh, ssh and claude on PATH, and a fake
@@ -10,7 +10,7 @@ sleep that stops run.sh with SIGTERM after the first loop pause.
 import subprocess
 from pathlib import Path
 
-RUN_SH = Path(__file__).parents[1] / "run.sh"
+from _loop_toml import install_run_sh, write_uv
 
 TOKEN = "gho_stubtoken123"
 STARTED = "session starts ==="
@@ -45,6 +45,7 @@ def run_loop(
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
+    write_uv(bin_dir)
     calls = tmp_path / "calls.log"
     write_exe(
         bin_dir / "bd",
@@ -78,19 +79,18 @@ def run_loop(
     )
 
     prompt_dir = repo / ".loop"
-    prompt_dir.mkdir()
-    (prompt_dir / "CODER.md").write_text("code\n")
-    (prompt_dir / "project.md").write_text(
-        "# Project\n\n```bash\nCODER=Ralph\nREVIEWER=Alice\n```\n\n"
-        f"```bash\nSHIP_MODE={ship_mode}\nGITHUB_ACCOUNT={account}\n```\n"
+    run_sh = install_run_sh(
+        prompt_dir, {"ship.mode": ship_mode, "ship.github_account": account}
     )
+    (prompt_dir / "CODER.md").write_text("code\n")
+    (prompt_dir / "project.md").write_text("# Project\n")
 
     env = {
         "PATH": f"{bin_dir}:/usr/bin:/bin",
         "HOME": str(tmp_path),
     }
     result = subprocess.run(
-        ["bash", str(RUN_SH), "Ralph", ".loop/CODER.md"],
+        ["bash", str(run_sh), "Ralph", ".loop/CODER.md"],
         check=False,
         cwd=repo,
         env=env,
@@ -108,13 +108,13 @@ def output(result: subprocess.CompletedProcess) -> str:
     return result.stdout + result.stderr
 
 
-def test_pr_mode_without_an_account_stops_and_names_project_md(tmp_path):
-    result, token, _ = run_loop(tmp_path, account="")
+def test_pr_mode_without_an_account_stops_and_names_the_key(tmp_path):
+    result, token, calls = run_loop(tmp_path, account="")
     assert result.returncode == 1
     assert STARTED not in result.stdout
-    assert "GITHUB_ACCOUNT" in output(result)
-    assert "project.md" in output(result)
+    assert "loop.toml: ship.github_account: must be set in pr mode" in output(result)
     assert token == ""
+    assert calls == []
 
 
 def test_gh_without_a_token_for_the_account_stops_with_login_hint(tmp_path):

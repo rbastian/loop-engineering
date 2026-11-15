@@ -2,11 +2,11 @@
 
 A scheduled wakeup can keep claude -p alive after its final result. The claude
 and fw engines block ScheduleWakeup and CronCreate. codex has neither tool.
-Each engine runs against a stub that records its arguments, one per line.
+Each engine runs against a stub that records its arguments, one per NUL byte.
 """
 
 import pytest
-from test_run_fw import DISALLOWED_TOOL_ARGS, lines_of, setup_fw
+from test_run_fw import DISALLOWED_TOOL_ARGS, args_of, setup_fw
 from test_run_watchdog import run_loop, setup_loop, write_exe
 
 
@@ -20,14 +20,14 @@ def test_engine_tool_restrictions(tmp_path, engine):
         env["LOOP_ENGINE"] = engine
         write_exe(
             tmp_path / "bin" / engine,
-            'printf \'%s\\n\' "$@" >"$WORK/agent.args"\n',
+            'printf \'%s\\0\' "$@" >"$WORK/agent.args"\n',
         )
         args_path = tmp_path / "agent.args"
 
     result = run_loop(tmp_path, env)
 
     assert f"{engine} exited with 0" in result.stdout, result.stdout + result.stderr
-    args = lines_of(args_path)
+    args = args_of(args_path)
     if engine == "codex":
         assert "--disallowedTools" not in args
         return
