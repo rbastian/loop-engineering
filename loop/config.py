@@ -29,17 +29,15 @@ DEFAULT_FILE = Path(__file__).resolve().parent / "loop.toml"
 
 REQUIRED = object()
 
+# The keys of [coder] and [reviewer]. Only their allowed engines differ.
+ROLE = {"name": REQUIRED, "engine": "claude", "model": "", "worktree": REQUIRED}
+
 # table -> key -> default (REQUIRED for a required key).
 SCHEMA = {
     "project": {"primary": REQUIRED, "bead_prefix": REQUIRED, "human": REQUIRED},
     "ship": {"mode": REQUIRED, "github_account": ""},
-    "coder": {"name": REQUIRED, "engine": "claude", "model": "", "worktree": REQUIRED},
-    "reviewer": {
-        "name": REQUIRED,
-        "engine": "claude",
-        "model": "",
-        "worktree": REQUIRED,
-    },
+    "coder": ROLE,
+    "reviewer": ROLE,
 }
 
 ALLOWED = {

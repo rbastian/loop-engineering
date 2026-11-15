@@ -1,9 +1,12 @@
 """loop/config.py: read and check .loop/loop.toml (lpe-umq.1)."""
 
 import importlib.util
+import io
 import subprocess
 import sys
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -78,12 +81,13 @@ def write(tmp_path: Path, text: str) -> Path:
     return path
 
 
-def run(path: Path, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [sys.executable, str(CONFIG), "--file", str(path), *args],
-        check=False,
-        capture_output=True,
-        text=True,
+def run(path: Path, *args: str) -> SimpleNamespace:
+    """Run config.main in this process, as the command line would."""
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        code = config.main(["--file", str(path), *args])
+    return SimpleNamespace(
+        returncode=code, stdout=out.getvalue(), stderr=err.getvalue()
     )
 
 
@@ -351,6 +355,16 @@ def test_file_option_also_works_after_the_subcommand(tmp_path):
     assert result.returncode == 0, result.stderr
 
 
+@pytest.mark.parametrize(
+    "args", [("check",), ("get", "coder.name"), ("export",), ("roles",)]
+)
+def test_every_subcommand_validates_first(tmp_path, args):
+    result = run(write(tmp_path, VALID + "[extra]\n"), *args)
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == "loop.toml: extra: unknown table\n"
+
+
 # Criterion 4: get.
 
 
@@ -382,12 +396,6 @@ def test_get_unknown_key_exits_1(tmp_path, key):
     assert result.returncode == 1
     assert result.stdout == ""
     assert key in result.stderr
-
-
-def test_get_validates_first(tmp_path):
-    result = run(write(tmp_path, VALID + "[extra]\n"), "get", "coder.name")
-    assert result.returncode == 1
-    assert result.stdout == ""
 
 
 # Criterion 5: export, with eval in bash 3.2.
@@ -432,12 +440,6 @@ def test_export_round_trips_through_bash_3_2_eval(tmp_path):
     ]
 
 
-def test_export_validates_first(tmp_path):
-    result = run(write(tmp_path, VALID + "[extra]\n"), "export")
-    assert result.returncode == 1
-    assert result.stdout == ""
-
-
 # Criterion 6: roles.
 
 
@@ -455,12 +457,6 @@ def test_roles_prints_the_heading_and_one_bash_block(tmp_path):
     assert "HUMAN=Rob Bastian" in body
     assert "PRIMARY=/work/project" in body
     assert "REVIEWER_ENGINE=codex" in body
-
-
-def test_roles_validates_first(tmp_path):
-    result = run(write(tmp_path, VALID + "[extra]\n"), "roles")
-    assert result.returncode == 1
-    assert result.stdout == ""
 
 
 # Criterion 7: the Python API.
@@ -501,12 +497,7 @@ def test_load_raises_config_error_with_the_error_list(tmp_path):
     assert str(info.value) == "\n".join(info.value.errors)
 
 
-# Criterion 8: harness-files.
-
-
-def test_harness_files_lists_config_py():
-    names = (ROOT / "harness-files").read_text().split()
-    assert "config.py" in names
+# Criterion 8: test_update.py pins the harness-files list, with config.py.
 
 
 # Criterion 9: the README.
