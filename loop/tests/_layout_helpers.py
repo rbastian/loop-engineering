@@ -8,6 +8,8 @@ import subprocess
 from itertools import takewhile
 from pathlib import Path
 
+from _loop_toml import values_of, write_loop_toml, write_uv
+
 LAYOUT = Path(__file__).parents[2] / "skills/dev-env-setup/scripts/layout.sh"
 
 FAKE_HERDR = """#!/bin/bash
@@ -60,7 +62,10 @@ def run_layout(
     fw: bool = True,
     panes: list[dict] | None = None,
 ) -> tuple[subprocess.CompletedProcess, dict[str, dict[str, str]]]:
-    """Run layout.sh and return the result and run.sh variables per agent."""
+    """Run layout.sh and return the result and run.sh variables per agent.
+
+    LINES are KEY=value lines, for example CODER_ENGINE=fw. They go into
+    .loop/loop.toml on top of the base values."""
     project = tmp_path / "proj"
     (project / ".loop").mkdir(parents=True)
     trees = {}
@@ -74,10 +79,13 @@ def run_layout(
         f"REVIEWER_WORKTREE={trees['carol']}",
         *lines,
     ]
-    (project / ".loop" / "project.md").write_text("\n".join(overlay) + "\n")
+    write_loop_toml(
+        project / ".loop/loop.toml",
+        {"project.primary": str(project), **values_of(overlay)},
+    )
 
     bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
+    write_uv(bin_dir)
     herdr = bin_dir / "herdr"
     herdr.write_text(FAKE_HERDR)
     herdr.chmod(0o755)

@@ -30,6 +30,30 @@ DEFAULTS = {
 }
 
 
+# The shell name of each key path, as config.py export prints them.
+SHELL_NAMES = {
+    "PRIMARY": "project.primary",
+    "BEAD_PREFIX": "project.bead_prefix",
+    "HUMAN": "project.human",
+    "SHIP_MODE": "ship.mode",
+    "GITHUB_ACCOUNT": "ship.github_account",
+    "CODER": "coder.name",
+    "CODER_ENGINE": "coder.engine",
+    "CODER_MODEL": "coder.model",
+    "CODER_WORKTREE": "coder.worktree",
+    "REVIEWER": "reviewer.name",
+    "REVIEWER_ENGINE": "reviewer.engine",
+    "REVIEWER_MODEL": "reviewer.model",
+    "REVIEWER_WORKTREE": "reviewer.worktree",
+}
+
+
+def values_of(lines: list[str]) -> dict[str, str]:
+    """The key path values of KEY=value lines, for example CODER_MODEL=x."""
+    pairs = (line.split("=", 1) for line in lines)
+    return {SHELL_NAMES[key]: value for key, value in pairs}
+
+
 def toml_text(values: dict[str, str | None] | None = None) -> str:
     """The text of a loop.toml: DEFAULTS with VALUES on top."""
     merged = {**DEFAULTS, **(values or {})}

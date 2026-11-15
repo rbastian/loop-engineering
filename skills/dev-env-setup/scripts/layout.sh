@@ -6,10 +6,12 @@
 #   caller's tab:  coder watcher (1/2)  | reviewer watcher (1/2)       (top third)
 #                  calling pane (2/3)   | Beads (1/3)                  (bottom two thirds)
 # Usage: layout.sh PROJECT_DIR
-# The agent names and worktree paths come from .loop/project.md.
-# CODER_ENGINE, CODER_MODEL, REVIEWER_ENGINE and REVIEWER_MODEL in
-# .loop/project.md pick each agent's CLI and model. The environment variables
-# of the same names override them for one start. The coder runs on claude or
+# The agent names, the worktree paths and the bead prefix come from
+# .loop/loop.toml, through loop/config.py of the clone. layout.sh checks the
+# file first and stops with the error of each key path when it is not valid.
+# The engine and the model of [coder] and [reviewer] pick each agent's CLI and
+# model. The environment variables CODER_ENGINE, CODER_MODEL, REVIEWER_ENGINE
+# and REVIEWER_MODEL override them for one start. The coder runs on claude or
 # fw, the reviewer on claude, codex or fw. A missing or empty field gives the
 # default: engine claude, model claude-opus-5-5 for the coder and
 # claude-sonnet-5-5 for the reviewer on claude, so the reviewer reviews with a
@@ -24,6 +26,7 @@ if [ "${HERDR_ENV:-}" != 1 ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+LOOP_HOME="${LOOP_HOME:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
 # shellcheck source=lib.sh
 . "$SCRIPT_DIR/lib.sh"
 
@@ -31,34 +34,30 @@ PROJECT="$(cd "${1:?Usage: layout.sh PROJECT_DIR}" && pwd)"
 NAME="$(basename "$PROJECT")"
 LABEL="$NAME loop"
 
-# One KEY=value line from the overlay; bootstrap.sh wrote them.
-conf() { key_value "$PROJECT/.loop/project.md" "$1"; }
 lower() { tr '[:upper:]' '[:lower:]' <<<"$1"; }
 
-CODER="$(conf CODER)"
-REVIEWER="$(conf REVIEWER)"
-CODER_TREE="$(conf CODER_WORKTREE)"
-REVIEWER_TREE="$(conf REVIEWER_WORKTREE)"
-for v in CODER REVIEWER CODER_TREE REVIEWER_TREE; do
-    case "${!v}" in "" | *"{{"*) echo "ERROR: $v is not set in .loop/project.md"; exit 1 ;; esac
+# The environment overrides the engines and the models for one start. Keep
+# its values before the values of loop.toml replace them.
+for v in CODER_ENGINE CODER_MODEL REVIEWER_ENGINE REVIEWER_MODEL; do
+    printf -v "ENV_$v" '%s' "${!v:-}"
 done
+load_loop_config "$PROJECT/.loop/loop.toml" || exit 1
+CODER_TREE="$CODER_WORKTREE"
+REVIEWER_TREE="$REVIEWER_WORKTREE"
 
 # Set ROLE_ENGINE and ROLE_MODEL for ROLE (CODER or REVIEWER). CLAUDE_MODEL
-# is the role's default model on claude. A model in .loop/project.md belongs
+# is the role's default model on claude. A model in .loop/loop.toml belongs
 # to the engine in that file, so an engine override in the environment does
 # not take it. Usage: pick_engine ROLE CLAUDE_MODEL
 pick_engine() {
     local engine_var="${1}_ENGINE" model_var="${1}_MODEL"
-    local file_engine file_model engine model
-    file_engine="$(conf "$engine_var")"
-    file_engine="${file_engine:-claude}"
-    file_model="$(conf "$model_var")"
-    engine="${!engine_var:-$file_engine}"
-    model="${!model_var:-}"
+    local env_engine="ENV_${1}_ENGINE" env_model="ENV_${1}_MODEL"
+    local file_engine="${!engine_var}" file_model="${!model_var}" engine model
+    engine="${!env_engine:-$file_engine}"
+    model="${!env_model}"
     if [ -z "$model" ] && [ "$engine" = "$file_engine" ]; then
         model="$file_model"
     fi
-    case "$engine $model" in *"{{"*) echo "ERROR: $engine_var or $model_var is not set in .loop/project.md"; exit 1 ;; esac
     check_engine "" "$1" "$engine" "$model" || exit 1
     case "$engine" in
         claude) model="${model:-$2}" ;;
@@ -74,12 +73,6 @@ pick_engine() {
 }
 pick_engine CODER claude-opus-5-5
 pick_engine REVIEWER claude-sonnet-5-5
-
-# The watchers match only this project's bead IDs. An overlay written before
-# BEAD_PREFIX existed has no such line, and watch.py then matches any prefix.
-BEAD_PREFIX="$(conf BEAD_PREFIX)"
-case "$BEAD_PREFIX" in *"{{"*) echo "ERROR: BEAD_PREFIX is not set in .loop/project.md"; exit 1 ;; esac
-PREFIX_ARG="${BEAD_PREFIX:+ --prefix $BEAD_PREFIX}"
 
 # Per-project log directories, so two projects never share a current.jsonl.
 # The names do not end in "<agent>-sessions", so the watchers get --agent.
@@ -146,9 +139,10 @@ herdr pane rename "$CODER_WATCH" "$CODER watcher" >/dev/null
 herdr pane rename "$REVIEWER_WATCH" "$REVIEWER watcher" >/dev/null
 herdr pane rename "$BEADS_PANE" "Beads" >/dev/null
 
-# Watchers first: they wait for current.jsonl, so nothing is missed.
-herdr pane run "$CODER_WATCH" "LOOP_LOG_DIR=$CODER_LOG uv run .loop/watch.py --agent $CODER$PREFIX_ARG --tui" >/dev/null
-herdr pane run "$REVIEWER_WATCH" "LOOP_LOG_DIR=$REVIEWER_LOG uv run .loop/watch.py --agent $REVIEWER$PREFIX_ARG --tui" >/dev/null
+# Watchers first: they wait for current.jsonl, so nothing is missed. They
+# match only this project's bead IDs.
+herdr pane run "$CODER_WATCH" "LOOP_LOG_DIR=$CODER_LOG uv run .loop/watch.py --agent $CODER --prefix $BEAD_PREFIX --tui" >/dev/null
+herdr pane run "$REVIEWER_WATCH" "LOOP_LOG_DIR=$REVIEWER_LOG uv run .loop/watch.py --agent $REVIEWER --prefix $BEAD_PREFIX --tui" >/dev/null
 
 # The beads list redraws only when it changes. bd list takes about 0.6 s, so a
 # loop that clears first leaves the pane blank on every cycle. bd turns color

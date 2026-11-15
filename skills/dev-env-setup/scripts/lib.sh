@@ -112,10 +112,61 @@ write_stamp() {
     } >"$1"
 }
 
-# One KEY=value line of FILE, a stamp or .loop/project.md. Prints nothing
-# when it has none. Usage: key_value FILE KEY
+# One KEY=value line of FILE, a stamp such as .loop/HARNESS_VERSION. Prints
+# nothing when it has none. Usage: key_value FILE KEY
 key_value() {
     sed -n "s/^$2=//p" "$1" 2>/dev/null | head -1
+}
+
+# Run loop/config.py of the clone at LOOP_HOME. Usage: config_py ARGS...
+config_py() {
+    uv run --quiet "$LOOP_HOME/loop/config.py" "$@"
+}
+
+# Set the shell variables that config.py export prints (CODER, REVIEWER,
+# HUMAN, SHIP_MODE, CODER_WORKTREE and the others) from FILE, a loop.toml.
+# When FILE is not valid, config.py prints each error with its key path, and
+# the function prints one more line and fails. Usage: load_loop_config FILE
+load_loop_config() {
+    local values
+    if ! values=$(config_py --file "$1" export); then
+        echo "ERROR: $1 is not valid; fix the errors above"
+        return 1
+    fi
+    eval "$values"
+}
+
+# The shell names of the values in loop.toml, as an extended regular
+# expression for a KEY=value line of an old .loop/project.md.
+LOOP_KEYS_RE='CODER|REVIEWER|HUMAN|CODER_ENGINE|CODER_MODEL|REVIEWER_ENGINE|REVIEWER_MODEL|BEAD_PREFIX|SHIP_MODE|GITHUB_ACCOUNT|PRIMARY|CODER_WORKTREE|REVIEWER_WORKTREE'
+
+# Print one TOML table: the [TABLE] line, then KEY = "value" for each
+# VARIABLE=KEY pair whose shell variable is set. An unset variable leaves its
+# key out, so that config.py applies the default or reports the missing key.
+# Usage: toml_table TABLE VARIABLE=KEY...
+toml_table() {
+    local pair var
+    echo "[$1]"
+    shift
+    for pair in "$@"; do
+        var="${pair%%=*}"
+        [ -n "${!var+x}" ] || continue
+        printf '%s = "%s"\n' "${pair#*=}" "$(printf '%s' "${!var}" | sed 's/[\\"]/\\&/g')"
+    done
+}
+
+# Write FILE, a loop.toml, from the shell variables that config.py export
+# names. Usage: write_loop_toml FILE
+write_loop_toml() {
+    {
+        toml_table project PRIMARY=primary BEAD_PREFIX=bead_prefix HUMAN=human
+        echo
+        toml_table ship SHIP_MODE=mode GITHUB_ACCOUNT=github_account
+        echo
+        toml_table coder CODER=name CODER_ENGINE=engine CODER_MODEL=model CODER_WORKTREE=worktree
+        echo
+        toml_table reviewer REVIEWER=name REVIEWER_ENGINE=engine REVIEWER_MODEL=model REVIEWER_WORKTREE=worktree
+    } >"$1"
 }
 
 # The names in a harness-files list, on one line with one space between
@@ -164,7 +215,7 @@ drift_line() {
     echo "harness is $count behind loop-engineering; run update.sh"
 }
 
-# Succeeds when MODEL is safe to write into .loop/project.md and into a pane
+# Succeeds when MODEL is safe to write into .loop/loop.toml and into a pane
 # command: letters, digits and . _ : / @ - [ ], for example
 # deepseek-flash-latest[1m]. An empty MODEL passes. Usage: valid_model MODEL
 valid_model() {
