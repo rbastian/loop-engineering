@@ -554,6 +554,7 @@ def test_the_list_names_every_harness_file_and_itself():
             "CODER.md",
             "REVIEWER.md",
             "harness-files",
+            "config.py",
         ]
     )
 

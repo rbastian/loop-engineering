@@ -135,6 +135,7 @@ If its default review method cannot run, the reviewer parks a bead with a "Revie
 | `watch.py` | The watcher. It shows a live session log as one line per tool call. |
 | `notify.py` | The Telegram send command. `run.sh` calls it to send short messages to the human about the loop. |
 | `reply.py` | The reply reader. It turns the human's Telegram replies to decision messages into bead notes and assignments. |
+| `config.py` | The one reader of `.loop/loop.toml`, the local configuration. It checks the file and prints its values. See [Configuration](#configuration). |
 | `harness-files` | The one list of the files that `bootstrap.sh` and `update.sh` copy into `.loop/`, one name per line. A new harness file needs one line in this list and no other change. |
 | `../skills/dev-env-setup/scripts/queue.sh` | The queue script. It shows one agent's in-progress, ready and blocked beads. |
 | `tests/` | Tests for `watch.py`, `run.sh`, the setup scripts and the prompts. |
@@ -155,6 +156,57 @@ These variables control the overlay:
 - `LOOP_OVERLAY` points `run.sh` at another overlay file.
 - `LOOP_OVERLAY=none` runs the prompt with no overlay.
 - `LOOP_PRINT_PROMPT=1` prints the combined prompt and exits. Use it to check an overlay.
+
+## Configuration
+
+`.loop/loop.toml` is the local configuration of the loop. It holds the facts that differ between machines: the paths, the agent names, the engines, the models and the ship mode. `config.py` is the one script that reads it. No script reads `loop.toml` yet. A later change switches `run.sh`, `notify.py` and `reply.py` to it.
+
+The schema:
+
+```toml
+[project]
+primary = "/path/to/project"        # required
+bead_prefix = "lpe"                 # required
+human = "Rob Bastian"               # required: the bd assignee for the human's queues
+
+[ship]
+mode = "pr"                         # required: pr or local
+github_account = "rbastian"         # required in pr mode, empty or absent in local mode
+
+[coder]
+name = "Ralph"                      # required: the bd assignee that the coder's loop polls for
+engine = "claude"                   # claude or fw, default claude
+model = "claude-opus-5-5"           # default "", the engine's default model
+worktree = "/path/to/project-ralph" # required
+
+[reviewer]
+name = "Alice"                      # required
+engine = "claude"                   # claude, codex or fw, default claude
+model = "claude-sonnet-5-5"         # default ""
+worktree = "/path/to/project-alice" # required
+```
+
+Every path must be absolute. `config.py` reports an error for each of these problems:
+
+- An unknown table or key, or a missing required key.
+- An engine or a ship mode outside its allowed values.
+- A value that is not a string, or a value that contains `{{`.
+- Engine `fw` with an empty model.
+- An empty `github_account` in `pr` mode, or a `github_account` in `local` mode.
+- A relative path.
+- The same name for the coder and the reviewer.
+- A TOML syntax error, with its line number.
+
+Each error names the key path, for example `loop.toml: coder.engine: must be claude or fw (got: codex)`. One run prints every error, not only the first.
+
+The subcommands:
+
+- `config.py check` exits 0 and prints nothing if the file is valid. Otherwise it prints the errors and exits 1.
+- `config.py get <table.key>` prints one value, with its default applied. An unknown key exits 1.
+- `config.py export` prints one shell assignment per line, for `eval` in bash 3.2. The names are `PRIMARY`, `BEAD_PREFIX`, `HUMAN`, `SHIP_MODE`, `GITHUB_ACCOUNT`, `CODER`, `CODER_ENGINE`, `CODER_MODEL`, `CODER_WORKTREE`, `REVIEWER`, `REVIEWER_ENGINE`, `REVIEWER_MODEL` and `REVIEWER_WORKTREE`. Each value is in single quotes.
+- `config.py roles` prints a `## Roles and paths` heading and one bash code block with the same names and unquoted values. `run.sh` will add this block to each prompt.
+
+Each subcommand checks the file first and exits 1 if the file is not valid. By default, `config.py` reads `loop.toml` in its own directory. `--file <path>` reads another file. A Python script can call `load(path)`, which returns the values with defaults applied or raises `ConfigError`. The `errors` attribute of `ConfigError` holds the list of error lines.
 
 ## Install in a project
 
