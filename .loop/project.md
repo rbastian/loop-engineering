@@ -14,10 +14,10 @@ Do not change `.loop/`. It is the installed copy that runs this loop, and the hu
 CODER=Ralph
 REVIEWER=Alice
 HUMAN=Rob Bastian
-CODER_ENGINE=fw
-CODER_MODEL=accounts/fireworks/models/kimi-k3p1-pro[1m]
-REVIEWER_ENGINE=fw
-REVIEWER_MODEL=glm-fast-latest[1m]
+CODER_ENGINE=claude
+CODER_MODEL=claude-opus-5-5
+REVIEWER_ENGINE=claude
+REVIEWER_MODEL=claude-sonnet-5-5
 BEAD_PREFIX=lpe
 ```
 
