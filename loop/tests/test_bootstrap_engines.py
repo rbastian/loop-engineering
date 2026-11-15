@@ -1,10 +1,11 @@
 """bootstrap.sh writes the engine and the model of each agent (lpe-6v6.3).
 
 LOOP_CODER_ENGINE, LOOP_CODER_MODEL, LOOP_REVIEWER_ENGINE and
-LOOP_REVIEWER_MODEL go into .loop/project.md. The coder runs on claude or fw,
+LOOP_REVIEWER_MODEL go into .loop/loop.toml. The coder runs on claude or fw,
 the reviewer on claude, codex or fw. fw has no default model.
 """
 
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -13,21 +14,20 @@ from test_bootstrap_interactive import run_bootstrap
 SKILL = Path(__file__).parents[2] / "skills/dev-env-setup/SKILL.md"
 
 
+def roles(project: Path) -> dict:
+    values = tomllib.loads((project / ".loop" / "loop.toml").read_text())
+    return {role: values[role] for role in ("coder", "reviewer")}
+
+
 def test_defaults_write_claude_and_empty_models(tmp_path):
     project = tmp_path / "proj"
     run_bootstrap(tmp_path, project)
-    text = (project / ".loop" / "project.md").read_text()
-    for line in (
-        "CODER_ENGINE=claude",
-        "CODER_MODEL=",
-        "REVIEWER_ENGINE=claude",
-        "REVIEWER_MODEL=",
-    ):
-        assert f"\n{line}\n" in text
-    assert "{{" not in text.split("## Ship mode")[0].split("```bash")[1]
+    for role in roles(project).values():
+        assert role["engine"] == "claude"
+        assert role["model"] == ""
 
 
-def test_fw_engines_and_models_go_into_project_md(tmp_path):
+def test_fw_engines_and_models_go_into_loop_toml(tmp_path):
     project = tmp_path / "proj"
     run_bootstrap(
         tmp_path,
@@ -40,11 +40,11 @@ def test_fw_engines_and_models_go_into_project_md(tmp_path):
         },
         extra_stubs=("fw",),
     )
-    text = (project / ".loop" / "project.md").read_text()
-    assert "\nCODER_ENGINE=fw\n" in text
-    assert "\nCODER_MODEL=deepseek-flash-latest[1m]\n" in text
-    assert "\nREVIEWER_ENGINE=fw\n" in text
-    assert "\nREVIEWER_MODEL=kimi-latest\n" in text
+    values = roles(project)
+    assert values["coder"]["engine"] == "fw"
+    assert values["coder"]["model"] == "deepseek-flash-latest[1m]"
+    assert values["reviewer"]["engine"] == "fw"
+    assert values["reviewer"]["model"] == "kimi-latest"
 
 
 def test_codex_for_the_coder_is_rejected(tmp_path):
@@ -59,6 +59,7 @@ def test_codex_for_the_coder_is_rejected(tmp_path):
     assert result.returncode == 1
     assert "LOOP_CODER_ENGINE" in result.stdout
     assert not (project / ".loop" / "project.md").exists()
+    assert not (project / ".loop" / "loop.toml").exists()
 
 
 @pytest.mark.parametrize("role", ["CODER", "REVIEWER"])

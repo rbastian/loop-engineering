@@ -291,13 +291,18 @@ class Reader:
         """Write the decision into the bead. The answer to send back."""
         bead_id, primary = record.get("bead", ""), record.get("primary", "")
         head = record_head(record)
-        names = notify.read_overlay(Path(primary) / ".loop/project.md")
-        missing = [k for k in ("CODER", "REVIEWER", "HUMAN") if not names.get(k)]
-        if missing:
+        try:
+            values = notify.config.load(Path(primary) / ".loop/loop.toml")
+        except notify.config.ConfigError as err:
             return (
-                f"{head}: .loop/project.md in {primary} has no"
-                f" {', '.join(missing)}. Nothing changed."
+                f"{head}: .loop/loop.toml in {primary} is not valid:"
+                f" {'; '.join(err.errors)}. Nothing changed."
             )
+        names = {
+            "CODER": values["coder"]["name"],
+            "REVIEWER": values["reviewer"]["name"],
+            "HUMAN": values["project"]["human"],
+        }
         if not choose_agent(text, names, "", str)[1].strip():
             return f"{head}: reply with text."
         human = names["HUMAN"]

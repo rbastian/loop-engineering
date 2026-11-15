@@ -2,6 +2,8 @@
 
 This section gives the facts about this project. The prompt above refers to it as "the Project section". The prompt also uses names that this section defines, for example "the gate", `$PRIMARY` and `$CODER`.
 
+The values of the names, the paths and the ship mode are in `.loop/loop.toml` on each machine, not in this file. `run.sh` adds them at the end of this section, in the "Roles and paths" block.
+
 ## What the project is
 
 {{One paragraph: what the project is and who uses it}}.
@@ -10,27 +12,11 @@ This section gives the facts about this project. The prompt above refers to it a
 
 ## Roles
 
-```bash
-CODER={{CODER}}
-REVIEWER={{REVIEWER}}
-HUMAN={{HUMAN}}
-CODER_ENGINE={{CODER_ENGINE}}
-CODER_MODEL={{CODER_MODEL}}
-REVIEWER_ENGINE={{REVIEWER_ENGINE}}
-REVIEWER_MODEL={{REVIEWER_MODEL}}
-BEAD_PREFIX={{BEAD_PREFIX}}
-```
-
 `$CODER` is the agent that implements beads. `$REVIEWER` is the agent that reviews them. Each name is the bead assignee that the agent's loop polls for. `$HUMAN` is the bd assignee for the human's queues: merge approval, acceptance and escalation. `BEAD_PREFIX` is the prefix of every bead ID in this project, and the watchers match bead IDs with it.
 
 `CODER_ENGINE` is the CLI that the coder's loop runs on: `claude` or `fw`. The coder needs Claude Code, because its prompt uses the `/simplify` skill, and `fw` is a launcher that runs Claude Code on a Fireworks model. `CODER_MODEL` is the coder's model for its engine. `REVIEWER_ENGINE` is the CLI that the reviewer's loop runs on: `claude`, `codex` or `fw`. `REVIEWER_MODEL` is the reviewer's model for its engine. An empty model gives the default of the engine: `claude-opus-5-5` for the coder on `claude`, `claude-sonnet-5-5` for the reviewer on `claude`, and the plan's default model on `codex`. `fw` has no default, so an agent on `fw` must have a model, for example `deepseek-flash-latest[1m]`.
 
 ## Ship mode
-
-```bash
-SHIP_MODE={{SHIP_MODE}}
-GITHUB_ACCOUNT={{GITHUB_ACCOUNT}}
-```
 
 `SHIP_MODE` is `pr` or `local`. `pr` is the default. `$CODER` pushes each branch to `origin` and opens a pull request against `main`. `$REVIEWER` reviews the branch and comments on the pull request. `$HUMAN` approves and merges it. `$BASE` is `origin/main`.
 
@@ -48,12 +34,6 @@ This list is the only place that says what each role can do on the GitHub remote
 - No agent pushes to `main`, creates or deletes tags or releases, changes the repository settings, or closes a pull request that another author opened.
 
 ## Paths
-
-```bash
-PRIMARY={{PRIMARY}}
-CODER_WORKTREE={{CODER_WORKTREE}}
-REVIEWER_WORKTREE={{REVIEWER_WORKTREE}}
-```
 
 `PRIMARY` is the primary checkout, which belongs to `$HUMAN`. `CODER_WORKTREE` is the worktree of `$CODER`. `REVIEWER_WORKTREE` is the worktree of `$REVIEWER`.
 

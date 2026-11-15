@@ -10,6 +10,8 @@ import hashlib
 import subprocess
 from pathlib import Path
 
+from _loop_toml import uv_body
+
 ROOT = Path(__file__).parents[2]
 BOOTSTRAP = ROOT / "skills/dev-env-setup/scripts/bootstrap.sh"
 TEMPLATE = ROOT / "loop/interactive.template.md"
@@ -18,8 +20,11 @@ END = "<!-- END LOOP INTERACTIVE -->"
 BEADS = "<!-- BEGIN BEADS INTEGRATION -->"
 
 STUBS = {
-    # uv init --help must mention --bare; every other call succeeds.
-    "uv": 'case "$1 $2" in "init --help") echo "--bare" ;; "init "*) touch pyproject.toml ;; esac\n',
+    # uv init --help must mention --bare; config.py runs; every other call
+    # succeeds.
+    "uv": uv_body(
+        'case "$1 $2" in "init --help") echo "--bare" ;; "init "*) touch pyproject.toml ;; esac\n'
+    ),
     "bd": """case "$1 $2" in
   "init "*) for f in CLAUDE.md AGENTS.md; do
       [ -f "$f" ] || printf '# Agent Instructions\\n' >"$f"
@@ -127,8 +132,8 @@ def test_empty_folder_gets_the_section_before_the_beads_block(tmp_path):
         assert section(text) == fill("Bob", "Carol", "Dana")
         assert text.index("# Agent Instructions\n") < text.index(BEGIN)
         assert text.index(END) < text.index(BEADS)
-    project_md = (project / ".loop" / "project.md").read_text()
-    assert "\nGITHUB_ACCOUNT=dana-gh\n" in project_md
+    loop_toml = (project / ".loop" / "loop.toml").read_text()
+    assert '\ngithub_account = "dana-gh"\n' in loop_toml
 
 
 def test_second_run_changes_nothing(tmp_path):
@@ -187,14 +192,14 @@ def test_pr_mode_without_a_github_account_stops(tmp_path):
     assert result.returncode == 1
     assert "LOOP_GITHUB_ACCOUNT" in result.stdout + result.stderr
     assert not (project / ".loop" / "project.md").exists()
+    assert not (project / ".loop" / "loop.toml").exists()
 
 
 def test_local_mode_writes_an_empty_github_account(tmp_path):
     project = tmp_path / "proj"
     run_bootstrap(tmp_path, project, {"LOOP_SHIP_MODE": "local"})
-    text = (project / ".loop" / "project.md").read_text()
-    assert "\nGITHUB_ACCOUNT=\n" in text
-    assert "{{GITHUB_ACCOUNT}}" not in text
+    text = (project / ".loop" / "loop.toml").read_text()
+    assert '\nmode = "local"\ngithub_account = ""\n' in text
 
 
 def test_interactive_section_has_the_remote_rule():

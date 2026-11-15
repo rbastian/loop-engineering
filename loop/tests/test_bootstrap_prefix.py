@@ -10,12 +10,11 @@ from test_bootstrap_interactive import run_bootstrap
 
 
 @pytest.mark.parametrize("prefix", ["my-app", "my_app", "app2", "abc"])
-def test_a_valid_prefix_goes_into_project_md(tmp_path, prefix):
+def test_a_valid_prefix_goes_into_loop_toml(tmp_path, prefix):
     project = tmp_path / "proj"
     run_bootstrap(tmp_path, project, prefix=prefix)
-    text = (project / ".loop" / "project.md").read_text()
-    assert f"\nBEAD_PREFIX={prefix}\n" in text
-    assert "{{BEAD_PREFIX}}" not in text
+    text = (project / ".loop" / "loop.toml").read_text()
+    assert f'\nbead_prefix = "{prefix}"\n' in text
 
 
 @pytest.mark.parametrize(
