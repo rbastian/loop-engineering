@@ -3,8 +3,9 @@
 run.sh takes a snapshot of the bead states before each session and reports
 the changes after it. It sends one message when a session times out, one when
 three sessions in a row fail, and one when the loop stops. These tests copy
-run.sh into a fake .loop/ folder beside a fake notify.py, which logs each call.
-A fake uv runs the script it gets, and a fake direnv logs its folder. A fake
+run.sh, config.py and a valid loop.toml into a fake .loop/ folder beside a fake
+notify.py, which logs each call. A fake uv runs config.py with Python and every
+other script as it is, and a fake direnv logs its folder. A fake
 claude takes its exit codes from a file, and a fake sleep stops run.sh after
 a set number of 30-second pauses.
 """
@@ -16,7 +17,8 @@ import subprocess
 import time
 from pathlib import Path
 
-from test_run_watchdog import RUN_SH, wait_for, write_exe
+from _loop_toml import install_run_sh, uv_body
+from test_run_watchdog import wait_for, write_exe
 
 ROOT = Path(__file__).parents[2]
 TOKEN = "123456:SECRET-token-value"
@@ -31,8 +33,7 @@ def setup(tmp_path: Path, codes: list[str], stop_after: int = 1) -> dict[str, st
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     harness = tmp_path / "primary/.loop"
-    harness.mkdir(parents=True)
-    shutil.copy(RUN_SH, harness / "run.sh")
+    install_run_sh(harness)
     write_exe(
         harness / "notify.py",
         'echo "$*" >>"$WORK/notify.log"\n'
@@ -40,10 +41,7 @@ def setup(tmp_path: Path, codes: list[str], stop_after: int = 1) -> dict[str, st
         'if [ "$1" = check ]; then exit "$(cat "$WORK/check-exit" 2>/dev/null || echo 0)"; fi\n'
         'exit "$(cat "$WORK/notify-exit" 2>/dev/null || echo 0)"\n',
     )
-    write_exe(
-        bin_dir / "uv",
-        '[ "$1" = run ] && shift\n[ "$1" = --quiet ] && shift\nexec "$@"\n',
-    )
+    write_exe(bin_dir / "uv", uv_body('exec "$@"\n'))
     write_exe(
         bin_dir / "bd",
         'case "$*" in\n'
@@ -262,13 +260,13 @@ def test_the_startup_block_says_notifications_off_when_the_check_fails(tmp_path)
     assert calls(tmp_path) == ["check", "session"]
 
 
-def test_without_uv_notifications_are_off(tmp_path):
+def test_without_uv_the_loop_stops_before_any_call(tmp_path):
     env = setup(tmp_path, ["0"])
     (tmp_path / "bin/uv").unlink()
     result = run(tmp_path, env)
-    assert "notifications off" in result.stdout.split("\n\n", 1)[0].splitlines()
-    assert calls(tmp_path) == ["session"]
-    assert "claude exited with 0" in result.stdout
+    assert result.returncode == 1
+    assert "ERROR: uv is required" in result.stdout
+    assert calls(tmp_path) == []
 
 
 def test_the_docs_say_that_run_sh_sends_the_messages():

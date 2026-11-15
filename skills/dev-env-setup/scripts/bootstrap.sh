@@ -5,7 +5,8 @@
 #   PROJECT_DIR  — the primary checkout (created if missing)
 #   BEAD_PREFIX  — lowercase letters, digits, - and _, starting with a letter
 #   DEV_PACKAGE  — extra dev dependencies on top of ruff and pytest
-# These go into .loop/project.md, where worktrees.sh and layout.sh read them back:
+# These go into .loop/loop.toml, where run.sh, worktrees.sh and layout.sh read
+# them back through loop/config.py:
 #   LOOP_CODER     — the coder agent's name (default: Ralph)
 #   LOOP_REVIEWER   — the reviewer agent's name (default: Alice)
 #   LOOP_HUMAN      — the bd assignee who approves merges (default: $USER)
@@ -257,7 +258,8 @@ rm -f "$SECTION"
 step "harness"
 mkdir -p .loop
 # CODER.md and REVIEWER.md hold only the loop protocol, so they copy unchanged.
-# The project facts go in .loop/project.md, which run.sh appends to each prompt.
+# The project prose goes in .loop/project.md, and the values in .loop/loop.toml.
+# run.sh appends both to each prompt.
 KEPT=0
 for f in $FILES; do
     if [ -f ".loop/$f" ]; then
@@ -285,21 +287,27 @@ else
         echo "WARNING: loop/ in $LOOP_HOME has uncommitted changes; the stamp says dirty=1, and update.sh will ask for --force"
     fi
 fi
+if [ -f .loop/loop.toml ]; then
+    echo ".loop/loop.toml exists; keeping it"
+    config_py --file .loop/loop.toml check || exit 1
+else
+    PRIMARY="$PROJECT"
+    BEAD_PREFIX="$PREFIX"
+    CODER_WORKTREE="$PARENT/$NAME-$(lower "$CODER")"
+    REVIEWER_WORKTREE="$PARENT/$NAME-$(lower "$REVIEWER")"
+    write_loop_toml .loop/loop.toml
+    if ! config_py --file .loop/loop.toml check; then
+        rm -f .loop/loop.toml
+        echo "ERROR: the values above do not make a valid .loop/loop.toml; wrote none"
+        exit 1
+    fi
+    echo "wrote .loop/loop.toml for $NAME: $CODER codes, $REVIEWER reviews, $HUMAN merges, ship mode $SHIP_MODE${GITHUB_ACCOUNT:+ as $GITHUB_ACCOUNT}, coder on $CODER_ENGINE${CODER_MODEL:+ ($CODER_MODEL)}, reviewer on $REVIEWER_ENGINE${REVIEWER_MODEL:+ ($REVIEWER_MODEL)}"
+fi
 if [ -f .loop/project.md ]; then
     echo ".loop/project.md exists; keeping it"
 else
-    fill_names "$HARNESS/project.template.md" "$CODER" "$REVIEWER" "$HUMAN" | sed \
-        -e "s#{{PRIMARY}}#$PROJECT#g" \
-        -e "s#{{CODER_WORKTREE}}#$PARENT/$NAME-$(lower "$CODER")#g" \
-        -e "s#{{REVIEWER_WORKTREE}}#$PARENT/$NAME-$(lower "$REVIEWER")#g" \
-        -e "s#{{SHIP_MODE}}#$SHIP_MODE#g" \
-        -e "s#{{GITHUB_ACCOUNT}}#$GITHUB_ACCOUNT#g" \
-        -e "s#{{CODER_ENGINE}}#$CODER_ENGINE#g" \
-        -e "s#{{CODER_MODEL}}#$CODER_MODEL#g" \
-        -e "s#{{REVIEWER_ENGINE}}#$REVIEWER_ENGINE#g" \
-        -e "s#{{REVIEWER_MODEL}}#$REVIEWER_MODEL#g" \
-        -e "s#{{BEAD_PREFIX}}#$PREFIX#g" >.loop/project.md
-    echo "wrote .loop/project.md for $NAME: $CODER codes, $REVIEWER reviews, $HUMAN merges, ship mode $SHIP_MODE${GITHUB_ACCOUNT:+ as $GITHUB_ACCOUNT}, coder on $CODER_ENGINE${CODER_MODEL:+ ($CODER_MODEL)}, reviewer on $REVIEWER_ENGINE${REVIEWER_MODEL:+ ($REVIEWER_MODEL)}"
+    fill_names "$HARNESS/project.template.md" "$CODER" "$REVIEWER" "$HUMAN" >.loop/project.md
+    echo "wrote .loop/project.md for $NAME"
 fi
 
 step "gate"

@@ -12,7 +12,7 @@ import subprocess
 import time
 from pathlib import Path
 
-RUN_SH = Path(__file__).parents[1] / "run.sh"
+from _loop_toml import install_run_sh, write_uv
 
 NO_BEADS = "No beads for Ralph"
 
@@ -23,13 +23,16 @@ def write_exe(path: Path, body: str) -> None:
 
 
 def setup_loop(tmp_path: Path, sleep_body: str) -> dict[str, str]:
-    """Write a fake bd with no beads, the given fake sleep and a prompt file.
+    """Write a fake bd with no beads, the given fake sleep, a prompt file and
+    a copy of run.sh with a valid loop.toml in .loop/.
 
     Returns the environment for run.sh. The fake sleep counts its calls in
     $SLEEP_COUNT before it runs sleep_body.
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
+    install_run_sh(tmp_path / ".loop")
+    write_uv(bin_dir)
     write_exe(bin_dir / "bd", "echo '[]'\n")
     write_exe(
         bin_dir / "sleep",
@@ -59,7 +62,7 @@ def test_a_killed_sleep_does_not_end_the_loop(tmp_path):
         'case "$n" in\n  1) kill -9 $$ ;;\n  3) kill -TERM $PPID ;;\nesac\n',
     )
     result = subprocess.run(
-        ["bash", str(RUN_SH), "Ralph", "CODER.md"],
+        ["bash", str(tmp_path / ".loop/run.sh"), "Ralph", "CODER.md"],
         check=False,
         cwd=tmp_path,
         env=env,
@@ -75,7 +78,7 @@ def test_ctrl_c_stops_the_loop(tmp_path):
     # The fake shadows sleep on PATH, so the real sleep needs its full path.
     env = setup_loop(tmp_path, "exec /bin/sleep 30\n")
     proc = subprocess.Popen(
-        ["bash", str(RUN_SH), "Ralph", "CODER.md"],
+        ["bash", str(tmp_path / ".loop/run.sh"), "Ralph", "CODER.md"],
         cwd=tmp_path,
         env=env,
         stdout=subprocess.DEVNULL,

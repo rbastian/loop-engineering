@@ -35,7 +35,8 @@ TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID name the bot and the chat. If either
 one is unset, every subcommand exits 0 and prints nothing, except check,
 which exits 1. TELEGRAM_API_URL replaces https://api.telegram.org, for tests.
 --project names the primary checkout; the default is the folder above this
-script's folder.
+script's folder. The names, the bead prefix and the primary checkout come from
+.loop/loop.toml there, through config.py beside this script.
 """
 
 import argparse
@@ -51,6 +52,10 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+
+# The sibling config.py, in loop/ or .loop/.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import config
 
 API_URL = "https://api.telegram.org"
 # Telegram accepts 4096 characters. The margin keeps clear of that limit.
@@ -94,21 +99,6 @@ def append_line(path: Path, record: dict) -> None:
         os.write(fd, (json.dumps(record) + "\n").encode())
     finally:
         os.close(fd)
-
-
-def read_overlay(path: Path) -> dict[str, str]:
-    """The KEY=value lines of .loop/project.md. The first line of a key wins,
-    and a {{...}} placeholder counts as no value."""
-    try:
-        lines = path.read_text().splitlines()
-    except OSError:
-        return {}
-    values: dict[str, str] = {}
-    for line in lines:
-        match = re.fullmatch(r"([A-Z_]+)=(.*)", line)
-        if match and "{{" not in match.group(2):
-            values.setdefault(match.group(1), match.group(2))
-    return values
 
 
 class BdError(Exception):
@@ -261,13 +251,21 @@ def default_project() -> Path:
 
 
 def load_project(path: Path) -> Project:
-    overlay = read_overlay(path / ".loop/project.md")
+    """The project in .loop/loop.toml under PATH. run.sh checks the file at
+    start, so a file that is not valid here logs its errors and gives a
+    project with only the name and the primary checkout."""
+    try:
+        values = config.load(path / ".loop/loop.toml")
+    except config.ConfigError as err:
+        for line in err.errors:
+            log_line(line)
+        return Project(name=path.name, primary=str(path))
     return Project(
         name=path.name,
-        primary=overlay.get("PRIMARY") or str(path),
-        prefix=overlay.get("BEAD_PREFIX", ""),
-        human=overlay.get("HUMAN", ""),
-        agents=[overlay[k] for k in ("CODER", "REVIEWER") if overlay.get(k)],
+        primary=values["project"]["primary"],
+        prefix=values["project"]["bead_prefix"],
+        human=values["project"]["human"],
+        agents=[values["coder"]["name"], values["reviewer"]["name"]],
     )
 
 

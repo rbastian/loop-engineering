@@ -6,11 +6,18 @@
 #   --force     — overwrite local edits in the installed files. It skips only
 #                 the local-edit check.
 #
-# Every check runs before any file changes. If one fails, update.sh prints all
-# failures, changes nothing and exits 1. Then it copies the files that the
-# clone's loop/harness-files lists, refreshes the interactive section of
-# CLAUDE.md and AGENTS.md, writes .loop/HARNESS_VERSION and prints the diff. It never changes
-# .loop/project.md (apart from the ralph/ path rewrite), and it commits nothing.
+# First, if .loop/loop.toml does not exist, update.sh migrates the KEY=value
+# lines of an old .loop/project.md into it: it writes loop.toml, checks it
+# with config.py, and removes the lines from project.md. A loop.toml that
+# fails the check is deleted, and project.md does not change. An existing
+# loop.toml is never overwritten.
+#
+# Every other check runs before any other file changes. If one fails,
+# update.sh prints all failures, changes nothing more and exits 1. Then it
+# copies the files that the clone's loop/harness-files lists, refreshes the
+# interactive section of CLAUDE.md and AGENTS.md, writes .loop/HARNESS_VERSION
+# and prints the diff. It changes .loop/project.md only in the migration and
+# in the ralph/ path rewrite, and it commits nothing.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -71,10 +78,73 @@ DIR="$PROJECT/$INSTALL"
 CONF="$DIR/project.md"
 [ -f "$CONF" ] || { echo "ERROR: $CONF not found"; exit 1; }
 
-conf() { key_value "$CONF" "$1"; }
+TOML="$DIR/loop.toml"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+
+# Print CONF without the KEY=value lines of LOOP_KEYS_RE, and without each
+# bash code fence that holds only such lines. A blank line after a removed
+# fence goes too, when the line before the fence is blank. Every other line
+# stays as it is.
+strip_key_lines() {
+    awk -v re="^($LOOP_KEYS_RE)=" '
+        function out(line) { print line; last = line }
+        BEGIN { last = "x" }
+        fence {
+            buf[++nb] = $0
+            if ($0 ~ /^```[[:space:]]*$/) {
+                fence = 0
+                if (kept == 0 && removed > 0) { skip = (last == ""); next }
+                for (j = 1; j <= nb; j++) if (buf[j] !~ re) out(buf[j])
+                next
+            }
+            if ($0 ~ re) removed++; else kept++
+            next
+        }
+        /^```bash[[:space:]]*$/ { fence = 1; nb = 1; buf[1] = $0; kept = 0; removed = 0; skip = 0; next }
+        skip && $0 == "" { skip = 0; next }
+        { skip = 0 }
+        $0 ~ re { next }
+        { out($0) }
+        END { if (fence) for (j = 1; j <= nb; j++) if (buf[j] !~ re) out(buf[j]) }
+    ' "$1"
+}
+
+# Write loop.toml from the KEY=value lines of CONF. The first line of a key
+# wins. A key without a line stays unset, so config.py gives its default or
+# reports it. Runs in a subshell, so its variables do not leak.
+migrate_values() (
+    for key in $(echo "$LOOP_KEYS_RE" | tr '|' ' '); do
+        if grep -q "^$key=" "$CONF"; then
+            printf -v "$key" '%s' "$(key_value "$CONF" "$key")"
+        else
+            unset "$key"
+        fi
+    done
+    write_loop_toml "$TOML"
+)
+
+MIGRATED=""
+if [ -f "$TOML" ]; then
+    echo "$INSTALL/loop.toml exists; no migration"
+elif grep -Eq "^($LOOP_KEYS_RE)=" "$CONF"; then
+    echo "==> migrate the KEY=value lines of $INSTALL/project.md to $INSTALL/loop.toml"
+    migrate_values
+    if ! config_py --file "$TOML" check; then
+        rm -f "$TOML"
+        echo "ERROR: the KEY=value lines of $INSTALL/project.md do not make a valid loop.toml. update.sh changed nothing."
+        echo "Fix the lines in $INSTALL/project.md, or write $INSTALL/loop.toml by hand, then run update.sh again."
+        exit 1
+    fi
+    strip_key_lines "$CONF" >"$TMP/project.md"
+    diff -u -L "$INSTALL/project.md (before)" -L "$INSTALL/project.md" "$CONF" "$TMP/project.md" || true
+    cp "$TMP/project.md" "$CONF"
+    MIGRATED=" after the migration"
+    echo "wrote $INSTALL/loop.toml and removed its KEY=value lines from $INSTALL/project.md."
+    echo "Review the diff of $INSTALL/project.md above, and commit it."
+    echo
+fi
 
 FAILED=0
 fail() {
@@ -144,32 +214,12 @@ if ! clone_clean "$LOOP_HOME"; then
     git -C "$LOOP_HOME" status --short -- loop/ | sed 's/^/  /'
 fi
 
-# Each KEY= line of the template that project.md lacks or did not fill, with
-# the first sentence of the template that says what the key is.
-MISSING=""
-UNFILLED=""
-for key in $(sed -n 's/^\([A-Z][A-Z0-9_]*\)=.*/\1/p' "$HARNESS/project.template.md"); do
-    if grep -q "^$key=" "$CONF"; then
-        case "$(conf "$key")" in *"{{"*) UNFILLED="$UNFILLED $key" ;; esac
-        continue
-    fi
-    meaning="$(grep -oE "\`\\\$?$key\` is [^.]*\." "$HARNESS/project.template.md" | head -1)" || true
-    MISSING="$MISSING  $key: ${meaning:-see loop/project.template.md}"$'\n'
-done
-if [ -n "$MISSING" ]; then
-    fail "$INSTALL/project.md lacks keys that loop/project.template.md has. Add each one as a KEY=value line, then run update.sh again:"
-    printf '%s' "$MISSING"
+# The names fill the interactive section, and the ship mode picks the next
+# steps, so loop.toml must be valid. A migration checked it already.
+if [ -z "$MIGRATED" ] && ! CONFIG_ERRORS="$(config_py --file "$TOML" check 2>&1)"; then
+    fail "$INSTALL/loop.toml is not valid. Fix it, then run update.sh again:"
+    echo "$CONFIG_ERRORS"
 fi
-if [ -n "$UNFILLED" ]; then
-    fail "these keys in $INSTALL/project.md still hold a {{...}} placeholder:$UNFILLED"
-fi
-# The names fill the interactive section, so they must not be empty. An empty
-# GITHUB_ACCOUNT is valid in local mode.
-for key in CODER REVIEWER HUMAN; do
-    if grep -q "^$key=" "$CONF" && [ -z "$(conf "$key")" ]; then
-        fail "$key has no value in $INSTALL/project.md"
-    fi
-done
 
 for doc in $DOCS; do
     if [ -f "$PROJECT/$doc" ] && ! interactive_markers_ok "$PROJECT/$doc"; then
@@ -221,7 +271,7 @@ else
 fi
 
 if [ "$FAILED" -gt 0 ]; then
-    printf '\nupdate.sh changed nothing: %s check(s) failed.\n' "$FAILED"
+    printf '\nupdate.sh changed nothing%s: %s check(s) failed.\n' "$MIGRATED" "$FAILED"
     exit 1
 fi
 echo "all checks passed"
@@ -232,6 +282,7 @@ if [ "$INSTALL" = ralph ]; then
     git -C "$PROJECT" mv ralph .loop
     DIR="$PROJECT/.loop"
     CONF="$DIR/project.md"
+    TOML="$DIR/loop.toml"
     STAMP="$DIR/HARNESS_VERSION"
     sed 's#ralph/#.loop/#g' "$CONF" >"$CONF.tmp"
     mv "$CONF.tmp" "$CONF"
@@ -258,8 +309,9 @@ for f in $FILES; do
 done
 echo "copied $FILES"
 
+load_loop_config "$TOML" || exit 1
 SECTION="$TMP/section"
-fill_names "$HARNESS/interactive.template.md" "$(conf CODER)" "$(conf REVIEWER)" "$(conf HUMAN)" >"$SECTION"
+fill_names "$HARNESS/interactive.template.md" "$CODER" "$REVIEWER" "$HUMAN" >"$SECTION"
 for doc in $DOCS; do
     (cd "$PROJECT" && install_interactive "$doc" "$SECTION" replace)
 done
@@ -275,7 +327,7 @@ git -C "$PROJECT" --no-pager diff -- .loop $DOCS
 
 echo
 echo "update.sh committed nothing. Next:"
-if [ "$(conf SHIP_MODE)" = local ]; then
+if [ "$SHIP_MODE" = local ]; then
     echo "  1. Review the diff above and commit it on main."
     echo "  2. Reset each worktree's loop branch to main: git -C <worktree> reset --hard main"
 else

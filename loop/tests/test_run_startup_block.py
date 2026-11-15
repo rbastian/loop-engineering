@@ -4,16 +4,18 @@ After every startup check passes, run.sh prints one block: the agent and its
 role, the harness label, the ship mode, the prompt, the logs, the time limit
 and the harness version. Each session start line names the agent, the role
 and the same label. These tests reuse the fakes from test_run_watchdog.py and
-test_run_fw.py and write a project overlay beside the prompt.
+test_run_fw.py, write loop.toml beside run.sh, and write a project overlay
+beside the prompt.
 """
 
 import subprocess
 from pathlib import Path
 
 import pytest
+from _loop_toml import RUN_SH, write_loop_toml
 from test_harness_drift import function_text
 from test_run_fw import FW_MODEL, setup_fw
-from test_run_watchdog import RUN_SH, run_loop, setup_loop, write_exe
+from test_run_watchdog import run_loop, setup_loop, write_exe
 from test_watch import watch
 
 TOKEN = "gho_secrettoken987"
@@ -21,21 +23,33 @@ API_KEY = "fw_secretkey654"
 
 
 def write_overlay(tmp_path: Path, ship: str = "pr", primary: Path | None = None):
-    lines = ["CODER=Ralph", "REVIEWER=Alice", f"SHIP_MODE={ship}"]
-    if ship == "pr":
-        lines.append("GITHUB_ACCOUNT=rbastian")
-    if primary is not None:
-        lines.append(f"PRIMARY={primary}")
-    (tmp_path / "project.md").write_text(
-        "# Project\n\n```bash\n" + "\n".join(lines) + "\n```\n"
+    """Write loop.toml and the prose overlay. Without PRIMARY, the primary is
+    a clean repository on main outside tmp_path's files, so that the reviewer
+    does not wait for it in local mode."""
+    if primary is None:
+        primary = tmp_path / "primary"
+        git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com"]
+        subprocess.run([*git, "init", "-q", "-b", "main", str(primary)], check=True)
+        subprocess.run(
+            [*git, "-C", str(primary), "commit", "-q", "--allow-empty", "-m", "x"],
+            check=True,
+        )
+    write_loop_toml(
+        tmp_path / ".loop/loop.toml",
+        {
+            "project.primary": str(primary),
+            "ship.mode": ship,
+            "ship.github_account": "rbastian" if ship == "pr" else "",
+        },
     )
+    (tmp_path / "project.md").write_text("# Project\n")
     write_exe(tmp_path / "bin" / "gh", f"echo {TOKEN}\n")
 
 
 def run_as(tmp_path: Path, env: dict[str, str], agent: str = "Alice"):
     env = {k: v for k, v in env.items() if k != "LOOP_OVERLAY"}
     return subprocess.run(
-        ["bash", str(RUN_SH), agent, "CODER.md"],
+        ["bash", str(tmp_path / ".loop/run.sh"), agent, "CODER.md"],
         check=False,
         cwd=tmp_path,
         env=env,
@@ -96,7 +110,7 @@ def test_defaults_without_logs_or_limit_or_overlay_inside_primary(tmp_path):
     assert block[0] == "=== Ralph (coder) ==="
     assert "harness  cc/claude-opus-5-5" in block
     assert "ship     local" in block
-    # No PRIMARY in the overlay: the paths stay absolute.
+    # The primary is a sibling folder: the paths stay absolute.
     assert f"prompt   {tmp_path}/CODER.md + {tmp_path}/project.md" in block
     assert "logs     off" in block
     assert "timeout  none" in block
@@ -108,7 +122,7 @@ def test_no_overlay_prints_no_overlay(tmp_path):
     result = run_loop(tmp_path, env)
 
     block = block_of(result.stdout)
-    assert block[0] == "=== Ralph (unknown role) ==="
+    assert block[0] == "=== Ralph (coder) ==="
     assert f"prompt   {tmp_path}/CODER.md + no overlay" in block
 
 
@@ -116,7 +130,7 @@ def test_no_overlay_prints_no_overlay(tmp_path):
     "agent, role",
     [("Ralph", "coder"), ("Alice", "reviewer"), ("Bob", "unknown role")],
 )
-def test_the_role_comes_from_the_overlay(tmp_path, agent, role):
+def test_the_role_comes_from_loop_toml(tmp_path, agent, role):
     env = setup_loop(tmp_path, "exit 0\n")
     write_overlay(tmp_path, ship="local")
 

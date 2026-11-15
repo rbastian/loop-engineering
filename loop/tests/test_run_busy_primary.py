@@ -12,7 +12,7 @@ each call to change the primary between iterations.
 import subprocess
 from pathlib import Path
 
-RUN_SH = Path(__file__).parents[1] / "run.sh"
+from _loop_toml import install_run_sh, write_uv
 
 BUSY_BRANCH = "primary checkout busy: on feature"
 BUSY_MODIFIED = "primary checkout busy: modified tracked files"
@@ -61,6 +61,7 @@ def run_loop(
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
+    write_uv(bin_dir)
     beads = ",".join('{"id":"lpe-x"}' for _ in range(in_progress))
     ready_beads = ",".join('{"id":"lpe-y"}' for _ in range(ready))
     write_exe(
@@ -87,14 +88,17 @@ def run_loop(
     )
 
     prompt_dir = tmp_path / ".loop"
-    prompt_dir.mkdir()
+    run_sh = install_run_sh(
+        prompt_dir,
+        {
+            "project.primary": str(primary),
+            "ship.mode": ship_mode,
+            "ship.github_account": "tester" if ship_mode == "pr" else "",
+        },
+    )
     (prompt_dir / "REVIEWER.md").write_text("review\n")
     if overlay:
-        (prompt_dir / "project.md").write_text(
-            "# Project\n\n```bash\nCODER=Ralph\nREVIEWER=Alice\n```\n\n"
-            f"```bash\nSHIP_MODE={ship_mode}\nGITHUB_ACCOUNT=tester\n```\n\n"
-            f"```bash\nPRIMARY={primary}\n```\n"
-        )
+        (prompt_dir / "project.md").write_text("# Project\n\nThe prose.\n")
 
     env = {
         "PATH": f"{bin_dir}:/usr/bin:/bin",
@@ -106,7 +110,7 @@ def run_loop(
         env["LOOP_OVERLAY"] = "none"
     # The fake sleep stops run.sh with SIGTERM, so run.sh never exits 0.
     result = subprocess.run(
-        ["bash", str(RUN_SH), agent, ".loop/REVIEWER.md"],
+        ["bash", str(run_sh), agent, ".loop/REVIEWER.md"],
         check=False,
         cwd=tmp_path,
         env=env,
@@ -181,12 +185,12 @@ def test_coder_ignores_a_busy_primary(tmp_path):
     assert STARTED in out
 
 
-def test_no_overlay_skips_the_check(tmp_path):
+def test_without_the_overlay_loop_toml_still_names_the_primary(tmp_path):
     primary = make_primary(tmp_path)
     git(primary, "checkout", "-q", "-b", "feature")
-    out = run_loop(tmp_path, primary, overlay=False, iterations=1)
-    assert "primary checkout busy" not in out
-    assert STARTED in out
+    out = run_loop(tmp_path, primary, overlay=False)
+    assert STARTED not in out
+    assert out.count(BUSY_BRANCH) == 1
 
 
 def test_no_beads_still_prints_no_beads(tmp_path):

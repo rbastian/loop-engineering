@@ -3,7 +3,7 @@
 fw (~/.local/bin/fw) starts one Claude Code process against the Fireworks
 endpoint. Usage: fw --model MODEL [--check] [-- CLAUDE_ARGUMENTS...]. These
 tests reuse the fakes from test_run_watchdog.py and add a fake fw that records
-its arguments, one per line, in fw.args and fw.checks.
+its arguments in fw.args and fw.checks.
 """
 
 import json
@@ -21,8 +21,8 @@ DISALLOWED_TOOL_ARGS = ["--disallowedTools", "ScheduleWakeup", "CronCreate"]
 def setup_fw(tmp_path, session_body: str = "exit 0\n") -> dict[str, str]:
     """The watchdog fakes plus a fake fw, and the environment for LOOP_ENGINE=fw.
 
-    The fake fw records the arguments of each call, one per line: a --check
-    call in fw.checks, a session in fw.args. It answers --check with a line on
+    The fake fw records the arguments of each call: a --check call in
+    fw.checks, one per line, and a session in fw.args, one per NUL byte. It answers --check with a line on
     stdout, or with FW_ERROR on stderr and exit 2 when FW_CHECK_FAIL is set.
     A session writes claude.pid, so the watchdog helpers find it.
     """
@@ -38,7 +38,7 @@ def setup_fw(tmp_path, session_body: str = "exit 0\n") -> dict[str, str]:
         "  exit 0\n"
         "fi\n"
         'echo $$ >"$WORK/claude.pid"\n'
-        'printf \'%s\\n\' "$@" >"$WORK/fw.args"\n' + session_body,
+        'printf \'%s\\0\' "$@" >"$WORK/fw.args"\n' + session_body,
     )
     env["LOOP_ENGINE"] = "fw"
     env["LOOP_MODEL"] = FW_MODEL
@@ -47,6 +47,12 @@ def setup_fw(tmp_path, session_body: str = "exit 0\n") -> dict[str, str]:
 
 def lines_of(path) -> list[str]:
     return path.read_text().splitlines()
+
+
+def args_of(path) -> list[str]:
+    """The arguments that a fake wrote with printf '%s\\0'. The prompt has
+    more than one line, so a newline cannot separate them."""
+    return path.read_text().split("\0")[:-1]
 
 
 @pytest.mark.parametrize("stream_log", [True, False])
@@ -59,12 +65,13 @@ def test_an_fw_session_runs_claude_code_through_fw(tmp_path, stream_log):
     result = run_loop(tmp_path, env)
 
     assert "fw exited with 0" in result.stdout, result.stdout
-    assert lines_of(tmp_path / "fw.args") == [
+    args = args_of(tmp_path / "fw.args")
+    assert args[4].startswith("code\n\n## Roles and paths\n")
+    assert args[:4] + args[5:] == [
         "--model",
         FW_MODEL,
         "--",
         "-p",
-        "code",
         "--dangerously-skip-permissions",
         *DISALLOWED_TOOL_ARGS,
         *(STREAM_FLAGS if stream_log else []),

@@ -9,6 +9,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from _loop_toml import write_loop_toml, write_uv
 from test_bootstrap_interactive import run_bootstrap
 from test_update import (
     FILES,
@@ -19,6 +20,7 @@ from test_update import (
     advance_clone,
     commit_all,
     git,
+    loop_toml_values,
     make_clone,
     make_project,
     run_update,
@@ -81,7 +83,7 @@ echo '{"result":{"tabs":[],"panes":[],"root_pane":{"pane_id":"p1"},"pane":{"pane
 
 def run_layout(tmp_path: Path, project: Path) -> subprocess.CompletedProcess:
     bin_dir = tmp_path / "layout-bin"
-    bin_dir.mkdir(exist_ok=True)
+    write_uv(bin_dir)
     herdr = bin_dir / "herdr"
     herdr.write_text(HERDR_STUB)
     herdr.chmod(0o755)
@@ -136,7 +138,7 @@ def test_layout_prints_nothing_when_current(tmp_path):
 def run_loop(tmp_path: Path, harness: Path) -> subprocess.CompletedProcess:
     """run.sh with one bead ready and a fake claude, stopped by the 2nd sleep."""
     bin_dir = tmp_path / "run-bin"
-    bin_dir.mkdir(exist_ok=True)
+    write_uv(bin_dir)
     scripts = {
         "bd": 'case "$1" in ready) echo \'[{"id":"demo-1"}]\' ;; *) echo "[]" ;; esac\n',
         "claude": "echo session\n",
@@ -168,8 +170,12 @@ def run_loop(tmp_path: Path, harness: Path) -> subprocess.CompletedProcess:
 def loop_project(tmp_path: Path) -> tuple[Path, Path]:
     clone = make_clone(tmp_path)
     project = make_project(tmp_path, clone)
-    # The project's run.sh is the copy under test.
+    # The project's run.sh is the copy under test. Local mode needs no gh.
     (project / ".loop/run.sh").write_bytes(RUN_SH.read_bytes())
+    write_loop_toml(
+        project / ".loop/loop.toml",
+        {**loop_toml_values(project), "ship.mode": "local", "ship.github_account": ""},
+    )
     return clone, project / ".loop"
 
 

@@ -10,7 +10,7 @@
 #                        (default $LOOP_LOG_DIR=/tmp/loop-sessions) and maintains
 #                        a "current.jsonl" symlink for tail -f. After each
 #                        session, also appends a "Session cost:" note to the
-#                        bead (needs uv, which runs watch.py --summary).
+#                        bead (uv runs watch.py --summary).
 #   LOOP_SHOW_BEAD=1     For each in-progress bead, also run `bd show <id>` so
 #                        notes/checkpoint/gate-output are visible between sessions.
 #   LOOP_KEEP_AWAKE=1    Run each session under `caffeinate -i`, so the Mac does
@@ -29,7 +29,14 @@
 #                        fw needs it, for example deepseek-flash-latest[1m].
 #   LOOP_OVERLAY         Project overlay appended to the prompt (default:
 #                        project.md beside PROMPT_FILE; "none" disables it).
+#                        It holds prose only.
 #   LOOP_PRINT_PROMPT=1  Print the combined prompt and exit.
+#
+# The values come from loop.toml beside this script, through config.py beside
+# it: the names, the paths, the ship mode and the GitHub account. At start,
+# run.sh checks the file and stops with the error of each key path when it is
+# not valid. Every prompt ends with the Roles and paths block that config.py
+# roles prints, under the overlay.
 #
 # Telegram (see notify.py beside this script): run.sh takes a snapshot of the
 # bead states before each session and reports the changes after it. It also
@@ -38,8 +45,8 @@
 # checkout when direnv is on PATH, so that .envrc supplies TELEGRAM_BOT_TOKEN
 # and TELEGRAM_CHAT_ID. The TELEGRAM_ variables never reach the agent.
 #
-# GitHub account (pr mode only, when the overlay says SHIP_MODE=pr):
-#   The overlay must name GITHUB_ACCOUNT, the account that the agents use.
+# GitHub account (pr mode only, when loop.toml says ship.mode = "pr"):
+#   ship.github_account in loop.toml names the account that the agents use.
 #   At start, run.sh gets that account's token with gh auth token --user and
 #   exports it as GH_TOKEN for every session, whichever gh account is active.
 #   If origin is an SSH URL, it runs ssh -T git@<host> once and stops unless
@@ -55,6 +62,24 @@ exit_traps() {
     trap 'exit 129' HUP
 }
 exit_traps
+
+# watch.py, notify.py and config.py sit beside this script, in the primary
+# checkout's .loop/ folder.
+HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# loop.toml first: no check, loop or session runs on a file that is not valid.
+# export checks the whole file, prints each error with its key path, and
+# exits 1 without printing a value.
+if ! command -v uv >/dev/null 2>&1; then
+    echo "ERROR: uv is required to read $HARNESS_DIR/loop.toml (brew install uv)"
+    exit 1
+fi
+if ! LOOP_VALUES=$(uv run --quiet "$HARNESS_DIR/config.py" export); then
+    echo "ERROR: $HARNESS_DIR/loop.toml is not valid; fix it, then restart the loop"
+    exit 1
+fi
+eval "$LOOP_VALUES"
+ROLES_BLOCK=$(uv run --quiet "$HARNESS_DIR/config.py" roles)
 
 AGENT_NAME="${1:-Ralph}"
 PROMPT_FILE="${2:-CODER.md}"
@@ -128,6 +153,7 @@ fi
 if [ -n "${LOOP_PRINT_PROMPT:-}" ]; then
     cat "$PROMPT_FILE"
     if [ -n "$OVERLAY_FILE" ]; then printf '\n\n'; cat "$OVERLAY_FILE"; fi
+    printf '\n%s\n' "$ROLES_BLOCK"
     exit 0
 fi
 
@@ -248,9 +274,6 @@ run_session() {
     [ "$?" -ne 124 ] || SESSION_EXIT=124
 }
 
-# watch.py sits beside this script, in the primary checkout's .loop/ folder.
-HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 # Append the finished session's cost to its bead. The agent cannot do this:
 # the cost arrives in the closing event, after the agent has exited. watch.py
 # --summary reads the bead and the cost back out of the log. A resumed session
@@ -258,14 +281,8 @@ HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # agent held when the session started. Every failure only warns: a missing
 # cost note must never stop the loop.
 record_cost() {
-    local log="$1" held="$2" summary bead note ids attempt prefix watch_args
-    if ! command -v uv >/dev/null 2>&1; then
-        echo "WARNING: uv not found; no cost note for this session"
-        return 0
-    fi
-    # Without a prefix, watch.py falls back to a pattern that matches any.
-    prefix=$(overlay_value BEAD_PREFIX)
-    watch_args=(--summary "$log" --agent "$AGENT_NAME" ${prefix:+--prefix "$prefix"})
+    local log="$1" held="$2" summary bead note ids attempt watch_args
+    watch_args=(--summary "$log" --agent "$AGENT_NAME" --prefix "$BEAD_PREFIX")
     if ! summary=$(uv run --quiet "$HARNESS_DIR/watch.py" "${watch_args[@]}" 2>/dev/null); then
         echo "WARNING: could not read $log; no cost note for this session"
         return 0
@@ -297,28 +314,19 @@ record_cost() {
     return 0
 }
 
-# A KEY=value line from the overlay, the same way worktrees.sh reads it.
-# Prints nothing when there is no overlay or no such line.
-overlay_value() {
-    [ -n "$OVERLAY_FILE" ] || return 0
-    sed -n "s/^$1=//p" "$OVERLAY_FILE" | head -1
-}
-
 # In local mode the reviewer merges into the primary checkout, and REVIEWER.md
 # exits without a merge when the primary is not on main or has modified or
 # staged tracked files outside .beads/. Starting a session then only burns
 # money, so the loop waits. Prints the reason when busy; prints nothing and
-# fails when the reviewer may run (also for the coder, pr mode, no overlay).
+# fails when the reviewer may run (also for the coder and in pr mode).
 primary_busy_reason() {
-    local primary branch
-    [ "$(overlay_value SHIP_MODE)" = "local" ] || return 1
-    [ "$AGENT_NAME" = "$(overlay_value REVIEWER)" ] || return 1
-    primary=$(overlay_value PRIMARY)
-    [ -n "$primary" ] || return 1
-    branch=$(git -C "$primary" rev-parse --abbrev-ref HEAD 2>/dev/null) || branch="?"
+    local branch
+    [ "$SHIP_MODE" = "local" ] || return 1
+    [ "$AGENT_NAME" = "$REVIEWER" ] || return 1
+    branch=$(git -C "$PRIMARY" rev-parse --abbrev-ref HEAD 2>/dev/null) || branch="?"
     if [ "$branch" != "main" ]; then
         echo "on $branch"
-    elif git -C "$primary" status --porcelain --untracked-files=no 2>/dev/null \
+    elif git -C "$PRIMARY" status --porcelain --untracked-files=no 2>/dev/null \
             | grep -v '\.beads/' | grep -q .; then
         echo "modified tracked files"
     else
@@ -326,20 +334,15 @@ primary_busy_reason() {
     fi
 }
 
-# In pr mode the agents act as one GitHub account: GITHUB_ACCOUNT in the
-# overlay. The account that gh has active when the loop starts must not decide
+# In pr mode the agents act as one GitHub account: ship.github_account in
+# loop.toml. The account that gh has active when the loop starts must not decide
 # it, so pin that account's token as GH_TOKEN for every session. gh uses it,
 # and so does git over HTTPS through gh's credential helper. An SSH push uses
 # the SSH key instead, so check once that the key belongs to the same account.
 # Every failure stops the loop before the first session. Never print the token.
 pin_github_account() {
-    local account url host port="" reply who=""
-    [ "$(overlay_value SHIP_MODE)" = "pr" ] || return 0
-    account=$(overlay_value GITHUB_ACCOUNT)
-    if [ -z "$account" ]; then
-        echo "ERROR: GITHUB_ACCOUNT is empty in $OVERLAY_FILE; pr mode needs the GitHub account that the agents use"
-        exit 1
-    fi
+    local account="$GITHUB_ACCOUNT" url host port="" reply who=""
+    [ "$SHIP_MODE" = "pr" ] || return 0
     if ! GH_TOKEN=$(gh auth token --user "$account" 2>/dev/null) || [ -z "$GH_TOKEN" ]; then
         echo "ERROR: gh has no token for the GitHub account $account"
         echo "Hint: run 'gh auth login' and log in as $account, then restart the loop."
@@ -426,23 +429,20 @@ harness_label() {
     fi
 }
 
-# coder or reviewer, from CODER and REVIEWER in the overlay.
+# coder or reviewer, from coder.name and reviewer.name in loop.toml.
 agent_role() {
     case "$AGENT_NAME" in
-        "$(overlay_value CODER)") echo coder ;;
-        "$(overlay_value REVIEWER)") echo reviewer ;;
+        "$CODER") echo coder ;;
+        "$REVIEWER") echo reviewer ;;
         *) echo "unknown role" ;;
     esac
 }
 
 # An absolute path, relative to the primary checkout when it is inside it.
 show_path() {
-    local path="$1" primary
+    local path="$1"
     case "$path" in /*) ;; *) path="$(pwd)/${path#./}" ;; esac
-    primary=$(overlay_value PRIMARY)
-    if [ -n "$primary" ]; then
-        case "$path" in "${primary%/}"/*) path="${path#"${primary%/}"/}" ;; esac
-    fi
+    case "$path" in "${PRIMARY%/}"/*) path="${path#"${PRIMARY%/}"/}" ;; esac
     echo "$path"
 }
 
@@ -470,9 +470,9 @@ ROLE=$(agent_role)
 LABEL=$(harness_label "$ENGINE" "$MODEL")
 
 # Telegram. The TELEGRAM_ variables leave the environment here, so that no
-# session sees them, and only notify() passes them on. PRIMARY is the parent
-# of the harness folder, where .envrc lives.
-PRIMARY="$(dirname "$HARNESS_DIR")"
+# session sees them, and only notify() passes them on. ENVRC_DIR is the
+# parent of the harness folder, where .envrc lives.
+ENVRC_DIR="$(dirname "$HARNESS_DIR")"
 TELEGRAM_ENV=()
 for name in $(compgen -e); do
     case "$name" in
@@ -484,12 +484,11 @@ for name in $(compgen -e); do
 done
 
 # Runs notify.py with the TELEGRAM_ variables, through direnv when it is on
-# PATH. Fails when uv is missing.
+# PATH.
 notify_run() {
-    command -v uv >/dev/null 2>&1 || return 1
     local cmd=(uv run --quiet "$HARNESS_DIR/notify.py" "$@")
     if command -v direnv >/dev/null 2>&1; then
-        cmd=(direnv exec "$PRIMARY" "${cmd[@]}")
+        cmd=(direnv exec "$ENVRC_DIR" "${cmd[@]}")
     fi
     env DIRENV_LOG_FORMAT= ${TELEGRAM_ENV[@]+"${TELEGRAM_ENV[@]}"} "${cmd[@]}" </dev/null
 }
@@ -508,11 +507,8 @@ fi
 # The configuration, once, after every startup check passed. Never a token.
 print_startup_block() {
     local ship prompt logs timeout
-    ship=$(overlay_value SHIP_MODE)
-    case "$ship" in
-        pr) ship="pr, as $(overlay_value GITHUB_ACCOUNT)" ;;
-        '') ship=unknown ;;
-    esac
+    ship="$SHIP_MODE"
+    [ "$ship" != pr ] || ship="pr, as $GITHUB_ACCOUNT"
     prompt="no overlay"
     [ -z "$OVERLAY_FILE" ] || prompt=$(show_path "$OVERLAY_FILE")
     prompt="$(show_path "$PROMPT_FILE") + $prompt"
@@ -571,6 +567,8 @@ while true; do
     if [ -n "$OVERLAY_FILE" ]; then
         PROMPT+=$'\n\n'"$(cat "$OVERLAY_FILE")"
     fi
+    # The values from loop.toml, last, so that they stay in the Project section.
+    PROMPT+=$'\n\n'"$ROLES_BLOCK"
 
     # Show both in_progress (agent's claimed work) and ready (new work) beads.
     # Agent resumes in_progress first per its prompt's Phase 0; both lists are

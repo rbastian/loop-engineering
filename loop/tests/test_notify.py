@@ -18,6 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
+from _loop_toml import write_loop_toml
 
 ROOT = Path(__file__).resolve().parents[1]
 NOTIFY = ROOT / "notify.py"
@@ -552,10 +553,9 @@ def test_network_errors_log_no_token(logs, capsys):
 @pytest.fixture
 def project_dir(tmp_path):
     path = tmp_path / "demo"
-    (path / ".loop").mkdir(parents=True)
-    (path / ".loop/project.md").write_text(
-        "# Project\n\n```bash\nCODER=Ralph\nREVIEWER=Alice\n"
-        f"HUMAN={HUMAN}\nBEAD_PREFIX=lpe\n```\n"
+    write_loop_toml(
+        path / ".loop/loop.toml",
+        {"project.primary": str(path), "project.human": HUMAN},
     )
     return path
 
@@ -732,25 +732,30 @@ def test_main_logs_no_token_on_http_errors(
     assert "SECRET" not in text
 
 
-def test_the_project_comes_from_the_overlay(project_dir):
+def test_the_project_comes_from_loop_toml(project_dir):
+    write_loop_toml(
+        project_dir / ".loop/loop.toml",
+        {
+            "project.primary": "/elsewhere/demo",
+            "project.bead_prefix": "my-app",
+            "project.human": HUMAN,
+            "coder.name": "Bob",
+            "reviewer.name": "Carol",
+        },
+    )
     project = notify.load_project(project_dir)
     assert project == notify.Project(
         name="demo",
-        primary=str(project_dir),
-        prefix="lpe",
+        primary="/elsewhere/demo",
+        prefix="my-app",
         human=HUMAN,
-        agents=["Ralph", "Alice"],
+        agents=["Bob", "Carol"],
     )
 
 
-def test_the_overlay_ignores_placeholders_and_later_lines(tmp_path):
-    overlay = tmp_path / "project.md"
-    overlay.write_text(
-        "# Project\n\n```bash\nCODER=Bob\nREVIEWER=Carol\nCODER=Dan\n"
-        "BEAD_PREFIX={{BEAD_PREFIX}}\n```\n"
-    )
-    assert notify.read_overlay(overlay) == {"CODER": "Bob", "REVIEWER": "Carol"}
-    assert notify.read_overlay(tmp_path / "missing.md") == {}
+def test_notify_has_no_reader_of_key_value_lines():
+    assert not hasattr(notify, "read_overlay")
+    assert "project.md" not in NOTIFY.read_text()
 
 
 def test_the_default_project_is_the_parent_of_the_harness_folder():
@@ -830,10 +835,19 @@ def test_a_decision_message_without_agent_names_leaves_out_start_with():
     assert "Start with" not in message["text"]
 
 
-def test_the_project_without_agent_names_has_no_agents(tmp_path):
-    (tmp_path / ".loop").mkdir()
-    (tmp_path / ".loop/project.md").write_text(f"HUMAN={HUMAN}\nCODER=\n")
-    assert notify.load_project(tmp_path).agents == []
+@pytest.mark.parametrize("text", [None, "[coder]\nname = 7\n"])
+def test_a_missing_or_invalid_loop_toml_gives_no_agents_and_logs(
+    tmp_path, capsys, text
+):
+    if text is not None:
+        (tmp_path / ".loop").mkdir()
+        (tmp_path / ".loop/loop.toml").write_text(text)
+    project = notify.load_project(tmp_path)
+    assert project == notify.Project(name=tmp_path.name, primary=str(tmp_path))
+    out = capsys.readouterr().out
+    assert "loop.toml" in out
+    if text is not None:
+        assert "coder.name: must be a string (got: 7)" in out
 
 
 # lpe-qqv 8. A bad bd record is skipped with one log line.

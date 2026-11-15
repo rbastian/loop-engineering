@@ -18,6 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
+from _loop_toml import write_loop_toml
 
 ROOT = Path(__file__).resolve().parents[1]
 REPLY = ROOT / "reply.py"
@@ -218,9 +219,9 @@ def bd(tmp_path, monkeypatch):
 @pytest.fixture
 def project(tmp_path):
     path = tmp_path / "demo"
-    (path / ".loop").mkdir(parents=True)
-    (path / ".loop/project.md").write_text(
-        f"```bash\nCODER=Ralph\nREVIEWER=Alice\nHUMAN={HUMAN}\nBEAD_PREFIX=lpe\n```\n"
+    write_loop_toml(
+        path / ".loop/loop.toml",
+        {"project.primary": str(path), "project.human": HUMAN},
     )
     return path
 
@@ -906,3 +907,45 @@ def test_bd_show_with_no_record_or_several_says_so(
     reader().poll()
     assert bd.writes() == []
     assert answers(telegram) == [(f"demo lpe-q3: {said} Nothing changed.", 501)]
+
+
+# lpe-umq.2. The names come from loop.toml in the recorded primary checkout.
+
+
+def test_the_names_come_from_loop_toml(telegram, home, bd, project, reader):
+    write_loop_toml(
+        project / ".loop/loop.toml",
+        {
+            "project.primary": str(project),
+            "project.human": HUMAN,
+            "coder.name": "Bob",
+            "reviewer.name": "Carol",
+        },
+    )
+    bd.add("lpe-n1", "escalated")
+    record(home, 130, "lpe-n1", project, "escalated")
+    telegram.updates = [update(1, "Carol: take it", reply_to=130)]
+    reader().poll()
+    assert bd.bead("lpe-n1")["assignee"] == "Carol"
+    assert answers(telegram) == [("demo lpe-n1: note added, assigned to Carol.", 501)]
+
+
+def test_an_invalid_loop_toml_answers_and_changes_nothing(
+    telegram, home, bd, project, reader
+):
+    (project / ".loop/loop.toml").write_text('[ship]\nmode = "git"\n')
+    bd.add("lpe-n2", "escalated")
+    record(home, 131, "lpe-n2", project, "escalated")
+    telegram.updates = [update(1, "go", reply_to=131)]
+    reader().poll()
+    assert bd.writes() == []
+    ((text, reply_to),) = answers(telegram)
+    assert reply_to == 501
+    assert text.startswith(f"demo lpe-n2: .loop/loop.toml in {project} is not valid:")
+    assert "loop.toml: ship.mode: must be pr or local (got: git)" in text
+    assert text.endswith("Nothing changed.")
+
+
+def test_reply_has_no_reader_of_key_value_lines():
+    assert "read_overlay" not in REPLY.read_text()
+    assert "project.md" not in REPLY.read_text()

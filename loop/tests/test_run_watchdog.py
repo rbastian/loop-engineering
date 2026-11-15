@@ -18,8 +18,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
-
-RUN_SH = Path(__file__).parents[1] / "run.sh"
+from _loop_toml import install_run_sh, write_uv
 
 
 def write_exe(path: Path, body: str) -> None:
@@ -28,7 +27,8 @@ def write_exe(path: Path, body: str) -> None:
 
 
 def setup_loop(tmp_path: Path, claude_body: str) -> dict[str, str]:
-    """Write the fakes and a prompt file. Returns the environment for run.sh.
+    """Write the fakes, a prompt file, and a copy of run.sh with a valid
+    loop.toml in .loop/. Returns the environment for run.sh.
 
     The fake claude writes its PID to claude.pid before it runs claude_body.
     The fake sleep creates watchdog-paused before each 5-second pause, so a
@@ -38,6 +38,8 @@ def setup_loop(tmp_path: Path, claude_body: str) -> dict[str, str]:
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
+    install_run_sh(tmp_path / ".loop")
+    write_uv(bin_dir)
     write_exe(
         bin_dir / "bd",
         'case "$*" in\n'
@@ -78,12 +80,13 @@ def setup_loop(tmp_path: Path, claude_body: str) -> dict[str, str]:
     }
 
 
-LOOP = ["bash", str(RUN_SH), "Ralph", "CODER.md"]
+def loop_cmd(tmp_path: Path) -> list[str]:
+    return ["bash", str(tmp_path / ".loop/run.sh"), "Ralph", "CODER.md"]
 
 
 def run_loop(tmp_path: Path, env: dict[str, str], timeout: float = 30):
     return subprocess.run(
-        LOOP,
+        loop_cmd(tmp_path),
         check=False,
         cwd=tmp_path,
         env=env,
@@ -97,7 +100,12 @@ def run_loop(tmp_path: Path, env: dict[str, str], timeout: float = 30):
 def start_loop(tmp_path: Path, env: dict[str, str], **kw) -> Iterator[subprocess.Popen]:
     """Start run.sh in its own process group, and kill the group at the end."""
     proc = subprocess.Popen(
-        LOOP, cwd=tmp_path, env=env, start_new_session=True, text=True, **kw
+        loop_cmd(tmp_path),
+        cwd=tmp_path,
+        env=env,
+        start_new_session=True,
+        text=True,
+        **kw,
     )
     try:
         yield proc
@@ -183,7 +191,9 @@ def test_ctrl_c_stops_the_session_and_the_watchdog(tmp_path):
     out = subprocess.run(
         ["ps", "-A", "-o", "command="], check=True, capture_output=True, text=True
     ).stdout
-    assert str(RUN_SH) not in out, "run.sh or its watchdog is still running"
+    assert str(tmp_path / ".loop/run.sh") not in out, (
+        "run.sh or its watchdog is still running"
+    )
 
 
 @pytest.mark.parametrize("value", ["2x", "h", "1.5h", "-1h", "2 h", "1hm"])

@@ -28,7 +28,8 @@ def test_both_watchers_run_watch_py_as_a_uv_script():
 
 def test_both_watchers_get_the_bead_prefix():
     """watch.py matches bead IDs with the project's prefix only when it is
-    given one, so layout.sh passes BEAD_PREFIX from .loop/project.md (lpe-7fn)."""
-    assert "conf BEAD_PREFIX" in LAYOUT.read_text()
+    given one, so layout.sh passes project.bead_prefix from .loop/loop.toml
+    (lpe-7fn)."""
+    assert 'load_loop_config "$PROJECT/.loop/loop.toml"' in LAYOUT.read_text()
     for command in watcher_commands():
-        assert "$PREFIX_ARG" in command
+        assert "--prefix $BEAD_PREFIX" in command
