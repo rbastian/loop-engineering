@@ -2,7 +2,7 @@
 
 This folder holds the multi-agent loop. Each agent is a headless session that `run.sh` starts again and again. Each agent works only on the beads that are assigned to it. To hand a bead to the next agent, an agent changes the assignee.
 
-The loop has three roles: CODER, REVIEWER and HUMAN. The coder and the reviewer are agents. The coder implements and the reviewer reviews. The human specs, merges and settles escalations. Each project gives the names for all three roles in `.loop/project.md`. The default agent names are Ralph for the coder and Alice for the reviewer.
+The loop has three roles: CODER, REVIEWER and HUMAN. The coder and the reviewer are agents. The coder implements and the reviewer reviews. The human specs, merges and settles escalations. Each project gives the names for all three roles in `.loop/loop.toml`. The default agent names are Ralph for the coder and Alice for the reviewer.
 
 - The coder implements one bead per session in its own git worktree, on the home branch `loop`.
 - The reviewer reads the coder's branch in its own worktree, on a detached HEAD.
@@ -12,7 +12,7 @@ You write the spec interactively, and the agents implement it headlessly. Each s
 
 ## Ship modes
 
-The ship mode is a setting in `.loop/project.md`. It has two values.
+The ship mode is a setting in `.loop/loop.toml`. It has two values.
 
 `pr` is the default. Use it for every repository that more than one person works in.
 
@@ -21,7 +21,7 @@ The ship mode is a setting in `.loop/project.md`. It has two values.
 3. If the review passes, the reviewer sets `loop=merge` and assigns the bead to the human.
 4. The human approves and merges the pull request, then runs `bd close <id>` and `bd set-state <id> loop=done`.
 
-The reviewer comments but does not approve. The agents act as the GitHub account in `GITHUB_ACCOUNT` in `.loop/project.md`, usually the human's own account. GitHub does not let an account approve its own pull request. Any CI on the pull request runs in addition to the gate.
+The reviewer comments but does not approve. The agents act as the GitHub account in `github_account` under `[ship]` in `.loop/loop.toml`, usually the human's own account. GitHub does not let an account approve its own pull request. Any CI on the pull request runs in addition to the gate.
 
 `.loop/project.md` also holds the one list of the remote actions that each role can do in `pr` mode, under "Remote actions in `pr` mode". An action that is not on the list is not allowed.
 
@@ -130,7 +130,7 @@ If its default review method cannot run, the reviewer parks a bead with a "Revie
 | `run.sh` | The loop. It polls beads for work assigned to one agent name and starts one headless session per iteration. Every agent uses the same script with its own prompt. |
 | `CODER.md` | The coder's prompt: the loop protocol for the coder role. |
 | `REVIEWER.md` | The reviewer's prompt: the loop protocol for the reviewer role. |
-| `project.template.md` | The template for `.loop/project.md`, the project overlay. |
+| `project.template.md` | The template for `.loop/project.md`, the project overlay. It holds prose only. |
 | `interactive.template.md` | The template for the interactive section of `CLAUDE.md` and `AGENTS.md`. The section tells an interactive agent to orient a new person, to refine and assign beads, and not to implement them. |
 | `watch.py` | The watcher. It shows a live session log as one line per tool call. |
 | `notify.py` | The Telegram send command. `run.sh` calls it to send short messages to the human about the loop. |
@@ -142,24 +142,25 @@ If its default review method cannot run, the reviewer parks a bead with a "Revie
 
 ## The project overlay
 
-The agent prompts hold only the loop protocol. They contain no facts about a project. `run.sh` appends `project.md` to each prompt at the start of every session. The overlay gives these facts:
+The agent prompts hold only the loop protocol. They contain no facts about a project. At the start of every session, `run.sh` builds each prompt from three parts, in this order:
 
-- The agent names (`CODER`, `REVIEWER`) and the human's bd assignee name (`HUMAN`).
-- The engine and the model of each agent (`CODER_ENGINE`, `CODER_MODEL`, `REVIEWER_ENGINE`, `REVIEWER_MODEL`). The coder runs on `claude` or `fw`. The reviewer runs on `claude`, `codex` or `fw`.
-- The ship mode (`SHIP_MODE`) and, in `pr` mode, the GitHub account of the agents (`GITHUB_ACCOUNT`).
-- The paths, the tech stack, the gate, the external services and the extra review checks.
+1. The role prompt, for example `CODER.md`.
+2. `project.md`, the overlay. It is prose that the whole team shares: what the project is, the meaning of each role, the ship mode and the remote actions, the tech stack, the gate, the external services and the extra review checks.
+3. The "Roles and paths" block that `config.py roles` prints from `.loop/loop.toml`. It gives the values of the thirteen names, for example `CODER`, `SHIP_MODE` and `CODER_WORKTREE`. The block comes last, so it stays in the Project section that the role prompts name.
 
-To rename an agent, change its name in `project.md` and restart its loop with the new name. Then assign each open bead of the old name to the new name. Worktree and log paths do not need to follow the name.
+`project.md` holds no values. The coder runs on `claude` or `fw`. The reviewer runs on `claude`, `codex` or `fw`. See [Configuration](#configuration) for the values.
+
+To rename an agent, change its `name` in `loop.toml` and restart its loop with the new name. Then assign each open bead of the old name to the new name. Worktree and log paths do not need to follow the name.
 
 These variables control the overlay:
 
 - `LOOP_OVERLAY` points `run.sh` at another overlay file.
 - `LOOP_OVERLAY=none` runs the prompt with no overlay.
-- `LOOP_PRINT_PROMPT=1` prints the combined prompt and exits. Use it to check an overlay.
+- `LOOP_PRINT_PROMPT=1` prints the combined prompt, with the Roles and paths block, and exits. Use it to check an overlay.
 
 ## Configuration
 
-`.loop/loop.toml` is the local configuration of the loop. It holds the facts that differ between machines: the paths, the agent names, the engines, the models and the ship mode. `config.py` is the one script that reads it. No script reads `loop.toml` yet. A later change switches `run.sh`, `notify.py` and `reply.py` to it.
+`.loop/loop.toml` is the local configuration of the loop. It holds the facts that differ between machines: the paths, the agent names, the engines, the models and the ship mode. `config.py` is the one script that reads it. `run.sh`, `layout.sh`, `worktrees.sh`, `bootstrap.sh` and `update.sh` call it, and `notify.py` and `reply.py` call its `load` function. Each of them checks the file first. If the file is not valid, the script prints the error of each key path and stops before any loop, pane or worktree starts.
 
 The schema:
 
@@ -204,18 +205,31 @@ The subcommands:
 - `config.py check` exits 0 and prints nothing if the file is valid. Otherwise it prints the errors and exits 1.
 - `config.py get <table.key>` prints one value, with its default applied. An unknown key exits 1.
 - `config.py export` prints one shell assignment per line, for `eval` in bash 3.2. The names are `PRIMARY`, `BEAD_PREFIX`, `HUMAN`, `SHIP_MODE`, `GITHUB_ACCOUNT`, `CODER`, `CODER_ENGINE`, `CODER_MODEL`, `CODER_WORKTREE`, `REVIEWER`, `REVIEWER_ENGINE`, `REVIEWER_MODEL` and `REVIEWER_WORKTREE`. Each value is in single quotes.
-- `config.py roles` prints a `## Roles and paths` heading and one bash code block with the same names and unquoted values. `run.sh` will add this block to each prompt.
+- `config.py roles` prints a `## Roles and paths` heading and one bash code block with the same names and unquoted values. `run.sh` adds this block to each prompt.
 
 Each subcommand checks the file first and exits 1 if the file is not valid. By default, `config.py` reads `loop.toml` in its own directory. `--file <path>` reads another file. A Python script can call `load(path)`, which returns the values with defaults applied or raises `ConfigError`. The `errors` attribute of `ConfigError` holds the list of error lines.
 
+`run.sh` reads `loop.toml` beside itself, through `config.py` beside itself. `layout.sh`, `worktrees.sh`, `bootstrap.sh` and `update.sh` read `.loop/loop.toml` of the project through `loop/config.py` of the clone. All of them run `config.py` through `uv`. `bootstrap.sh` writes `loop.toml` from its arguments, and it keeps an existing file. To change a value, edit `loop.toml` and restart the loops.
+
+### Migrate an old project.md
+
+Before lpe-umq.2, `.loop/project.md` held the values as `KEY=value` lines, for example `CODER=Ralph`, in three bash code blocks. If `.loop/loop.toml` does not exist, `update.sh` migrates these lines before its other checks:
+
+1. It writes `.loop/loop.toml` from the `KEY=value` lines. A missing `CODER_ENGINE`, `CODER_MODEL`, `REVIEWER_ENGINE` or `REVIEWER_MODEL` line gets its default.
+2. It runs `config.py check` on the new file. If the check fails, it deletes the new file, prints the errors and exits 1. `project.md` does not change. Fix the lines in `project.md`, or write `loop.toml` by hand, then run `update.sh` again.
+3. It removes the `KEY=value` lines from `project.md`, and each bash code block that is then empty. Every other line stays as it is.
+4. It prints the diff of `project.md`. Review the diff and commit `project.md`.
+
+`update.sh` never overwrites an existing `loop.toml`, and it does not migrate when the file exists.
+
 ## Install in a project
 
-The `dev-env-setup` skill in `../skills/dev-env-setup` does the setup. See the root README for how to install it. The skill asks for the agent names, the ship mode and the human who approves merges. It copies this folder into the project as `.loop/` and writes `.loop/project.md` from the template. It also writes the interactive section into `CLAUDE.md` and `AGENTS.md`, between the `<!-- BEGIN LOOP INTERACTIVE -->` and `<!-- END LOOP INTERACTIVE -->` markers. Then it creates both worktrees and starts both loops and both watchers in herdr.
+The `dev-env-setup` skill in `../skills/dev-env-setup` does the setup. See the root README for how to install it. The skill asks for the agent names, the ship mode and the human who approves merges. It copies this folder into the project as `.loop/`, writes `.loop/project.md` from the template, and writes `.loop/loop.toml` from the answers. It also writes the interactive section into `CLAUDE.md` and `AGENTS.md`, between the `<!-- BEGIN LOOP INTERACTIVE -->` and `<!-- END LOOP INTERACTIVE -->` markers. Then it creates both worktrees and starts both loops and both watchers in herdr.
 
 To set up a project by hand, follow these steps:
 
 1. Copy each file that `harness-files` lists into the project as `.loop/`. The list names itself, so copy `harness-files` too.
-2. Copy `project.template.md` to `.loop/project.md` and fill every `{{...}}` placeholder.
+2. Copy `project.template.md` to `.loop/project.md` and fill every `{{...}}` placeholder. Write `.loop/loop.toml` as in [Configuration](#configuration), and run `uv run .loop/config.py check`.
 3. Add `extend-exclude = [".loop"]` under `[tool.ruff]` in `pyproject.toml`, so that the gate does not lint the harness. pytest skips folders that start with a dot.
 4. Fill the placeholders in `interactive.template.md` and put the result into `CLAUDE.md` and `AGENTS.md`, after the first H1 heading and before the beads blocks.
 5. In `pr` mode, make sure that the repository has an `origin` remote, that `main` is on it, and that `gh` is authenticated.
@@ -228,7 +242,7 @@ To set up a project by hand, follow these steps:
 
 ## Running
 
-Start each loop from its worktree, and point it at the `.loop/` files in the primary checkout. Prompt changes merged to `main` then take effect at the next session. The first argument to `run.sh` is the agent name from `project.md`. These examples use the default names.
+Start each loop from its worktree, and point it at the `.loop/` files in the primary checkout. Prompt changes merged to `main` then take effect at the next session. The first argument to `run.sh` is the agent name from `loop.toml`. These examples use the default names.
 
 ```bash
 cd ../<name>-ralph
@@ -249,7 +263,7 @@ LOOP_LOG_DIR=/tmp/<name>-ralph-sessions uv run .loop/watch.py --agent Ralph --pr
 LOOP_LOG_DIR=/tmp/<name>-alice-sessions uv run .loop/watch.py --agent Alice --prefix <prefix> --tui
 ```
 
-`--prefix` is the bead prefix from `BEAD_PREFIX` in `.loop/project.md`. With it, the watcher matches only that project's bead IDs. Without it, the watcher matches any prefix, can name the wrong bead, and prints a warning. If `BEAD_PREFIX` is set, `run.sh` passes it to `watch.py --summary`.
+`--prefix` is `bead_prefix` under `[project]` in `.loop/loop.toml`. With it, the watcher matches only that project's bead IDs. Without it, the watcher matches any prefix, can name the wrong bead, and prints a warning. `run.sh` passes the prefix to `watch.py --summary`.
 
 `LOOP_ENGINE` selects the agent CLI. It takes `claude` (the default) or `codex`. The coder always runs on `claude`, because its prompt uses the `/simplify` skill. The reviewer can run on `codex`, so that a different model family reads the diff. On `codex`, `LOOP_MODEL` has no default, and the review uses `codex exec review`. Before the first headless Codex session, open `codex` once in the primary checkout, trust the project and approve its hooks.
 
@@ -336,7 +350,7 @@ A lock file stops a second reader: it prints that a reader already runs and exit
 | `LOOP_OVERLAY` | The overlay file. The default is `project.md` beside the prompt file. `none` turns it off. |
 | `LOOP_PRINT_PROMPT=1` | Print the combined prompt and exit. |
 
-Every agent uses the same variables. `LOOP_ENGINE` and `LOOP_REVIEWER_ENGINE` are different variables. `LOOP_ENGINE` is the engine of one `run.sh` process, and `layout.sh` sets it for each loop. `LOOP_CODER_ENGINE` and `LOOP_REVIEWER_ENGINE` are inputs to `bootstrap.sh`, which writes them into `.loop/project.md` as `CODER_ENGINE` and `REVIEWER_ENGINE`. `layout.sh` reads them and the two model fields back, and passes each agent's values to its `run.sh` as `LOOP_ENGINE` and `LOOP_MODEL`.
+Every agent uses the same variables. `LOOP_ENGINE` and `LOOP_REVIEWER_ENGINE` are different variables. `LOOP_ENGINE` is the engine of one `run.sh` process, and `layout.sh` sets it for each loop. `LOOP_CODER_ENGINE` and `LOOP_REVIEWER_ENGINE` are inputs to `bootstrap.sh`, which writes them into `.loop/loop.toml` as `engine` under `[coder]` and `[reviewer]`. `layout.sh` reads them and the two model fields back, and passes each agent's values to its `run.sh` as `LOOP_ENGINE` and `LOOP_MODEL`.
 
 Before lpe-wh5, these variables started with `RALPH_`. `run.sh` and `watch.py` read only the `LOOP_` names. If you set an old name, the loop uses the default value and does not warn you. Rename each old variable that you set:
 
@@ -394,7 +408,7 @@ Each session starts with one line that names the agent, the role and the same la
 
 In `pr` mode, `run.sh` pins the GitHub account that the agents use. A wrong active `gh` account then cannot open a pull request or post a comment. At start, before the first session, `run.sh` does these steps:
 
-1. It reads `GITHUB_ACCOUNT` from `.loop/project.md`. If the value is empty, it stops with an error that names `project.md`.
+1. It reads `github_account` under `[ship]` from `.loop/loop.toml`. If the value is empty, the check of `loop.toml` stops the loop with the error `ship.github_account: must be set in pr mode`.
 2. It gets the token of that account with `gh auth token --user <account>`. If that fails, it stops and tells you to run `gh auth login` for that account.
 3. It exports the token as `GH_TOKEN` for every session. `gh` uses it, and so does `git` over HTTPS through the credential helper of `gh`. `run.sh` does not print the token.
 4. If `origin` is an SSH URL (`git@<host>:...` or `ssh://git@<host>/...`), it runs `ssh -T git@<host>` once. If the reply does not greet `GITHUB_ACCOUNT`, it stops with an error that shows both account names. An HTTPS `origin` gets no SSH check.
@@ -448,7 +462,7 @@ Stop both the shell loop and its headless session before restarting. Ctrl-C on a
    pgrep -P 12345
    ```
 
-   Match the directory to the coder or reviewer worktree in `.loop/project.md`. If necessary, inspect the parent process. Record the child process IDs and inspect their children too before stopping the session. The list can include unrelated interactive sessions or agents from other projects.
+   Match the directory to the coder or reviewer worktree in `.loop/loop.toml`. If necessary, inspect the parent process. Record the child process IDs and inspect their children too before stopping the session. The list can include unrelated interactive sessions or agents from other projects.
 4. Stop only the identified old session and any remaining child processes. For each identified process, replace `12345` with its process ID:
 
    ```bash
@@ -463,7 +477,7 @@ For a Herdr restart, close the project's loop tab, both watcher panes and the Be
 /path/to/loop-engineering/skills/dev-env-setup/scripts/layout.sh /path/to/project
 ```
 
-The script reads names, paths, engines and models from `.loop/project.md`. The environment variables `CODER_ENGINE`, `CODER_MODEL`, `REVIEWER_ENGINE` and `REVIEWER_MODEL` override them for one start. For a manual restart, use the commands under [Running](#running) from each agent's worktree. In-progress beads take priority over new work.
+The script reads names, paths, engines and models from `.loop/loop.toml`. The environment variables `CODER_ENGINE`, `CODER_MODEL`, `REVIEWER_ENGINE` and `REVIEWER_MODEL` override them for one start. For a manual restart, use the commands under [Running](#running) from each agent's worktree. In-progress beads take priority over new work.
 
 ### Session logs
 
@@ -479,7 +493,7 @@ Use your configured agent name in place of `Ralph`.
 
 ### Update an installed harness
 
-`bootstrap.sh` keeps the files that `.loop/` already holds, so a rerun does not install newer copies of the runner, the watcher or the prompts. `update.sh` in the setup skill does the update. It copies each file that `loop/harness-files` in your loop-engineering clone lists from `loop/` into `.loop/`. A file that is new in the list gets installed. It never changes `.loop/project.md`, and it commits nothing.
+`bootstrap.sh` keeps the files that `.loop/` already holds, so a rerun does not install newer copies of the runner, the watcher or the prompts. `update.sh` in the setup skill does the update. It copies each file that `loop/harness-files` in your loop-engineering clone lists from `loop/` into `.loop/`. A file that is new in the list gets installed. It changes `.loop/project.md` only to migrate it (see [Migrate an old project.md](#migrate-an-old-projectmd)), and it commits nothing.
 
 The version stamp `.loop/HARNESS_VERSION` tells `update.sh` which version is installed. The stamp has two lines: `commit=`, the full SHA of the clone's HEAD, and `clone=`, the absolute path of the clone. `bootstrap.sh` and `update.sh` write it. If `loop/` in the clone contains uncommitted changes, `bootstrap.sh` adds the line `dirty=1` and prints a warning.
 
@@ -507,20 +521,19 @@ To update a project, do these steps:
 6. Reset each worktree to `main`. The coder's worktree is on the branch `loop`, so run `git reset --hard origin/main` there in `pr` mode, or `git reset --hard main` in `local` mode.
 7. Restart the loops and the watchers.
 
-`update.sh` runs every check before it changes a file. If a check fails, it prints every failure, changes nothing and exits 1. It checks these conditions:
+Apart from the migration, `update.sh` runs every check before it changes a file. If a check fails, it prints every failure, changes nothing more and exits 1. It checks these conditions:
 
 - A loop of the project runs: a `run.sh` process whose arguments name the project's `.loop/` or `ralph/`, or whose working directory is one of the project's worktrees. `update.sh` never stops a process.
 - The install has an old `PROMPT.md` or `ALICE.md`. Migrate them by hand.
 - `loop/` in the clone contains uncommitted changes. Commit or stash them in the clone first.
-- `.loop/project.md` lacks a `KEY=` line that `loop/project.template.md` has. `update.sh` prints each key and what it means. Add the keys, then run `update.sh` again.
-- A `KEY=` line in `.loop/project.md` still holds a `{{...}}` placeholder, or `CODER`, `REVIEWER` or `HUMAN` is empty.
+- `.loop/loop.toml` is missing or fails `config.py check`. `update.sh` prints the error of each key path.
 - An installed file differs from the same file at the stamped commit: a local edit. `update.sh` prints each diff. Move the edit into `loop/` in the clone, or run `update.sh --force` to overwrite it.
 - The stamp is missing, says `dirty=1`, or names a commit that the clone does not have. Then `update.sh` cannot tell a local edit from an old version, so it prints each file's diff against the clone's current version. `--force` overwrites them.
 - `CLAUDE.md` or `AGENTS.md` has a BEGIN marker of the interactive section with no END marker after it.
 
 `--force` skips only the local-edit check. All other checks still run.
 
-`update.sh` also refreshes the interactive section of `CLAUDE.md` and `AGENTS.md`. It fills `interactive.template.md` with the names in `.loop/project.md` and replaces the text between the `<!-- BEGIN LOOP INTERACTIVE -->` and `<!-- END LOOP INTERACTIVE -->` markers. A file without the section gets one, in the same place that `bootstrap.sh` puts it. Text outside the markers does not change.
+`update.sh` also refreshes the interactive section of `CLAUDE.md` and `AGENTS.md`. It fills `interactive.template.md` with the names in `.loop/loop.toml` and replaces the text between the `<!-- BEGIN LOOP INTERACTIVE -->` and `<!-- END LOOP INTERACTIVE -->` markers. A file without the section gets one, in the same place that `bootstrap.sh` puts it. Text outside the markers does not change.
 
 ### Move routing state from notes to bd state
 
@@ -568,8 +581,8 @@ Then exclude `.loop` from ruff, as in step 3 of [Install in a project](#install-
 
 `run.sh` knows nothing about the roles. The agent name is the assignee filter, and `run.sh` exports it as `BEADS_ACTOR` so that `bd update --claim` works. A new agent needs these parts:
 
-1. A role prompt in this folder, for example `TESTER.md`. Keep it to the loop protocol. Refer to agents by the names in `project.md`, never by a fixed name.
-2. A name in `project.md`, for example `TESTER=Bob`, and its worktree path.
+1. A role prompt in this folder, for example `TESTER.md`. Keep it to the loop protocol. Refer to agents by the names in the Roles and paths block, never by a fixed name.
+2. A name and a worktree path in `loop.toml`. `config.py` knows only `[coder]` and `[reviewer]`, so add a table for the new role to its schema first.
 3. A handoff in and a handoff out. Decide which agent assigns beads to the new one. Then decide which agent gets each bead after the new one finishes. Write both handoffs into the prompts as a `bd note` and a `bd update <id> --assignee=<Name>`.
 4. Its own worktree. An agent that reads or changes code needs one, and two agents must never share a worktree.
 5. Its own `LOOP_LOG_DIR`, and a watcher started with `--agent <Name>`.

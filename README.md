@@ -161,7 +161,7 @@ The reviewer posts a PR comment rather than a GitHub approval. The agents act as
 
 ## Ship modes and human queues
 
-Set the mode in `.loop/project.md`.
+Set the mode in `.loop/loop.toml`.
 
 | Mode | After review passes | Human queue |
 | --- | --- | --- |
@@ -187,7 +187,7 @@ In `local` mode, the reviewer waits for the primary checkout to be on `main` wit
 | [`skills/dev-env-setup/`](skills/dev-env-setup/) | Claude Code setup skill and scripts that install the harness into a target project. |
 | [`.loop/`](.loop/) | This repository's installed harness. The repository runs its own loop; reusable harness changes belong in `loop/` or `skills/`. |
 
-An installed project's `.loop/project.md` holds its agent names, paths, ship mode, reviewer engine, stack and **gate**—the required validation command. The default gate checks Ruff formatting, Ruff lint and pytest. The runner appends this configuration to each role prompt at the start of every session.
+An installed project's `.loop/project.md` holds the prose that the team shares: the stack, the meaning of each role and the **gate**, the required validation command. The default gate checks Ruff formatting, Ruff lint and pytest. Its local `.loop/loop.toml` holds the values: the agent names, the paths, the ship mode, the engines and the models. `loop/config.py` checks the file, and every script stops on an error before any loop starts. The runner appends the prose and a "Roles and paths" block with the values to each role prompt at the start of every session. `update.sh` migrates the `KEY=value` lines of an older `project.md` into `loop.toml`. See [Configuration](loop/README.md#configuration).
 
 Agent names are configurable. `LOOP_ENGINE` selects the CLI for a loop; `LOOP_MODEL` selects its model. The coder stays on Claude Code because its prompt uses `/simplify`.
 

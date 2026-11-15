@@ -64,7 +64,9 @@ def toml_text(values: dict[str, str | None] | None = None) -> str:
         if value is not None:
             # A JSON string is a valid TOML basic string.
             lines.append(f"{key} = {json.dumps(value)}")
-    return "\n".join(f"[{t}]\n" + "\n".join(lines) + "\n" for t, lines in tables.items())
+    return "\n".join(
+        f"[{t}]\n" + "\n".join(lines) + "\n" for t, lines in tables.items()
+    )
 
 
 def write_loop_toml(path: Path, values: dict[str, str | None] | None = None) -> Path:

@@ -18,7 +18,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
-from _loop_toml import RUN_SH, install_run_sh, write_uv
+from _loop_toml import install_run_sh, write_uv
 
 
 def write_exe(path: Path, body: str) -> None:
@@ -191,7 +191,9 @@ def test_ctrl_c_stops_the_session_and_the_watchdog(tmp_path):
     out = subprocess.run(
         ["ps", "-A", "-o", "command="], check=True, capture_output=True, text=True
     ).stdout
-    assert str(tmp_path / ".loop/run.sh") not in out, "run.sh or its watchdog is still running"
+    assert str(tmp_path / ".loop/run.sh") not in out, (
+        "run.sh or its watchdog is still running"
+    )
 
 
 @pytest.mark.parametrize("value", ["2x", "h", "1.5h", "-1h", "2 h", "1hm"])

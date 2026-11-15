@@ -12,10 +12,10 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from _loop_toml import write_loop_toml
+from _loop_toml import RUN_SH, write_loop_toml
 from test_harness_drift import function_text
 from test_run_fw import FW_MODEL, setup_fw
-from test_run_watchdog import RUN_SH, run_loop, setup_loop, write_exe
+from test_run_watchdog import run_loop, setup_loop, write_exe
 from test_watch import watch
 
 TOKEN = "gho_secrettoken987"

@@ -20,8 +20,10 @@ def gh_commands(text: str) -> set[str]:
 
 
 def test_the_template_has_the_list_once_with_the_account_field():
+    """The template explains the account. Its value is in loop.toml."""
     assert TEMPLATE.count(HEADING) == 1
-    assert "GITHUB_ACCOUNT={{GITHUB_ACCOUNT}}" in TEMPLATE
+    assert "`GITHUB_ACCOUNT` is the GitHub account" in TEMPLATE
+    assert "GITHUB_ACCOUNT=" not in TEMPLATE
 
 
 def test_both_prompts_point_to_the_list():

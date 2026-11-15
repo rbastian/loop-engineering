@@ -7,6 +7,7 @@ block that config.py roles prints. These tests copy run.sh and config.py into
 a scratch .loop/ folder, with a fake uv, bd, gh and claude on PATH.
 """
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -146,3 +147,31 @@ def test_each_session_gets_the_roles_block(tmp_path):
     prompt = (tmp_path / "prompt").read_text()
     assert prompt.startswith("The coder prompt.\n\n" + PROSE)
     assert roles_block(prompt)["REVIEWER"] == "Alice"
+
+
+def test_no_script_reads_key_value_lines_from_project_md():
+    root = Path(__file__).parents[2]
+    scripts = [
+        *(root / "loop").glob("*.sh"),
+        *(root / "loop").glob("*.py"),
+        *(root / "skills/dev-env-setup/scripts").glob("*.sh"),
+    ]
+    assert len(scripts) > 10
+    for script in scripts:
+        text = script.read_text()
+        for reader in ("overlay_value", "read_overlay", "conf()"):
+            assert reader not in text, f"{script.name}: {reader}"
+
+
+def test_the_docs_describe_loop_toml_and_the_migration():
+    root = Path(__file__).parents[2]
+    readme = (root / "loop/README.md").read_text()
+    assert "### Migrate an old project.md" in readme
+    assert "No script reads `loop.toml` yet" not in readme
+    for name in ("README.md", "skills/dev-env-setup/SKILL.md"):
+        text = (root / name).read_text()
+        assert ".loop/loop.toml" in text, name
+        assert "migrates" in text, name
+    template = (root / "loop/project.template.md").read_text()
+    assert ".loop/loop.toml" in template
+    assert not re.search(r"^[A-Z][A-Z0-9_]*=", template, re.MULTILINE)
