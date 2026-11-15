@@ -42,8 +42,6 @@ for v in CODER_ENGINE CODER_MODEL REVIEWER_ENGINE REVIEWER_MODEL; do
     printf -v "ENV_$v" '%s' "${!v:-}"
 done
 load_loop_config "$PROJECT/.loop/loop.toml" || exit 1
-CODER_TREE="$CODER_WORKTREE"
-REVIEWER_TREE="$REVIEWER_WORKTREE"
 
 # Set ROLE_ENGINE and ROLE_MODEL for ROLE (CODER or REVIEWER). CLAUDE_MODEL
 # is the role's default model on claude. A model in .loop/loop.toml belongs
@@ -79,7 +77,7 @@ pick_engine REVIEWER claude-sonnet-5-5
 CODER_LOG="/tmp/$NAME-$(lower "$CODER")-sessions"
 REVIEWER_LOG="/tmp/$NAME-$(lower "$REVIEWER")-sessions"
 
-for tree in "$CODER_TREE" "$REVIEWER_TREE"; do
+for tree in "$CODER_WORKTREE" "$REVIEWER_WORKTREE"; do
     [ -e "$tree/.git" ] || { echo "ERROR: $tree missing; run worktrees.sh first"; exit 1; }
 done
 
@@ -109,9 +107,9 @@ fi
 split() { herdr pane split "$1" --direction "$2" --ratio "$3" --cwd "$4" --no-focus | jq -r '.result.pane.pane_id'; }
 
 # Loops: a tab of their own, side by side.
-TAB=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$CODER_TREE" --label "$LABEL" --no-focus)
+TAB=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$CODER_WORKTREE" --label "$LABEL" --no-focus)
 CODER_PANE=$(jq -r '.result.root_pane.pane_id' <<<"$TAB")
-REVIEWER_PANE=$(split "$CODER_PANE" right 0.5 "$REVIEWER_TREE")
+REVIEWER_PANE=$(split "$CODER_PANE" right 0.5 "$REVIEWER_WORKTREE")
 
 # Queues: each split keeps the top third for the loop, and the new queue pane
 # takes the bottom two thirds. The swap moves the queue above the loop.

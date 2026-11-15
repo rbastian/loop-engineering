@@ -10,7 +10,7 @@
 #                        (default $LOOP_LOG_DIR=/tmp/loop-sessions) and maintains
 #                        a "current.jsonl" symlink for tail -f. After each
 #                        session, also appends a "Session cost:" note to the
-#                        bead (needs uv, which runs watch.py --summary).
+#                        bead (uv runs watch.py --summary).
 #   LOOP_SHOW_BEAD=1     For each in-progress bead, also run `bd show <id>` so
 #                        notes/checkpoint/gate-output are visible between sessions.
 #   LOOP_KEEP_AWAKE=1    Run each session under `caffeinate -i`, so the Mac does
@@ -282,10 +282,6 @@ run_session() {
 # cost note must never stop the loop.
 record_cost() {
     local log="$1" held="$2" summary bead note ids attempt watch_args
-    if ! command -v uv >/dev/null 2>&1; then
-        echo "WARNING: uv not found; no cost note for this session"
-        return 0
-    fi
     watch_args=(--summary "$log" --agent "$AGENT_NAME" --prefix "$BEAD_PREFIX")
     if ! summary=$(uv run --quiet "$HARNESS_DIR/watch.py" "${watch_args[@]}" 2>/dev/null); then
         echo "WARNING: could not read $log; no cost note for this session"
@@ -488,9 +484,8 @@ for name in $(compgen -e); do
 done
 
 # Runs notify.py with the TELEGRAM_ variables, through direnv when it is on
-# PATH. Fails when uv is missing.
+# PATH.
 notify_run() {
-    command -v uv >/dev/null 2>&1 || return 1
     local cmd=(uv run --quiet "$HARNESS_DIR/notify.py" "$@")
     if command -v direnv >/dev/null 2>&1; then
         cmd=(direnv exec "$ENVRC_DIR" "${cmd[@]}")

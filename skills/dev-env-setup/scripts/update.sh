@@ -215,8 +215,8 @@ if ! clone_clean "$LOOP_HOME"; then
 fi
 
 # The names fill the interactive section, and the ship mode picks the next
-# steps, so loop.toml must be valid.
-if ! CONFIG_ERRORS="$(config_py --file "$TOML" check 2>&1)"; then
+# steps, so loop.toml must be valid. A migration checked it already.
+if [ -z "$MIGRATED" ] && ! CONFIG_ERRORS="$(config_py --file "$TOML" check 2>&1)"; then
     fail "$INSTALL/loop.toml is not valid. Fix it, then run update.sh again:"
     echo "$CONFIG_ERRORS"
 fi

@@ -49,6 +49,7 @@ from typing import IO
 
 # The sibling notify.py, in loop/ or .loop/.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import config
 import notify
 
 POLL_TIMEOUT = 30
@@ -292,8 +293,8 @@ class Reader:
         bead_id, primary = record.get("bead", ""), record.get("primary", "")
         head = record_head(record)
         try:
-            values = notify.config.load(Path(primary) / ".loop/loop.toml")
-        except notify.config.ConfigError as err:
+            values = config.load(Path(primary) / ".loop/loop.toml")
+        except config.ConfigError as err:
             return (
                 f"{head}: .loop/loop.toml in {primary} is not valid:"
                 f" {'; '.join(err.errors)}. Nothing changed."

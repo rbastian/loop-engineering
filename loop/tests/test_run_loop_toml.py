@@ -11,10 +11,12 @@ import re
 import subprocess
 from pathlib import Path
 
-from _loop_toml import install_run_sh, write_uv
+from _loop_toml import install_run_sh, write_exe, write_uv
 
 STARTED = "session starts ==="
 PROSE = "# Project\n\nThe prose that the team shares.\n"
+# AC3 names all thirteen, so the test keeps its own list instead of reading
+# config.py.
 NAMES = (
     "PRIMARY",
     "BEAD_PREFIX",
@@ -30,11 +32,6 @@ NAMES = (
     "REVIEWER_MODEL",
     "REVIEWER_WORKTREE",
 )
-
-
-def write_exe(path: Path, body: str) -> None:
-    path.write_text("#!/bin/bash\n" + body)
-    path.chmod(0o755)
 
 
 def setup(tmp_path: Path, toml: dict | None = None) -> tuple[Path, dict[str, str]]:

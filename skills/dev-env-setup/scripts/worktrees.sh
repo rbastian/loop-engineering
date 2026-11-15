@@ -21,8 +21,6 @@ step() { printf '\n==> %s\n' "$*"; }
 
 [ -f "$PROJECT/.loop/loop.toml" ] || { echo "ERROR: .loop/loop.toml missing; run bootstrap.sh first, or update.sh to migrate an old .loop/project.md"; exit 1; }
 load_loop_config "$PROJECT/.loop/loop.toml" || exit 1
-CODER_TREE="$CODER_WORKTREE"
-REVIEWER_TREE="$REVIEWER_WORKTREE"
 
 cd "$PROJECT"
 
@@ -53,28 +51,28 @@ if [ "$SHIP_MODE" = pr ]; then
 fi
 
 step "$CODER's worktree"
-if [ -e "$CODER_TREE/.git" ]; then
-    echo "exists: $CODER_TREE"
+if [ -e "$CODER_WORKTREE/.git" ]; then
+    echo "exists: $CODER_WORKTREE"
 elif git show-ref --verify -q refs/heads/loop; then
-    git worktree add "$CODER_TREE" loop
+    git worktree add "$CODER_WORKTREE" loop
 else
-    git worktree add -b loop "$CODER_TREE" main
+    git worktree add -b loop "$CODER_WORKTREE" main
 fi
 
 step "$REVIEWER's worktree"
-if [ -e "$REVIEWER_TREE/.git" ]; then
-    echo "exists: $REVIEWER_TREE"
+if [ -e "$REVIEWER_WORKTREE/.git" ]; then
+    echo "exists: $REVIEWER_WORKTREE"
 else
-    git worktree add --detach "$REVIEWER_TREE" main
+    git worktree add --detach "$REVIEWER_WORKTREE" main
 fi
 
 # Each worktree needs its own .venv for the gate; uv builds it on first use.
-for tree in "$CODER_TREE" "$REVIEWER_TREE"; do
+for tree in "$CODER_WORKTREE" "$REVIEWER_WORKTREE"; do
     (cd "$tree" && uv sync -q)
 done
 
 step "check"
 git worktree list
-for tree in "$CODER_TREE" "$REVIEWER_TREE"; do
+for tree in "$CODER_WORKTREE" "$REVIEWER_WORKTREE"; do
     (cd "$tree" && bd list --json >/dev/null && echo "bd works from $(basename "$tree")")
 done
