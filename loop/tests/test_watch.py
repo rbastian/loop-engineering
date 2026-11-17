@@ -466,39 +466,23 @@ def test_a_malformed_line_in_the_catch_up_does_not_raise(tmp_path):
     assert watch.SESSION.bead == "agents-ype"
 
 
-@pytest.mark.parametrize("marker", ["started", "restarted"])
+@pytest.mark.parametrize(
+    "marker",
+    [
+        "started",
+        "restarted",
+        "resumed after rebase",
+        "resumed for merge",
+        "resumed after decision from $HUMAN",
+    ],
+)
 def test_the_review_marker_matches_the_one_alice_is_told_to_write(marker):
     """REVIEW_RE quotes prose out of .loop/REVIEWER.md, and nothing else binds the
     two: reword the marker there and the header silently loses Alice's bead.
     So build the command out of the document rather than out of a literal. A
     round that the human resumes after `Review not run` is `restarted`
-    (lpe-cd2)."""
-    alice = (ROOT / "REVIEWER.md").read_text()
-    (quoted,) = [
-        found[1]
-        for line in alice.splitlines()
-        if (
-            found := re.search(
-                rf'(bd note <id> "Review round <n> {marker}:[^"]*")', line
-            )
-        )
-    ]
-    command = (
-        quoted.replace("<id>", "agents-ype")
-        .replace("<n>", "1")
-        .replace("<branch>", "f")
-    )
-    assert watch.bead_in(command) == "agents-ype"
-
-
-@pytest.mark.parametrize(
-    "marker",
-    ["resumed after rebase", "resumed for merge", "resumed after decision from $HUMAN"],
-)
-def test_the_resumed_markers_match_the_ones_alice_is_told_to_write(marker):
-    """Alice's rebased, merge-wait and escalated routes each write a `resumed`
-    note with the round and the branch sha, and the watcher reads the bead from
-    it (lpe-kls). Built out of REVIEWER.md, as the test above is."""
+    (lpe-cd2). A session after a rebase, a merge-wait or a decision writes a
+    `resumed` note with the round and the branch sha (lpe-kls)."""
     alice = (ROOT / "REVIEWER.md").read_text()
     (quoted,) = [
         found[1]
