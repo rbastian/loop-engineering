@@ -88,8 +88,10 @@ def use_prefix(prefix: str | None) -> None:
     # the marker text and the bead's position as `bd note`'s argument: she also
     # writes notes that quote OTHER beads, and those must not move the header.
     # A round that the human resumes after `Review not run` is `restarted`.
+    # A session after a rebase, a merge-wait or an escalation decision keeps
+    # the round and writes a `resumed` note (lpe-kls).
     REVIEW_RE = re.compile(
-        rf"""bd note\s+({bead})\s+["']?Review round \d+ (?:re)?started"""
+        rf"""bd note\s+({bead})\s+["']?Review round \d+ (?:started|restarted|resumed)"""
     )
     # Ralph's commit tag, read from between the brackets rather than from
     # anywhere in the command. A commit subject carries ordinary hyphenated
