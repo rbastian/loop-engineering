@@ -1,0 +1,13 @@
+# The files that bootstrap.sh and update.sh copy from loop/ into .loop/, one
+# name per line, relative to loop/. Blank lines and lines that start with #
+# are ignored. A commit to a listed file, or to loop/interactive.template.md,
+# counts as drift. To add a harness file, add one line here.
+run.sh
+watch.py
+notify.py
+reply.py
+prices.json
+CODER.md
+REVIEWER.md
+harness-files
+config.py
