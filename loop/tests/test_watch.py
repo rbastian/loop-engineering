@@ -272,6 +272,32 @@ def test_the_header_names_the_agent(tmp_path, capsys, monkeypatch, extra, expect
         ('bd note agents-a1b2c3d4 "Review round 1 started"', "agents-a1b2c3d4"),
         ('bd note agents-bqz.3.1 "Review round 2 started"', "agents-bqz.3.1"),
         ('bd note agents-a1b2 "Review round 1 restarted"', "agents-a1b2"),
+        # Alice's rebased, merge-wait and escalated sessions write `resumed`
+        # notes instead of a new round (lpe-kls).
+        (
+            'bd note agents-a1b2 "Review round 2 resumed after rebase: f @ abc1234"',
+            "agents-a1b2",
+        ),
+        (
+            'bd note agents-a1b2 "Review round 2 resumed for merge: f @ abc1234"',
+            "agents-a1b2",
+        ),
+        (
+            (
+                'bd note agents-a1b2 "Review round 2 resumed after decision from '
+                'Rob Bastian: f @ abc1234"'
+            ),
+            "agents-a1b2",
+        ),
+        # A note that quotes another bead's resumed note: the bead is not the
+        # note's argument.
+        (
+            (
+                'bd note agents-zzzz "Rebase done; see agents-a1b2 '
+                "'Review round 2 resumed after rebase'\""
+            ),
+            None,
+        ),
         # Nine characters is past bd's longest hash.
         ("bd update agents-a1b2c3d4e --claim", None),
         ('git commit -m "feat: x [agents-a1b2c3d4e]"', None),
@@ -463,6 +489,45 @@ def test_the_review_marker_matches_the_one_alice_is_told_to_write(marker):
         .replace("<branch>", "f")
     )
     assert watch.bead_in(command) == "agents-ype"
+
+
+@pytest.mark.parametrize(
+    "marker",
+    ["resumed after rebase", "resumed for merge", "resumed after decision from $HUMAN"],
+)
+def test_the_resumed_markers_match_the_ones_alice_is_told_to_write(marker):
+    """Alice's rebased, merge-wait and escalated routes each write a `resumed`
+    note with the round and the branch sha, and the watcher reads the bead from
+    it (lpe-kls). Built out of REVIEWER.md, as the test above is."""
+    alice = (ROOT / "REVIEWER.md").read_text()
+    (quoted,) = [
+        found[1]
+        for line in alice.splitlines()
+        if (
+            found := re.search(
+                rf'(bd note <id> "Review round <n> {re.escape(marker)}: '
+                rf'<branch> @ \$\(git rev-parse --short <branch>\)")',
+                line,
+            )
+        )
+    ]
+    command = (
+        quoted.replace("<id>", "agents-ype")
+        .replace("<n>", "1")
+        .replace("<branch>", "f")
+        .replace("$HUMAN", "Rob Bastian")
+    )
+    assert watch.bead_in(command) == "agents-ype"
+
+
+def test_the_escalated_branch_check_names_only_started_and_restarted():
+    """The escalated route compares the branch head with the sha of the newest
+    started or restarted note. The resumed notes must not take part (lpe-kls)."""
+    alice = (ROOT / "REVIEWER.md").read_text()
+    (line,) = [x for x in alice.splitlines() if "**The branch changed**" in x]
+    assert "Review round <n> started" in line
+    assert "Review round <n> restarted" in line
+    assert "resumed" not in line
 
 
 # --- the bead prefix -------------------------------------------------------

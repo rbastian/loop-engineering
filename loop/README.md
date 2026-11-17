@@ -111,7 +111,7 @@ This table is the one source for the `loop` values. `CODER.md` and `REVIEWER.md`
 The `round` dimension follows these rules:
 
 1. When the reviewer takes a bead in state `review`, it sets `round=<n>` with n = round + 1. It writes the "Review round <n> started" note.
-2. When the reviewer takes a bead in state `rebased`, it keeps the round. It makes sure that the diff still shows what it reviewed, runs the gate again and goes to the outcome. It writes no new "started" note.
+2. When the reviewer takes a bead in state `rebased`, it keeps the round. It writes a "Review round <n> resumed after rebase" note. It makes sure that the diff still shows what it reviewed, runs the gate again and goes to the outcome. It writes no new "started" note.
 3. A failed round 1 sets `loop=returned`. A failed round 2 or later sets `loop=escalated`.
 4. When the coder resumes a bead from `escalated`, it sets `round=0`, so that the next review is round 1 with one bounce available. No other resume resets the round.
 5. When the reviewer resumes a bead from `parked`, it keeps the round, because the round did not run. It writes a "Review round <n> restarted" note instead of a new "started" note.
@@ -559,7 +559,7 @@ Then exclude `.loop` from ruff, as in step 3 of [Install in a project](#install-
   - `loop:parked`: work that the coder cannot continue, for example a gate that fails twice, a failed push or an unclear design. Read the coder's note, fix the cause or add a note, and assign the bead back to the coder. If its default review method cannot run, the reviewer also parks a bead. For a `Review not run:` note, fix the cause and assign the bead back to the reviewer.
   - `broken-main`: a bug bead that says `main` fails the gate. The coder files it or reuses an open one. The coder assigns it to the human and makes its own bead depend on it. The coder sets `loop=blocked` and puts its bead back to `open`. A bead with an open dependency is not ready, so the coder sleeps. When the human fixes `main` and closes the bug bead, each blocked bead becomes ready again.
 - The rule for closing a bead is that its code must be on `main`. A dependent bead becomes ready only after its blocker closes. In `pr` mode, the human closes the bead after the merge. In `local` mode, the reviewer closes it at the merge.
-- The primary checkout belongs to the human. In `pr` mode no agent runs commands in it. In `local` mode, the reviewer first makes sure that it is on `main` with no modified or staged tracked files. Then the reviewer merges there. If it is not, the reviewer sets `loop=merge-wait` and keeps the bead. `run.sh` waits for a clean primary before it starts the next reviewer session, and prints `primary checkout busy: <reason>; waiting to start <reviewer>`.
+- The primary checkout belongs to the human. In `pr` mode no agent runs commands in it. In `local` mode, the reviewer first makes sure that it is on `main` with no modified or staged tracked files. Then the reviewer merges there. If it is not, the reviewer sets `loop=merge-wait` and keeps the bead. The next reviewer session writes a "Review round <n> resumed for merge" note, runs the gate again and merges. `run.sh` waits for a clean primary before it starts the next reviewer session, and prints `primary checkout busy: <reason>; waiting to start <reviewer>`.
 - Bead notes are an append-only log for humans. The `loop` and `round` state tells where the bead stands. Use `bd note`, not `bd update --notes`, on a live bead. In `pr` mode the pull request comments copy the review, but the bead notes stay the record.
 - Assign a bead to the coder only after the spec ritual: "Read bead `<id>`. Ask me questions about the spec, one round at a time, until you have no questions left. Then update the bead's design field with the final spec." The reviewer reviews against the same design field.
 - The loop runs headless with `--dangerously-skip-permissions`. Keep beads small. In `local` mode, the reviewer and the gate are the only checks before `main`.
@@ -574,7 +574,7 @@ Then exclude `.loop` from ruff, as in step 3 of [Install in a project](#install-
 4. Its own worktree. An agent that reads or changes code needs one, and two agents must never share a worktree.
 5. Its own `LOOP_LOG_DIR`, and a watcher started with `--agent <Name>`.
 
-`watch.py` finds the current bead from a claim, a commit tag or the reviewer's `Review round <n> started` note. If the new agent does none of these, add its first status note to `watch.py`. The `dev-env-setup` scripts start only the coder and the reviewer. Add the new role to `bootstrap.sh` (the files it copies), `worktrees.sh` and `layout.sh`.
+`watch.py` finds the current bead from a claim, a commit tag or the reviewer's `Review round <n> started`, `restarted` or `resumed` note. If the new agent does none of these, add its first status note to `watch.py`. The `dev-env-setup` scripts start only the coder and the reviewer. Add the new role to `bootstrap.sh` (the files it copies), `worktrees.sh` and `layout.sh`.
 
 ## Tests
 
