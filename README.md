@@ -6,7 +6,7 @@ loop-engineering runs a coder and a reviewer through a queue of small, specified
 
 [Beads](https://github.com/gastownhall/beads) holds the task graph, specifications and handoff history. A shell loop starts fresh agent sessions, with the role prompts directing each session to work on one bead. By default, reviewed work reaches you as a pull request to approve and merge.
 
-The coder runs on [Claude Code](https://claude.com/claude-code). The reviewer can run on Claude Code or [Codex](https://github.com/openai/codex).
+Both roles can run on [Claude Code](https://claude.com/claude-code) directly or through `fw`, which runs Claude Code on a Fireworks model. The reviewer can also run on [Codex](https://github.com/openai/codex).
 
 ## Start here
 
@@ -32,8 +32,8 @@ The human owns the specification, initial assignment and escalations. In the def
 | Role | Runs on | Responsibility |
 | --- | --- | --- |
 | Human + interactive agent | An interactive Claude Code or Codex session | Break the specification into beads, resolve open questions and approve the task graph. |
-| Coder (Ralph by default) | Headless Claude Code | Implement one bead test-first, run `/simplify` and the project checks, open or update its PR, and hand it to the reviewer. |
-| Reviewer (Alice by default) | Headless Claude Code or Codex | Check the branch against the bead's specification, review the code and rerun the checks. Pass, return or escalate the bead. |
+| Coder (Ralph by default) | Headless Claude Code (`claude` or `fw`) | Implement one bead test-first, run `/simplify` and the project checks, open or update its PR in `pr` mode, and hand it to the reviewer. |
+| Reviewer (Alice by default) | Headless Claude Code (`claude` or `fw`) or Codex | Check each acceptance criterion, review the code and rerun the checks. Pass, return or escalate the bead. |
 | Human | You | Assign specified work, handle reviewed PRs and settle escalations. |
 
 ```mermaid
@@ -47,7 +47,7 @@ flowchart TD
 
 The diagram shows the default `pr` mode. In `local` mode, the reviewer merges passing work and the human accepts it afterward.
 
-Each agent has its own Git worktree: a separate checkout sharing the repository's Git history. Both loops use the same `run.sh`, with different names and role prompts. Changing a bead's assignee hands it to the next role; the notes carry the context.
+Each agent has its own Git worktree: a separate checkout sharing the repository's Git history. Both loops use the same `run.sh`, with different names and role prompts. The assignee determines who picks up a bead. The [`loop` and `round` states](loop/README.md#routing-state) track where it is in the workflow, and notes record decisions and evidence.
 
 The reviewer returns blocking findings to the coder once. A second failed review goes to the human. A rebase does not count as another review round. Non-blocking findings are recorded for human triage.
 
@@ -67,7 +67,7 @@ Every project needs:
 | [uv](https://docs.astral.sh/uv/) | Python setup, project checks and the watcher. |
 | `jq` | Reading JSON in the runner and setup scripts. |
 
-The coder's Claude Code session needs `/simplify`. A Claude Code reviewer also needs `/code-review`; a Codex reviewer uses `codex exec review`.
+The coder uses `/simplify`. A Claude Code reviewer uses `/code-review`, and a Codex reviewer uses `codex exec review`.
 
 Additional tools depend on your setup:
 
@@ -75,6 +75,7 @@ Additional tools depend on your setup:
 | --- | --- |
 | [GitHub CLI](https://cli.github.com/) (`gh`), authenticated, and a GitHub `origin` remote | `pr` mode. `gh` must be logged in to the account in `GITHUB_ACCOUNT`, which must be able to open PRs. |
 | [Codex](https://github.com/openai/codex), authenticated | A Codex reviewer. Before its first headless run, open Codex in the primary checkout, trust the project and approve its hooks. |
+| `fw` launcher on `PATH`, with Fireworks configured | Either role when using a Fireworks model. Set an explicit model for each role using `fw`. |
 | [herdr](https://herdr.dev/) | The setup skill's automatic terminal layout. Without it, start the loops and watchers [manually](loop/README.md#running). |
 
 The watcher requires Python 3.13 or later and Rich. Running `uv run .loop/watch.py` supplies its script dependencies.
@@ -102,9 +103,9 @@ In an interactive Claude Code session in your target project, inside herdr, run:
 /dev-env-setup
 ```
 
-The skill asks for the bead prefix, ship mode, human assignee, agent names and reviewer engine. It configures Git, uv and Beads, installs the harness as `.loop/`, creates the agent worktrees and starts the loops and watchers. The loops wait until you assign work.
+The skill asks for the bead prefix, ship mode, human assignee, agent names and each role's engine. In `pr` mode it also asks for the GitHub account. Each role using `fw` needs a model. It configures Git, uv and Beads, installs the harness as `.loop/`, creates the agent worktrees and starts the loops and watchers. The loops wait until you assign work.
 
-**Before running setup:** bootstrap adds Python development dependencies and runs formatting and lint fixes. The worktree script stages and commits all current changes; in `pr` mode, it also pushes `main` to `origin`. Run it only with changes you intend to include.
+**Before running setup:** bootstrap adds Python development dependencies. It runs formatting and lint fixes for new projects and runs the check-only gate for existing projects. The worktree script stages and commits all current changes; in `pr` mode, it also pushes `main` to `origin`. Run it only with changes you intend to include.
 
 For manual installation, see [Install in a project](loop/README.md#install-in-a-project).
 
@@ -148,7 +149,7 @@ In `pr` mode, each bead in the merge queue has a reviewed PR waiting for you. Li
 bd list --label loop:merge
 ```
 
-Inspect the PR and review findings, approve and merge it, then close the bead and mark it done:
+Inspect the PR, review findings and acceptance evidence. Merge the PR after approval, then close the bead and mark it done:
 
 ```bash
 bd close <id>
@@ -183,22 +184,24 @@ In `local` mode, the reviewer waits for the primary checkout to be on `main` wit
 
 | Path | Purpose |
 | --- | --- |
-| [`loop/`](loop/) | Reusable source: runner, coder and reviewer prompts, project template, watcher and tests. |
+| [`loop/`](loop/) | Reusable runner, role prompts, watcher, Telegram tools, configuration validator and tests. |
 | [`skills/dev-env-setup/`](skills/dev-env-setup/) | Claude Code setup skill and scripts that install the harness into a target project. |
 | [`.loop/`](.loop/) | This repository's installed harness. The repository runs its own loop; reusable harness changes belong in `loop/` or `skills/`. |
 
 An installed project's `.loop/project.md` holds its agent names, paths, ship mode, reviewer engine, stack and **gate**—the required validation command. The default gate checks Ruff formatting, Ruff lint and pytest. The runner appends this configuration to each role prompt at the start of every session.
 
-Agent names are configurable. `LOOP_ENGINE` selects the CLI for a loop; `LOOP_MODEL` selects its model. The coder stays on Claude Code because its prompt uses `/simplify`.
+Set each role's engine and model in `.loop/project.md` for Herdr launches. When starting a loop manually, use `LOOP_ENGINE` and `LOOP_MODEL`. The [`loop.toml` schema and validator](loop/README.md#configuration) are available for checking configuration. The runner and setup scripts still use `.loop/project.md`.
 
 ## Operating the loop
 
 The [operating guide](loop/README.md) covers:
 
 - [Starting loops and watchers](loop/README.md#running), including engine, model, log and timeout settings.
-- [Session cost notes](loop/README.md#cost-notes). With stream logging enabled, the runner appends available cost and token information to the bead after a completed session. Claude's dollar figure is an API-equivalent estimate, not a bill.
+- [Agent queues](loop/README.md#agent-queues). Herdr shows each role's in-progress, ready and blocked beads above its loop.
+- [Telegram notifications](loop/README.md#telegram-messages) and [decision replies](loop/README.md#telegram-replies). With a bot configured, the runner sends progress and items that need human attention. Start the reply reader separately to add decisions to parked or escalated beads and send them back to an agent.
+- [Session cost notes](loop/README.md#cost-notes). With stream logging enabled, the runner appends available cost and token information to the bead after a completed session. Claude's dollar figure estimates equivalent API usage.
 - [Stopping, restarting and recovering sessions](loop/README.md#stop-and-restart).
-- [Updating an installed harness](loop/README.md#update-an-installed-harness) with `update.sh`. Bootstrap keeps existing harness files and does not upgrade them. `layout.sh` and `run.sh` print a warning when the installed harness is behind the clone.
+- [Updating an installed harness](loop/README.md#update-an-installed-harness) with `update.sh`, which copies the files listed in `loop/harness-files`. Bootstrap keeps existing harness files. `layout.sh` and `run.sh` print a warning when the installed harness is behind the clone.
 - [Adding another agent role](loop/README.md#add-an-agent).
 
 ## Safety

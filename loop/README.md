@@ -159,7 +159,7 @@ These variables control the overlay:
 
 ## Configuration
 
-`.loop/loop.toml` is the local configuration of the loop. It holds the facts that differ between machines: the paths, the agent names, the engines, the models and the ship mode. `config.py` is the one script that reads it. No script reads `loop.toml` yet. A later change switches `run.sh`, `notify.py` and `reply.py` to it.
+`config.py` can validate a `.loop/loop.toml` file containing project paths, agent names, engines, models and ship mode. Runtime integration is pending. Keep configuring the running loop through `.loop/project.md` and the environment variables documented below.
 
 The schema:
 
@@ -251,7 +251,7 @@ LOOP_LOG_DIR=/tmp/<name>-alice-sessions uv run .loop/watch.py --agent Alice --pr
 
 `--prefix` is the bead prefix from `BEAD_PREFIX` in `.loop/project.md`. With it, the watcher matches only that project's bead IDs. Without it, the watcher matches any prefix, can name the wrong bead, and prints a warning. If `BEAD_PREFIX` is set, `run.sh` passes it to `watch.py --summary`.
 
-`LOOP_ENGINE` selects the agent CLI. It takes `claude` (the default) or `codex`. The coder always runs on `claude`, because its prompt uses the `/simplify` skill. The reviewer can run on `codex`, so that a different model family reads the diff. On `codex`, `LOOP_MODEL` has no default, and the review uses `codex exec review`. Before the first headless Codex session, open `codex` once in the primary checkout, trust the project and approve its hooks.
+`LOOP_ENGINE` selects the engine for a manual launch. Use `claude` (the default) or `fw` for either role. Both run Claude Code and support the coder's `/simplify` and reviewer's `/code-review` skills. For `fw`, put the launcher on `PATH` and set `LOOP_MODEL` to an explicit Fireworks model. The reviewer can also use `codex`, which runs `codex exec review` and uses the CLI's model selection when `LOOP_MODEL` is empty. Before the first headless Codex session, open `codex` once in the primary checkout, trust the project and approve its hooks.
 
 ### Agent queues
 
@@ -331,8 +331,8 @@ A lock file stops a second reader: it prints that a reader already runs and exit
 | `LOOP_SHOW_BEAD=1` | Print `bd show` for each in-progress bead between sessions. |
 | `LOOP_SESSION_TIMEOUT` | The wall-clock limit per session. The default is `2h`. The value is a whole number with an optional suffix `s`, `m`, `h` or `d`. `0` means no limit. Any other value stops the loop at startup. See [Session time limit](#session-time-limit). |
 | `LOOP_KEEP_AWAKE=1` | Run each session under `caffeinate -i`, so that the Mac does not idle-sleep during a session. It is off by default. Without `caffeinate` on `PATH`, the loop prints one warning and runs without it. |
-| `LOOP_ENGINE` | `claude` (the default) or `codex`. |
-| `LOOP_MODEL` | The model for each session. The default is `claude-opus-5-5` on `claude` and none on `codex`. |
+| `LOOP_ENGINE` | `claude` (default) or `fw` for either role, or `codex` for the reviewer. |
+| `LOOP_MODEL` | The model for each session. A direct `run.sh` launch defaults to `claude-opus-5-5` on `claude` and leaves model selection to the CLI on `codex`. Required on `fw`. |
 | `LOOP_OVERLAY` | The overlay file. The default is `project.md` beside the prompt file. `none` turns it off. |
 | `LOOP_PRINT_PROMPT=1` | Print the combined prompt and exit. |
 
