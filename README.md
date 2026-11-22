@@ -76,6 +76,7 @@ Additional tools depend on your setup:
 | [GitHub CLI](https://cli.github.com/) (`gh`), authenticated, and a GitHub `origin` remote | `pr` mode. `gh` must be logged in to the account in `GITHUB_ACCOUNT`, which must be able to open PRs. |
 | [Codex](https://github.com/openai/codex), authenticated | A Codex reviewer. Before its first headless run, open Codex in the primary checkout, trust the project and approve its hooks. |
 | `fw` launcher on `PATH`, with Fireworks configured | Either role when using a Fireworks model. Set an explicit model for each role using `fw`. |
+| Telegram account and bot | Optional notifications and decision replies from your phone. Configure `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` using the [setup instructions](loop/README.md#telegram-messages), and start the [reply reader](loop/README.md#telegram-replies) to send decisions back to the agents. |
 | [herdr](https://herdr.dev/) | The setup skill's automatic terminal layout. Without it, start the loops and watchers [manually](loop/README.md#running). |
 
 The watcher requires Python 3.13 or later and Rich. Running `uv run .loop/watch.py` supplies its script dependencies.
